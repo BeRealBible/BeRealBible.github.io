@@ -105,7 +105,10 @@
     $('book-name').textContent=b.name;
     const endRef=readingPage().end||ref;
     $('chapter-name').textContent=`${ref.split(':')[0]===endRef.split(':')[0]?'第 '+ref.split(':')[0]:ref.split(':')[0]+'–'+endRef.split(':')[0]} 章`;
-    $('page-label').textContent=(D.pages[0]?.layoutVersion===2?'试排 · ':'')+(spread===0?'卷首 — 1':`${spread} — ${spread+1}`);
+    if(D.pages[0]?.layoutVersion===2){
+      const label=p=>p.blank?'空白':p.frontmatter?'卷首':String(p.displayPage??'');
+      $('page-label').textContent=`试排 · ${readingPage().testament==='NT'?'新约':'旧约'} ${label(D.pages[spread])} — ${label(D.pages[spread+1])}`;
+    }else $('page-label').textContent=spread===0?'卷首 — 1':`${spread} — ${spread+1}`;
     $('progress-label').textContent=`${b.short} · 全书 ${Math.round(progress()*100)}%`;
     const p=progress();
     applyMaterial();

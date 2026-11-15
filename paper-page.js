@@ -12,8 +12,9 @@
     const add=c=>items.push({family:FAMILY,weight:'normal',anchor:'start',color:'#2d2920',...c});
     if(rules&&page.blank)return items;
     const number=rules?(page.displayPage??''):(index?String(index):'');
-    add({role:'page-number',text:String(number),x:240,y:rules?35:29,size:10,anchor:'middle'});
-    add({role:'running-header',text:`${name} ${page.start||''}`,x:index%2?447:32,y:rules?35:29,size:9,anchor:index%2?'end':'start',color:rules?'#373329':'#a46453'});
+    add({role:'page-number',text:String(number),x:240,y:rules?35:29,size:rules?12:10,anchor:'middle'});
+    const headerRef=rules&&page.start?`${page.start.split(':')[0]}${page.end&&page.start.split(':')[0]!==page.end.split(':')[0]?'–'+page.end.split(':')[0]:''}`:page.start||'';
+    add({role:'running-header',text:`${name} ${headerRef}`,x:rules?(index%2?432:48):(index%2?447:32),y:rules?35:29,size:rules?12:9,anchor:index%2?'end':'start',color:rules?'#373329':'#a46453',...(rules?{family:'"Microsoft YaHei","PingFang SC",sans-serif',weight:'600'}:{})});
     if(page.b===-1){
       add({role:'title',text:name,x:240,y:280,size:29,spacing:10,anchor:'middle'});
       add({role:'subtitle',text:name==='新约全书'?'THE NEW TESTAMENT':'THE OLD TESTAMENT',x:240,y:312,size:10,spacing:2,anchor:'middle',family:'Georgia,serif'});

@@ -4,11 +4,17 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const root=path.resolve(__dirname,'..'),local=path.join(root,'local-data');
 const source=require(path.join(local,'bible-source.js'));
 const output={edition:source.edition,books:source.books.map(b=>({code:b.code,name:b.name,short:b.short,
-  chapters:b.chapters.map(c=>({chapter:c.chapter,verses:c.verses,titles:c.titles,paragraphs:c.paragraphs,...(c.poetry?{poetry:c.poetry}:{})}))}))};
-const content=s=>JSON.stringify(s.books.map(b=>b.chapters.map(c=>[c.chapter,c.verses,c.titles,c.paragraphs,c.poetry])));
+  chapters:b.chapters.map(c=>({chapter:c.chapter,verses:c.verses,titles:c.titles,paragraphs:c.paragraphs,
+    ...Object.fromEntries(['poetry','paragraphBreaks','stanzaBreaks','superscription'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]))}))}))};
+const content=s=>JSON.stringify(s.books.map(b=>b.chapters.map(c=>[c.chapter,c.verses,c.titles,c.paragraphs,c.poetry,c.paragraphBreaks,c.stanzaBreaks,c.superscription])));
 assert.equal(content(output),content(source),'publishing must not change any source text');
 for(const b of output.books)for(const c of b.chapters){
   const verses=new Map(c.verses),seen=new Set();
+  for(const field of ['paragraphBreaks','stanzaBreaks'])for(const item of c[field]||[]){
+    assert.ok(verses.has(item.verse),'semantic break must have an existing verse');
+    assert.ok(Number.isInteger(item.offset)&&item.offset>=0&&item.offset<[...verses.get(item.verse)].length,'semantic offset must be inside the unchanged verse');
+  }
+  if(c.superscription)assert.ok(c.verses[0][1].startsWith(c.superscription),'superscription must remain a canonical prefix');
   for(const p of c.poetry||[]){
     assert.ok(!seen.has(p.verse),'duplicate semantic verse');seen.add(p.verse);
     assert.equal(p.segments.map(s=>s.text).join(''),verses.get(p.verse),'poetry must partition the unchanged verse text');

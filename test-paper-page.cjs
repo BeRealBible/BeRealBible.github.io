@@ -182,7 +182,7 @@ test('rule-generated text shares the exact same coordinates in SVG and canvas wi
   cmds.forEach((c,i)=>{assert.equal(texts[i].text,c.text);near(+texts[i].attrs.x,c.x,'rule SVG x');near(+texts[i].attrs.y,c.y,'rule SVG y');near(+texts[i].attrs['font-size'],c.size,'rule SVG size');});
   for(const ratio of [1,2,3]){
     const f=mockCanvas();Page.paint(f.canvas,p,1111,D.books,ratio);
-    const paintBody=f.calls.filter(c=>c.size===12&&c.font.includes('PaperSerif'));
+    const paintBody=f.calls.filter(c=>c.size===12&&c.font.includes('PaperSerif')&&c.y>=140);
     const source=cmds.filter(c=>c.role==='body');
     assert.equal(paintBody.length,source.length);
     source.forEach((c,i)=>{assert.equal(paintBody[i].text,c.text);near(paintBody[i].x,c.x,'rule canvas x');near(paintBody[i].y,c.y,'rule canvas y');near(paintBody[i].size,c.size,'rule canvas size');});

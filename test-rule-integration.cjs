@@ -17,8 +17,8 @@ for(let pageIndex=0;pageIndex<D.pages.length;pageIndex++){
     assert.ok(command.size>0);assert.equal(typeof command.text,'string');
     assert.ok(!('scaleX' in command)&&!('textLength' in command));
     if(command.column!==undefined){
-      glyphs++;assert.ok(command.x>=page.columnX[command.column]-1e-6);
-      assert.ok(command.x+command.slotWidth<=page.columnX[command.column]+C.COLUMN_WIDTH+1e-6);
+      glyphs++;assert.ok((command.slotX??command.x)>=page.columnX[command.column]-1e-6);
+      assert.ok((command.slotX??command.x)+command.slotWidth<=page.columnX[command.column]+C.COLUMN_WIDTH+1e-6);
       if(command.role==='body')assert.equal(command.size,C.BODY_SIZE);
     }
   }
@@ -32,7 +32,7 @@ for(let pageIndex=0;pageIndex<D.pages.length;pageIndex++){
           near(run.advances.reduce((a,b)=>a+b,0),run.width,'group width equals its engine advances');
         }
         if(run.kind==='chapter'){
-          chapterRuns++;assert.ok(run.text.length*run.size*.62<=run.width+1e-6,'chapter digit budget');
+          chapterRuns++;assert.ok(run.text.length*run.size*C.CHAPTER_DIGIT_WIDTH<=run.width+1e-6,'chapter digit budget');
           assert.ok(row.indent>=run.x+run.width,'first row reserves drop-cap slot');
           const second=column[ri+1];
           if(second&&second.y<=row.y+C.LINE_HEIGHT+1e-6)assert.ok(second.indent>=run.x+run.width,'second row reserves drop-cap slot');

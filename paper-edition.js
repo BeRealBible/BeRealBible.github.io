@@ -10,7 +10,7 @@
   const POSITION='paper-bible-position-v1';
   // Pagination changes when semantic poetry is restored. Prefer the latest
   // published edition's scripture anchor, never reinterpret its page number.
-  const PREVIOUS_EDITIONS={'rules-2':['rules-1']};
+  const PREVIOUS_EDITIONS={'rules-2':['rules-1'],'rules-3':['rules-2','rules-1']};
   const reference=value=>{const m=/^(\d+):(\d+)/.exec(String(value||''));return m?[Number(m[1]),Number(m[2])]:null;};
   const order=ref=>ref[0]*1000+ref[1];
   function locate(data,bookName,ref){

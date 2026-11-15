@@ -37,3 +37,9 @@ raw.set(E.POSITION+':rules-1',JSON.stringify({spread:999}));
 raw.delete(E.POSITION+':rules-2');
 assert.equal(E.storageFor(storage,legacy,next).getItem(E.POSITION),'null','do not guess an anchor from a previous rule edition page index');
 console.log('PASS edition isolation, scripture-anchor migration across rules editions, ribbon removal tombstone, blocked storage');
+
+const third={...data,edition:'rules-3'};
+raw.set(E.POSITION+':rules-2',JSON.stringify({spread:1000,bookName:'歌罗西书',ref:'1:1',edition:'rules-2'}));
+assert.equal(JSON.parse(E.storageFor(storage,legacy,third).getItem(E.POSITION)).spread,2,'rules-3 prefers the latest rules-2 scripture anchor');
+raw.set('paper-bible-ribbon-v1-1:rules-2','null');
+assert.equal(E.storageFor(storage,legacy,third).getItem('paper-bible-ribbon-v1-1'),'null','rules-3 preserves rules-2 ribbon deletions');

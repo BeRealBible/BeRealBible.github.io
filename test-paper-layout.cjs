@@ -16,7 +16,7 @@ assert.equal(sample.pages[1].cols[0][0].indent,36);
 assert.equal(sample.pages[1].cols[0][1].indent,36);
 assert.equal(sample.pages[1].cols[0][2].indent,0);
 assert.equal(sample.pages[1].cols[0][0].runs[0].y,sample.pages[1].cols[0][0].y+C.LINE_HEIGHT-C.CHAPTER_BASELINE_RISE);
-assert.equal(C.CHAPTER_BASELINE_RISE,C.BODY_SIZE*.35,'global drop-cap lift reserves font descent clearance');
+assert.equal(C.CHAPTER_BASELINE_RISE,0,'bundled lining figures align to the second body baseline without Georgia descenders');
 assert(sample.pages[1].cols[0][2].y-sample.pages[1].cols[0][0].runs[0].y>=C.LINE_HEIGHT+C.CHAPTER_BASELINE_RISE-1e-6,
   'third-row baseline retains a line plus drop-cap descent clearance');
 assert.deepEqual(L.paginate(sourceFor(opening)),sample,'layout must be deterministic');
@@ -67,6 +67,10 @@ verify(L.paginate(synthetic),synthetic);
 const triple=sourceFor([[1,'甲乙丙丁戊己庚辛壬癸'.repeat(8)]],{chapter:150});
 const tripleData=L.paginate(triple);verify(tripleData,triple);
 assert(tripleData.pages[1].cols[0][0].indent>36,'three-digit chapter has its own sufficient slot');
+const unicode=sourceFor([[1,'甲𠀀乙。下段文字。']],{paragraphBreaks:[{verse:1,offset:4}]});
+const unicodeRows=L.paginate(unicode).pages[1].cols[0];
+assert.deepEqual(unicodeRows.map(r=>r.runs.filter(t=>t.kind==='body').map(t=>t.text).join('')),['甲𠀀乙。','下段文字。'],
+  'semantic offsets count code points, not UTF-16 units');
 
 // Exercise the same sanitized semantic source shipped to the public reader.
 // The fixtures above also work without the optional full-corpus asset.

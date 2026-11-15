@@ -37,10 +37,11 @@ for(const [address,expected] of [['2:23',4],['3:14',5],['3:15',4],['3:16',5]]){
 }
 assert(rows.filter(r=>!r.poetry).map(bodyText).join('').includes('那人说：'),'mixed prose introduction is not turned into a poem');
 for(const row of rows.filter(r=>r.poetry)){
-  assert.equal(row.justified,false,'a poem line is never justified');assert.equal(row.gap,0);
+  if(row.poetryLast){assert.equal(row.justified,false,'a short final poem line is not justified');assert.equal(row.gap,0);}
   assert.equal(row.indent,(row.poetryContinuation?C.POETRY_CONTINUATION_INDENT:C.POETRY_INDENT)*C.CELL);
   for(const run of row.runs.filter(r=>r.kind==='body')){
-    assert.deepEqual(run.advances,[...run.text].map(ch=>L.characterWidth(ch)), 'poetry keeps natural character advances');
+    assert.equal(run.size,C.BODY_SIZE,'slot compression never changes glyph size');
+    run.advances.forEach((a,i)=>{assert(a>=Math.min(C.CELL*.5,L.characterWidth([...run.text][i]))-1e-7,'punctuation side bearings stay within their measured half-cell limit');});
   }
 }
 
@@ -73,7 +74,7 @@ const long=source([chapter(1,[[1,'开头。'],[2,longText]], [entry(2,[q(longTex
 const longRows=rowsOf(L.paginate(long)).filter(r=>r.poetry);
 assert(longRows.length>3);assert(longRows.every(r=>r.poetryLine==='GEN.long'));
 assert(longRows.slice(1).every(r=>r.indent===C.POETRY_CONTINUATION_INDENT*C.CELL));
-assert(longRows.every(r=>!r.justified&&r.gap===0));
+assert.equal(longRows.at(-1).justified,false,'only final poetic row is obligatorily ragged');
 assert.equal(longRows.map(bodyText).join(''),longText);
 
 // Renderer paths consume identical explicit glyph geometry; no typography
@@ -110,7 +111,7 @@ if(full.books.some(b=>b.chapters.some(c=>c.poetry?.length))){
     if(hasPoetry)poetryBooks++;
   }
   for(const pg of all.pages)for(const row of pg.cols.flat())if(row.poetry){
-    renderedIds.add(full.books[pg.b].code+':'+row.poetryLine);assert.equal(row.justified,false);assert.equal(row.gap,0);
+    renderedIds.add(full.books[pg.b].code+':'+row.poetryLine);if(row.poetryLast){assert.equal(row.justified,false);assert.equal(row.gap,0);}
   }
   assert.deepEqual(renderedIds,semanticIds,'all imported semantic lines are rendered');
   assert.equal(semanticIds.size,20578,'all q lines in the audited complete donor are present');

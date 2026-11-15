@@ -21,7 +21,8 @@
   const C=constants;
   const ruleConstants=Object.freeze({
     COLUMN_X:Object.freeze([38,253]),BODY_SIZE:12,CHAPTER_SIZE:30,
-    VERSE_SIZE:7.5,VERSE_RISE:3,LINE_HEIGHT:60/41.25*12,
+    VERSE_SIZE:10.5,VERSE_RISE:3,LINE_HEIGHT:60/41.25*12,
+    NUMBER_FAMILY:'PaperSerif,"Noto Serif CJK SC","Times New Roman",serif',
     HEADING_SIZE:12,HEADING_FAMILY:'"Microsoft YaHei","PingFang SC",sans-serif'
   });
   const advanceForCharacter=char=>C.CELL*(char===' '?C.SPACE_CELLS:1);
@@ -43,21 +44,32 @@
           // Width is a reserved slot, never a request to squeeze its ink.
           // The engine already includes justification in the next run's x.
           const command={column,row,run,sourceIndex:0,text,
-            x:origins[column]+item.x,y,size,
-            family:kind==='verse'||kind==='chapter'?C.NUMBER_FAMILY:kind==='heading'?R.HEADING_FAMILY:C.BODY_FAMILY,
+            x:origins[column]+item.x,slotX:origins[column]+item.x,y,size,
+            family:kind==='verse'||kind==='chapter'?R.NUMBER_FAMILY:kind==='heading'?R.HEADING_FAMILY:C.BODY_FAMILY,
             weight:kind==='heading'?'600':'normal',anchor:'start',role:kind,
             advance:width,slotWidth:width};
           if(item.advances){
             const chars=[...text];
             if(item.advances.length!==chars.length)throw new TypeError('Rule glyph advance count does not match text');
+            if(item.offsets!==undefined&&(!Array.isArray(item.offsets)||item.offsets.length!==chars.length))
+              throw new TypeError('Rule glyph offset count does not match text');
             let x=command.x;
             for(let sourceIndex=0;sourceIndex<chars.length;sourceIndex++){
               const advance=item.advances[sourceIndex];
               if(!Number.isFinite(advance)||advance<0)throw new TypeError('Invalid rule glyph advance');
-              result.push({...command,text:chars[sourceIndex],sourceIndex,x,advance,slotWidth:advance});
+              const offset=item.offsets?.[sourceIndex]??0;
+              if(!Number.isFinite(offset))throw new TypeError('Invalid rule glyph ink offset');
+              // A half-cell opening mark has ink in the right half of its
+              // natural em. Move the whole unchanged glyph into its slot;
+              // keep the reserved slot independent for geometry validation.
+              result.push({...command,text:chars[sourceIndex],sourceIndex,
+                x:x+offset,slotX:x,advance,slotWidth:advance});
               x+=advance;
             }
-          }else result.push(command);
+          }else{
+            if(item.offsets!==undefined)throw new TypeError('Rule glyph offsets require per-glyph advances');
+            result.push(command);
+          }
         }
       }
     }
