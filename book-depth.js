@@ -8,7 +8,26 @@
 })(typeof window!=='undefined'?window:globalThis,function(K,Solid){
   'use strict';
   const R=Solid.RASTER, clamp=(n,a,b)=>Math.max(a,Math.min(b,n)), mix=(a,b,t)=>a+(b-a)*t;
-  const COLUMNS=8,TILE_W=128,TILE_H=152,STRIDE=11;
+  const COLUMNS=8,TILE_W=128,TILE_H=152,STRIDE=12;
+  const labelRow=(n,v)=>clamp(Math.round((v-.5)*n.indices.length/.69+(n.indices.length-1)/2),0,n.indices.length-1);
+  function sectionInk(slot,section,close=0,packet=null){
+    const anchor=slot.anchorDepth+1e-8;
+    let owns=+(anchor>=section.lo&&anchor<section.hi);
+    if(packet){
+      // The milled stamp can span the artificial boundary between a moving
+      // packet and its resting neighbour. Do not instantly erase that part
+      // when the mesh changes from two sections to three. Blend the actual
+      // source/destination stack ownership along the reversible turn.
+      const inHalf=(side,split)=>+((anchor<split)===(side==='left'));
+      owns=mix(inHalf(section.side,packet.s0),
+        inHalf(section.moving?packet.destination:section.side,packet.s1),packet.t);
+    }
+    // A broad cut can reach into both stacks, but its printed book name
+    // belongs only to the stack containing that book's actual opening.
+    // Closing reunites the stacks, so the full-directory stamp is continuous
+    // and independent of where the book was previously open.
+    return mix(owns,1,K.inspectionAmount(close));
+  }
   // Size the source ink as well as the output buffer. A high-DPR framebuffer
   // cannot restore strokes from a twenty-pixel, four-book stamp.
   function atlasRaster(count,limit=4096){
@@ -52,8 +71,13 @@
       ...notches.flatMap(n=>knots.map(q=>clamp(n.depth+n.span*q,0,total)))]);
     return depths.slice(1).map((hi,i)=>{
       const lo=depths[i],active=notches.filter(n=>n.depth+n.span>lo+1e-8&&n.depth-n.span<hi-1e-8);
-      const ys=unique([0,K.HEIGHT,...active.flatMap(n=>Array.from({length:9},(_,j)=>
-        clamp(n.y-n.radius*Math.cos(Math.PI*j/8),0,K.HEIGHT)))]);
+      const ys=unique([0,K.HEIGHT,...active.flatMap(n=>[
+        ...Array.from({length:9},(_,j)=>clamp(n.y-n.radius*Math.cos(Math.PI*j/8),0,K.HEIGHT)),
+        // Split between printed rows: a triangle must never contain two
+        // names whose real openings belong to opposite stacks.
+        ...Array.from({length:Math.max(0,(n.indices?.length||1)-1)},(_,j)=>
+          n.y+2*n.radius*(j+1-n.indices.length/2)*.69/n.indices.length)
+      ])]);
       const cuts=ys.slice(1).map((y1,j)=>{
         const y0=ys[j],y=(y0+y1)/2,s=(lo+hi)/2;let n=null,strength=0;
         for(const candidate of active){
@@ -117,15 +141,15 @@
     const ratio=Math.min(requested,limit/Math.max(region.w,region.h),Math.sqrt(3600000/(region.w*region.h)));
     return {...region,px:Math.max(1,Math.floor(region.w*ratio)),py:Math.max(1,Math.floor(region.h*ratio))};
   }
-  const VS=`attribute vec3 a_pos;attribute vec2 a_uv;attribute vec4 a_paper;attribute vec2 a_floor;
+  const VS=`attribute vec3 a_pos;attribute vec2 a_uv;attribute vec4 a_paper;attribute vec2 a_floor;attribute float a_ink;
     uniform vec4 u_region;
-    varying vec2 uv;varying vec2 floorUV;varying vec4 paper;
+    varying vec2 uv;varying vec2 floorUV;varying vec4 paper;varying float visibleInk;
     void main(){
       float w=1.0-a_pos.z/1800.0;
       vec2 pivot=(vec2(480.0,352.0)-u_region.xy)/u_region.zw;
       vec2 clip=2.0*(a_pos.xy-vec2(480.0,352.0))/u_region.zw+(2.0*pivot-1.0)*w;
       gl_Position=vec4(clip.x,-clip.y,-a_pos.z/1100.0,w);
-      uv=a_uv;floorUV=a_floor;paper=a_paper;
+      uv=a_uv;floorUV=a_floor;paper=a_paper;visibleInk=a_ink;
     }`;
   const FS=`#extension GL_OES_standard_derivatives : enable
     #ifdef GL_FRAGMENT_PRECISION_HIGH
@@ -133,7 +157,7 @@
     #else
     precision mediump float;
     #endif
-    varying vec2 uv;varying vec2 floorUV;varying vec4 paper;
+    varying vec2 uv;varying vec2 floorUV;varying vec4 paper;varying float visibleInk;
     uniform sampler2D u_tex;uniform float u_stamp;uniform float u_sheets;uniform float u_closed;uniform float u_inspect;
     void main(){
       if(paper.w>2.5){
@@ -163,8 +187,8 @@
       // The inspected glyph follows the whole recessed floor. Keep the lip
       // clean; neither of these atlas samples projects beyond the cut mesh.
       float edge=smoothstep(.025,.32,paper.y);
-      float shoulderAlpha=ink.a*stamp*edge;
-      float floorAlpha=inlay.a*smoothstep(.09,.53,paper.y);
+      float shoulderAlpha=ink.a*stamp*edge*visibleInk;
+      float floorAlpha=inlay.a*smoothstep(.09,.53,paper.y)*visibleInk;
       vec3 shoulder=mix(stock,ink.rgb*(.91+.09*paper.z),u_stamp*shoulderAlpha);
       // Bright sliced fibres surround the shade on the recessed floor,
       // even when viewing the fore-edge straight on and hiding its ink.
@@ -189,7 +213,7 @@
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
     gl.useProgram(program);
     const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-    [['a_pos',3,0],['a_uv',2,3],['a_paper',4,5],['a_floor',2,9]].forEach(([name,size,offset])=>{
+    [['a_pos',3,0],['a_uv',2,3],['a_paper',4,5],['a_floor',2,9],['a_ink',1,11]].forEach(([name,size,offset])=>{
       const at=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(at);
       gl.vertexAttribPointer(at,size,gl.FLOAT,false,STRIDE*4,offset*4);
     });
@@ -213,11 +237,11 @@
   }
   class Batch{
     constructor(size){this.data=new Float32Array(size);this.length=0;}
-    push(x,y,z,u,v,s,ink,light,kind,fu=.0001,fv=.0001){
+    push(x,y,z,u,v,s,ink,light,kind,fu=.0001,fv=.0001,visibleInk=1){
       let i=this.length;
       if(i+STRIDE>this.data.length){const next=new Float32Array(this.data.length*2);next.set(this.data);this.data=next;}
       const d=this.data;d[i++]=x;d[i++]=y;d[i++]=z;d[i++]=u;d[i++]=v;
-      d[i++]=s;d[i++]=ink;d[i++]=light;d[i++]=kind;d[i++]=fu;d[i++]=fv;this.length=i;
+      d[i++]=s;d[i++]=ink;d[i++]=light;d[i++]=kind;d[i++]=fu;d[i++]=fv;d[i++]=visibleInk;this.length=i;
     }
     view(){return this.data.subarray(0,this.length);}
   }
@@ -324,7 +348,7 @@
     function edgeMesh(lo,hi,side){
       const key=[lo,hi,side].join(',');
       if(meshes.has(key)){const hit=meshes.get(key);meshes.delete(key);meshes.set(key,hit);return hit;}
-      const batch=new Batch(24000+Math.ceil((hi-lo)/model.totalDepth*280000)),indices=[],samples=[],lookup=new Map(),groups=[];
+      const batch=new Batch(24000+Math.ceil((hi-lo)/model.totalDepth*280000)),indices=[],samples=[],lookup=new Map(),groups=[],labels=[];
       const material={totalDepth:model.totalDepth},pointSource=K.prepare(material,0,{notches});
       for(const band of bands){
         const a=Math.max(lo,band.lo),b=Math.min(hi,band.hi);if(b-a<1e-8)continue;
@@ -344,10 +368,11 @@
               indices.push(ids[i]);batch.push(0,0,0,uv[i][0],uv[i][1],s/model.totalDepth,tint,light,kind,floor[i][0],floor[i][1]);
             }
             groups.push(n?n.group:-1);
+            labels.push(n?n.indices[labelRow(n,((verts[0][1]+verts[2][1])/2-n.y)/(2*n.radius)+.5)]:-1);
           }
         }
       }
-      const mesh={data:batch.view(),samples,indices:Int32Array.from(indices),groups:Int16Array.from(groups)};meshes.set(key,mesh);
+      const mesh={data:batch.view(),samples,indices:Int32Array.from(indices),groups:Int16Array.from(groups),labels:Int16Array.from(labels)};meshes.set(key,mesh);
       if(meshes.size>10)meshes.delete(meshes.keys().next().value);
       return mesh;
     }
@@ -413,14 +438,16 @@
         const mesh=edgeMesh(lo,hi,side),world=mesh.samples.map(([s,u,y])=>point(s,u,y)),{data,indices}=mesh;
         for(let i=0,j=0;i<indices.length;i++,j+=STRIDE){
           const p=world[indices[i]];data[j]=p.x;data[j+1]=p.y;data[j+2]=p.z;
+          const label=mesh.labels[Math.floor(i/3)];
+          data[j+11]=label<0?0:sectionInk(model.slots[label],section,close,packet);
         }
         if(pick)for(let i=0;i<mesh.groups.length;i++){
           const g=mesh.groups[i],base=i*3*STRIDE,kind=data[base+8],offset=i*3;
-          const floor=inspection>.5,stamp=g>=0&&(floor||kind>.05&&(kind<.15||kind<.25&&close>.75||kind>.25&&close<1));
+          const floor=inspection>.5,stamp=g>=0&&data[base+11]>.5&&(floor||kind>.05&&(kind<.15||kind<.25&&close>.75||kind>.25&&close<1));
           const row=Math.floor(g/COLUMNS)+(floor?rows:0),vertexV=floor?10:4;
           const atlasV=j=>[0,(data[base+j*STRIDE+vertexV]*2*rows*TILE_H-row*TILE_H-2)/(TILE_H-4)];
           hitTris.push(projectTriangle({points:[world[indices[offset]],world[indices[offset+1]],world[indices[offset+2]]],
-            meta:stamp?[atlasV(0),atlasV(1),atlasV(2)]:null,n:stamp?notches[g]:null}));
+            meta:stamp?[atlasV(0),atlasV(1),atlasV(2)]:null,n:stamp?notches[g]:null,book:stamp?mesh.labels[i]:-1}));
         }
         meshesToDraw.push(data);
         for(const y of [0,K.HEIGHT])for(let i=0;i<16;i++){
@@ -499,13 +526,12 @@
       const at=(x,y)=>frontAt(projected.get(Math.floor(y/32))||[],x,y);
       const direct=at(x,y);
       if(direct?.tri.n){
-        const n=direct.tri.n,count=n.indices.length;
-        const j=clamp(Math.round((direct.v-.5)*count/.69+(count-1)/2),0,count-1),i=n.indices[j];
+        const i=direct.tri.book;
         if(targets.some(t=>t.index===i&&(side==='both'||side===t.side)))return i;
       }
       const near=targets.filter(t=>(side==='both'||t.side===side)&&Math.hypot(t.x-x,t.y-y)<=slop)
         .sort((a,b)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b.x-x,b.y-y));
-      for(const t of near){const view=at(t.x,t.y);if(view?.tri.n?.group===t.n)return t.index;}
+      for(const t of near){const view=at(t.x,t.y);if(view?.tri.n?.group===t.n&&view.tri.book===t.index)return t.index;}
       return null;
     }
     function prepare(indices,packet){
@@ -514,5 +540,5 @@
     }
     return {update,hit,prepare,getStats:()=>cost,hide:()=>{canvas.hidden=true;},show:()=>{canvas.hidden=false;}};
   }
-  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,inspectionGlyph};
+  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,inspectionGlyph,labelRow,sectionInk};
 });
