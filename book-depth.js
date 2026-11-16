@@ -9,6 +9,23 @@
   'use strict';
   const R=Solid.RASTER, clamp=(n,a,b)=>Math.max(a,Math.min(b,n)), mix=(a,b,t)=>a+(b-a)*t;
   const COLUMNS=8,TILE_W=128,TILE_H=152,STRIDE=11;
+  // Size the source ink as well as the output buffer. A high-DPR framebuffer
+  // cannot restore strokes from a twenty-pixel, four-book stamp.
+  function atlasRaster(count,limit=4096){
+    const rows=Math.max(1,Math.ceil(count/COLUMNS)),w=COLUMNS*TILE_W,h=2*rows*TILE_H;
+    const scale=Math.min(2.25,limit/w,limit/h);
+    return {width:Math.floor(w*scale),height:Math.floor(h*scale),scaleX:Math.floor(w*scale)/w,scaleY:Math.floor(h*scale)/h};
+  }
+  function inspectionGlyph(n,label){
+    const count=n.indices.length,chars=Math.max(1,[...label].length);
+    const height=count===1?.37:count===2?.28:.62/count;
+    // Estimate the paper-tip tangent, then compensate the narrow substrate,
+    // not the finished screen. Keep a single character the same width as one
+    // character in a pair; never stretch '犹' to the width of '约三'.
+    const tangent=1+K.WIDTH*K.EDGE_SWEEP/36;
+    const width=Math.min(count>=4?.56:count===3?.62:.68,height*2*n.radius/(2.1*n.span*tangent)*chars);
+    return {height,width};
+  }
   const unique=xs=>[...new Set(xs.map(x=>+x.toFixed(9)))].sort((a,b)=>a-b);
   const tone=(n,s,y)=>{
     const q=Math.abs((s-n.depth)/n.span),v=Math.abs((y-n.y)/n.radius);
@@ -20,8 +37,12 @@
   function milling(model){
     return model.groups.map(g=>{
       const n=g.notch,d=model.totalDepth;
-      const span=Math.min(d*.48,Math.max(1.46,n.span*1.16));
-      return {...n,depth:clamp(n.depth,span*1.02,d-span*1.02),span,milled:true,
+      const paired=g.indices.some(i=>[...model.slots[i].label].length>1);
+      const span=Math.min(d*.48,Math.max(paired?2.4:1.46,n.span*1.16));
+      // Dense names get room in the real cut, not an overlaid label. The
+      // vertical centre/order and each book's opening depth stay unchanged.
+      const radius=Math.max(n.radius,g.indices.length>=3?g.indices.length*5.2:13);
+      return {...n,depth:clamp(n.depth,span*1.02,d-span*1.02),span,radius,milled:true,
         inset:Math.min(15,10.8+(n.radius-13)*.38),group:g.index,indices:g.indices,testament:g.testament};
     });
   }
@@ -208,18 +229,20 @@
     const {gl}=gpu,bands=topology(model.totalDepth,notches);
     const limit=Math.min(4096,gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
     const rows=Math.ceil(notches.length/COLUMNS),atlas=doc.createElement('canvas');
-    atlas.width=COLUMNS*TILE_W;atlas.height=2*rows*TILE_H;
+    const inkRaster=atlasRaster(notches.length,gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    atlas.width=inkRaster.width;atlas.height=inkRaster.height;
     let atlasTexture=null,dirty=true,pages=new Map(),last=null,lastKey='',lastGeometry='',lastLayers=null,projected=new Map(),targets=[],cost={};
     const body=new Batch(4096),pageBatches=Array.from({length:4},()=>new Batch(4096)),meshes=new Map();
     const atlasPaint=atlas.getContext('2d');
     function printAtlas(){
       atlasPaint.clearRect(0,0,atlas.width,atlas.height);
+      atlasPaint.save();atlasPaint.scale(inkRaster.scaleX,inkRaster.scaleY);
       for(const inspection of [false,true])for(const n of notches){
         const x=n.group%COLUMNS*TILE_W+2,y=(Math.floor(n.group/COLUMNS)+(inspection?rows:0))*TILE_H+2;
         const w=TILE_W-4,h=TILE_H-4;
         atlasPaint.save();atlasPaint.translate(x,y);
         atlasPaint.beginPath();
-        if(inspection)atlasPaint.ellipse(w*.5,h*.5,w*.392,h*.434,0,0,2*Math.PI);
+        if(inspection)atlasPaint.ellipse(w*.5,h*.5,w*.44,h*.46,0,0,2*Math.PI);
         else {
           atlasPaint.moveTo(w*.25,h*.50);
           atlasPaint.bezierCurveTo(w*.24,h*.235,w*.52,h*.09,w*.94,h*.082);
@@ -241,19 +264,21 @@
           const slot=model.slots[i],yy=h*(.5+(j-(n.indices.length-1)/2)*(.69/n.indices.length));
           if(j){atlasPaint.fillStyle='#dabb755c';atlasPaint.fillRect(w*(inspection?.15:.33),yy-h*.345/n.indices.length,w*(inspection?.70:.51),1);}
           atlasPaint.fillStyle=inspection?'#fff0bc':'#f9e6ac';
-          const size=Math.min(94,h*(inspection?(n.indices.length===1?.37:.54/n.indices.length):(n.indices.length===1?.52:.61/n.indices.length)));
-          atlasPaint.font=inspection?`650 ${size}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`:`600 ${size}px PaperSerif,"Microsoft YaHei",serif`;
+          const glyph=inspectionGlyph(n,slot.label);
+          const size=Math.min(94,h*(inspection?glyph.height:(n.indices.length===1?.52:.61/n.indices.length)));
+          atlasPaint.font=inspection?`600 ${size}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`:`600 ${size}px PaperSerif,"Microsoft YaHei",serif`;
           if(inspection){
             // The floor is a tall, narrow surface. A wider ink master on
             // the substrate counteracts its smaller horizontal projection.
             const inkWidth=atlasPaint.measureText(slot.label).width||1;
             atlasPaint.save();atlasPaint.translate(w*.5,yy);
-            atlasPaint.scale(Math.min(1.55,w*.71/inkWidth),1);
+            atlasPaint.scale(w*glyph.width/inkWidth,1);
             atlasPaint.fillText(slot.label,0,0);atlasPaint.restore();
           }else atlasPaint.fillText(slot.label,w*.64,yy,w*.60);
         });
         atlasPaint.restore();
       }
+      atlasPaint.restore();
       if(atlasTexture)gl.deleteTexture(atlasTexture);atlasTexture=gpu.texture(atlas);dirty=false;
     }
     function page(index){
@@ -489,5 +514,5 @@
     }
     return {update,hit,prepare,getStats:()=>cost,hide:()=>{canvas.hidden=true;},show:()=>{canvas.hidden=false;}};
   }
-  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt,rasterRegion};
+  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,inspectionGlyph};
 });
