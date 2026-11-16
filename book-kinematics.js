@@ -36,7 +36,7 @@
       A:sine+.55*cosine*cosine,B:.85*cosine,C:.55*cosine*sine-cosine};
   }
   function fanCapacity(amount,total){
-    return total>0?Math.min(1,Math.pow(Math.max(0,amount)/(total*.48),.57)):0;
+    return total>0?Math.min(1,Math.max(0,amount)/(total*.48)):0;
   }
   function at(side,s,u,y,f){
     const direction=sign(side),layer=clamp(finite(s),0,f.totalDepth);

@@ -32,6 +32,12 @@ function fixture(){
   assert.ok(fragment.indexOf('paper.w>4.5')<fragment.indexOf('paper.w>2.5'),'single-leaf print uses its own material');
   assert.doesNotMatch(fragment,/shoulderAlpha|floorAlpha/,'no text can remain on a cross-sheet shoulder or floor');
   assert.match(fragment,/gl_FrontFacing\?floorUV:uv/,'one leaf reads correctly on each face, without duplicating a label');
+  const stock=fragment.match(/vec3 stock=mix\(vec3\(([^)]+)\),vec3\(([^)]+)\),clamp\(\(paper.y-\.9\)\*10.0,0.0,1.0\)\)\*paper.z/);
+  assert.ok(stock,'plain and printed carrier stock use the same material-space outer-page gradient');
+  for(const [bank,rgb]of [[1,[255,254,245]],[2,[249,246,235]]])
+    stock[bank].split(',').map(Number).forEach((value,i)=>near(value,rgb[i]/255,'carrier colour agrees with the existing page-edge stock',1e-7));
+  assert.match(fragment,/if\(paper.w>5.5\)\{gl_FragColor=vec4\(stock,1.0\);return;\}/,'unprinted return folds share that stock, not a second card colour');
+  assert.match(fragment,/mix\(stock,ink.rgb,u_stamp\*ink.a\)/,'recess lighting modifies only paper, never the printed ink');
   return {renderer,attributes,draws:()=>draws,uniforms};
 }
 const f=fixture(),stride=f.attributes.a_pos.stride,T=model.totalDepth;
@@ -47,18 +53,41 @@ function draw(spread,side='left',close=0,pick=false){
 }
 function decode(data,base){
   const mean=off=>(data[base+off]+data[base+stride+off]+data[base+2*stride+off])/3;
-  const col=Math.floor(mean(3)*8),row=Math.floor(mean(4)*2*rows),group=row*8+col;
-  assert.ok(group>=0&&group<notches.length,'only first atlas bank holds leaf labels');
+  const col=Math.floor(mean(3)*8),row=Math.floor(mean(4)*rows),group=row*8+col;
+  assert.ok(group>=0&&group<notches.length,'single atlas bank holds exactly the real leaf labels');
   const local=[];
   for(let j=0;j<3;j++)local.push([(data[base+j*stride+3]*8*128-col*128-2)/124,
-    (data[base+j*stride+4]*2*rows*152-row*152-2)/148]);
+    (data[base+j*stride+4]*rows*152-row*152-2)/148]);
   return {n:notches[group],local,points:[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}))};
 }
-let carrierVertexChecks=0,plainEdgeChecks=0,neckVertexChecks=0,sharedEdgeChecks=0;
+let carrierVertexChecks=0,plainEdgeChecks=0,plainCarrierVertexChecks=0,sharedEdgeChecks=0,originalLeafJoins=0,materialColourChecks=0,colourSeamChecks=0;
 const referenceCounts=new Map();
 function checkUpload(state){
-  const counts=new Map(),unique=new Map(),neckEdges=new Map(),labelEdges=[];
+  const counts=new Map(),unique=new Map(),plainEdges=new Map(),labelEdges=new Map(),patches=new Map(),expectedPlain=new Map(),lights=new Map(),colours=new Map();
+  const inspection=state.close?K.inspectionAmount(state.close):0;
   const edgeKey=(a,b)=>[a,b].map(p=>[p.x,p.y,p.z].join(',')).sort().join('|');
+  const pointKey=p=>[p.x,p.y,p.z].map(Math.fround).join(',');
+  for(const n of notches){
+    const section=Depth.labelSection(n,state.sections),patch=Depth.carrierPatch(n,section,inspection,notches);
+    patches.set(n.group,patch);
+    const a=patch.frame.point(.49,.5),b=patch.frame.point(.51,.5);
+    lights.set(n.group,.89+.11*Math.abs(b.x-a.x)/(Math.hypot(b.x-a.x,b.z-a.z)||1));
+    const expected=new Map();
+    for(const poly of patch.polygons.filter(p=>p.kind===6))for(const uv of poly.coords){
+      const key=pointKey(patch.point(...uv));if(!expected.has(key))expected.set(key,[]);expected.get(key).push(uv);
+    }
+    expectedPlain.set(n.group,expected);
+  }
+  function checkColour(n,point,u,v,outward,light){
+    const patch=patches.get(n.group),leafLight=lights.get(n.group),protect=patch.bounds(v).protect;
+    near(outward,patch.frame.rootU+u*patch.frame.width/K.WIDTH,'stock gradient follows the carrier material coordinate',1e-6);
+    assert.ok(light>=leafLight*.9-1e-6&&light<=leafLight+1e-6,'the unprinted return fold receives at most 10 percent extra shade');
+    near(light,leafLight*(1-.1*inspection*(1-protect)),'fold lighting follows the continuous return margin',1e-6);
+    if(v>=0&&v<=1)near(light,leafLight,'printed domain has no extra return-fold darkening',1e-6);
+    const key=n.group+'|'+pointKey(point),previous=colours.get(key);
+    if(previous){assert.deepEqual([outward,light],previous,'identical carrier vertices share identical colour attributes across ink/plain seams');colourSeamChecks++;}
+    else colours.set(key,[outward,light]);materialColourChecks++;
+  }
   for(const data of state.draws)for(let base=0;base<data.length;base+=stride*3){
     const kind=data[base+8];
     if(kind===0){
@@ -71,25 +100,33 @@ function checkUpload(state){
     }
     if(kind===6){
       const c=data[base+5]*T,n=notches.find(n=>Math.abs(n.carrierDepth-c)<8e-5);
-      assert.ok(n,'unprinted neck belongs to an actual label carrier');
-      if(!neckEdges.has(n.group))neckEdges.set(n.group,new Set());
+      assert.ok(n,'unprinted continuous margin belongs to an actual label carrier');
+      if(!plainEdges.has(n.group))plainEdges.set(n.group,new Set());
       const vertices=[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}));
-      for(const [a,b]of [[0,1],[1,2],[2,0]])neckEdges.get(n.group).add(edgeKey(vertices[a],vertices[b]));
+      for(const [a,b]of [[0,1],[1,2],[2,0]])plainEdges.get(n.group).add(edgeKey(vertices[a],vertices[b]));
       for(let j=0;j<3;j++){
-        near(data[base+j*stride+5]*T,n.carrierDepth,'neck cannot connect unrelated sheets');
+        near(data[base+j*stride+5]*T,n.carrierDepth,'plain margin cannot connect unrelated sheets');
         near(data[base+j*stride+3],.0001);near(data[base+j*stride+4],.0001);
-        assert.equal(data[base+j*stride+11],0,'only the planar printed patch carries ink');neckVertexChecks++;
+        assert.equal(data[base+j*stride+11],0,'only the printed UV domain carries ink');
+        const uv=expectedPlain.get(n.group).get(pointKey(vertices[j]));
+        assert.ok(uv,'plain carrier geometry follows its actual page cut, not a decorative backing card');
+        const outward=data[base+j*stride+6],light=data[base+j*stride+7];
+        const match=uv.find(([u])=>Math.abs(outward-(patches.get(n.group).frame.rootU+u*patches.get(n.group).frame.width/K.WIDTH))<1e-6);
+        assert.ok(match,'plain colour attributes belong to the same material vertex');checkColour(n,vertices[j],...match,outward,light);
+        plainCarrierVertexChecks++;
       }
       continue;
     }
     if(kind!==5)continue;
     const {n,local,points}=decode(data,base),section=Depth.labelSection(n,state.sections);
-    const onNeckEdge=([u,v])=>v>=.3-1e-6&&v<=.7+1e-6&&Math.abs(u-(.5-.5*Math.sqrt(Math.max(0,1-(2*v-1)**2))))<1e-5;
-    for(const [a,b]of [[0,1],[1,2],[2,0]])if(onNeckEdge(local[a])&&onNeckEdge(local[b])&&Math.abs(local[a][1]-local[b][1])>1e-6)
-      labelEdges.push({group:n.group,key:edgeKey(points[a],points[b])});
+    if(!labelEdges.has(n.group))labelEdges.set(n.group,new Map());
+    for(const [a,b]of [[0,1],[1,2],[2,0]]){
+      const key=edgeKey(points[a],points[b]),edges=labelEdges.get(n.group),prior=edges.get(key);
+      if(prior)prior.count++;else edges.set(key,{count:1,local:[local[a],local[b]],points:[points[a],points[b]]});
+    }
     assert.ok(section,'carrier must be owned by one material section');
     assert.equal(state.sections.filter(s=>n.carrierDepth+1e-8>=s.lo&&n.carrierDepth+1e-8<s.hi).length,1);
-    const frame=Depth.labelFrame(n,section,state.close?K.inspectionAmount(state.close):0);
+    const patch=patches.get(n.group);
     counts.set(n.group,(counts.get(n.group)||0)+1);
     if(!unique.has(n.group))unique.set(n.group,new Set());
     const key=local.map(p=>p.map(v=>v.toFixed(5)).join(',')).join('|');
@@ -99,18 +136,33 @@ function checkUpload(state){
       assert.equal(data[base+j*stride+11],1,'paper cannot move by an alpha ownership handoff');
       const col=n.group%8,row=Math.floor(n.group/8);
       const backU=(data[base+j*stride+9]*8*128-col*128-2)/124;
-      const backV=(data[base+j*stride+10]*2*rows*152-row*152-2)/148;
+      const backV=(data[base+j*stride+10]*rows*152-row*152-2)/148;
       near(backU+local[j][0],1,'back face mirrors UV, not material depth');near(backV,local[j][1]);
-      const p=frame.point(...local[j]);
+      const p=patch.point(...local[j]);
       near(points[j].x,p.x,'UV u must run on the carrier leaf, not across stack depth',.0005);
       near(points[j].y,p.y,undefined,.0005);near(points[j].z,p.z,undefined,.0005);
+      checkColour(n,points[j],...local[j],data[base+j*stride+6],data[base+j*stride+7]);
       carrierVertexChecks++;
     }
   }
   assert.equal(counts.size,39,'39 whole leaf labels, neither dropped nor split into row owners');
-  assert.equal(new Set(labelEdges.map(e=>e.group)).size,39,'every printed leaf must join its unprinted neck');
-  for(const edge of labelEdges){
-    assert.ok(neckEdges.get(edge.group)?.has(edge.key),'neck and ellipse must share the identical uploaded edge, without T-junctions or cracks');sharedEdgeChecks++;
+  assert.equal(labelEdges.size,39,'every printed leaf has a complete connected ink domain');
+  for(const [group,edges]of labelEdges){
+    let boundary=0;
+    for(const [key,edge]of edges){
+      assert.ok(edge.count<=2,`${group}: carrier mesh edge has ${edge.count} incidences (duplicate/degenerate/non-manifold): ${key}`);
+      if(edge.count===2)continue;boundary++;
+      if(plainEdges.get(group)?.has(key)){sharedEdgeChecks++;continue;}
+      // At u=0 the printed margin may join the original carrier directly,
+      // without manufacturing an extra neck. Both endpoints must be the
+      // unchanged material leaf; every other boundary needs an exact seam.
+      assert.ok(edge.local.every(([u])=>Math.abs(u)<1e-5),`${group}: ink/plain margin must share the identical uploaded edge, without T-junctions or cracks`);
+      edge.local.forEach(([,v],i)=>{
+        const p=patches.get(group).frame.basePoint(0,v),q=edge.points[i];
+        near(p.x,q.x,'fold root remains attached to the original leaf',.0005);near(p.y,q.y,undefined,.0005);near(p.z,q.z,undefined,.0005);
+      });originalLeafJoins++;
+    }
+    assert.ok(boundary>=3,'a carrier has a closed material boundary');
   }
   for(const [group,count]of counts){
     if(!referenceCounts.has(group))referenceCounts.set(group,count);
@@ -127,7 +179,7 @@ for(const n of notches){
     assert.equal(Depth.labelSection(n,sections).side,split===n.carrierDepth?'right':'left');
   }
 }
-let hitChecks=0,blockedSamples=0,closedHitChecks=0,closedInkChecks=0;
+let hitChecks=0,blockedSamples=0,closedHitChecks=0,closedInkChecks=0,blankPaperChecks=0;
 function centre(slot,u=.5){
   const n=notches[slot.group],frame=f.renderer.getLabelFrame(slot.index);
   const v=.5+(slot.groupRow-(n.indices.length-1)/2)*.69/n.indices.length;
@@ -146,6 +198,7 @@ function checkHits(spread,side,close,codes){
   }
   for(const code of codes)assert.ok(found.has(code),`${spread}/${side}/close=${close} loses readable clickable ${code}`);
   if(close===1){
+    checkUpload(state);
     closedHitChecks+=found.size;
     for(const slot of model.slots){
       const n=notches[slot.group],frame=f.renderer.getLabelFrame(slot.index),glyph=Depth.labelGlyph(n,slot.label);
@@ -155,6 +208,14 @@ function checkHits(spread,side,close,codes){
         assert.equal(f.renderer.hit(q.x,q.y,0,'both'),slot.index,
           `${spread}: ${slot.label} ink at ${dx},${dy} is covered by neighbouring paper`);
         closedInkChecks++;
+      }
+    }
+    for(const n of notches){
+      const frame=f.renderer.getLabelFrame(n.indices[0]);
+      for(const [u,v]of [[.01,.01],[.99,.01],[.01,.99],[.99,.99]]){
+        const q=Solid.project(frame.point(u,v));
+        assert.ok(!n.indices.includes(f.renderer.hit(q.x,q.y,0,'both')),'blank carrier paper outside the ink ellipse is not a book button');
+        blankPaperChecks++;
       }
     }
   }
@@ -206,5 +267,5 @@ for(const [start,end]of paths){
   }
 }
 assert.ok(blockedSamples>0,'real paper occlusion is included; tests do not treat all projected labels as always on top');
-console.log(JSON.stringify({ownershipStates:ownershipStates.length,carrierVertexChecks,plainEdgeChecks,neckVertexChecks,sharedEdgeChecks,hitChecks,blockedSamples,closedHitChecks,closedInkChecks,
+console.log(JSON.stringify({ownershipStates:ownershipStates.length,carrierVertexChecks,plainEdgeChecks,plainCarrierVertexChecks,sharedEdgeChecks,originalLeafJoins,materialColourChecks,colourSeamChecks,hitChecks,blockedSamples,closedHitChecks,closedInkChecks,blankPaperChecks,
   packetPaths:paths.length,endpointChecks,reverseFrameChecks,printedFacesIncluded:true}));

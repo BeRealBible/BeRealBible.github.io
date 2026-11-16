@@ -110,6 +110,34 @@ for(const material of materials){
     check(Math.hypot(middle.x-(p0.x+p1.x)/2,middle.z-(p0.z+p1.z)/2)>50,'closing page is visibly bowed, not a rigid board');
   }
 }
+// A thin tail cannot fan as if it contained a thick stack. A sublinear power
+// (for example ratio^.57) magnifies a few sheets into an artificial white tooth.
+let thinTailChecks=0,max32SheetPull=0;
+for(const total of [.1,1,36,72]){
+  let previous=0;
+  for(let i=0;i<=160;i++){
+    const amount=total*i/160,capacity=K.fanCapacity(amount,total),linear=Math.min(1,amount/(total*.48));
+    check(Number.isFinite(capacity)&&capacity>=0&&capacity<=1,'capacity stays within physical bounds');
+    check(capacity<=linear+1e-12,'thin paper capacity cannot exceed a linear share');
+    check(capacity>=previous,'more paper cannot reduce fan capacity');previous=capacity;thinTailChecks++;
+  }
+  near(K.fanCapacity(0,total),0,'empty side cannot fan');
+}
+near(K.fanCapacity(1,0),0,'zero total paper cannot fan');
+for(const count of [1,2,5,15,32])for(const side of ['left','right']){
+  const totalSheets=627,spread=side==='left'?count*2:(totalSheets-count)*2;
+  const material=M.compute(spread,totalSheets*2),amount=side==='left'?material.leftDepth:material.rightDepth;
+  const linear=Math.min(1,amount/(material.totalDepth*.48));
+  const state={fanLeft:1,fanRight:1},depth=material.leftDepth,outer=side==='left'?0:material.totalDepth;
+  const flat=K.pagePoint(side,depth,1,352,material,0),fan=K.pagePoint(side,depth,1,352,material,0,state);
+  const pull=Math.abs(fan.x-flat.x),lift=Math.abs(fan.z-flat.z);
+  check(pull<=K.FAN_SWEEP*linear+1e-8,`${count}-sheet ${side} tail does not overdraw inward`);
+  check(lift<=62*linear+1e-8,`${count}-sheet ${side} tail does not over-lift`);
+  pointNear(K.pagePoint(side,outer,1,352,material,0,state),K.pagePoint(side,outer,1,352,material,0),
+    'thin stack stays joined to its unmoving bottom leaf');
+  if(count===32)max32SheetPull=Math.max(max32SheetPull,pull);
+  thinTailChecks++;
+}
 // Prepared evaluators must be an exact optimisation, not another geometry.
 for(const material of materials)for(const close of [0,.2,.5,.8,1]){
   const state={fanLeft:.72,fanRight:.41,notches},prepared=K.prepare(material,close,state);
@@ -133,4 +161,4 @@ assert.throws(()=>K.topMatrix('front',materials[0],0),TypeError);checks++;
 assert.throws(()=>K.matrixCSS([1,2]),TypeError);checks++;
 const browser={window:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/book-kinematics.js','utf8'),browser);
 for(const side of ['left','right'])near(browser.window.PaperBookKinematics.foreedgePoint(side,12,140,materials[3],.46).x,K.foreedgePoint(side,12,140,materials[3],.46).x,'browser and Node exports agree');
-console.log(JSON.stringify({bookKinematicsChecks:checks,largestStep,closedDepth:36,closedSplitInvariant:true,closureDegrees:90,geometry:'curved depth-dependent leaves, inward fanning, absolute milled recesses'}));
+console.log(JSON.stringify({bookKinematicsChecks:checks,largestStep,thinTailChecks,max32SheetPull,closedDepth:36,closedSplitInvariant:true,closureDegrees:90,geometry:'curved depth-dependent leaves, inward fanning, absolute milled recesses'}));

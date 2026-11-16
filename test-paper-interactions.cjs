@@ -69,6 +69,16 @@ function cameraPose(transform){
   const m=transform.match(/^translate(?:3d)?\(([-\d.]+)px,([-\d.]+)px(?:,0)?\) scale\(([-\d.]+)\)$/);
   assert.ok(m,`unexpected book camera: ${transform}`);return m.slice(1).map(Number);
 }
+function assertDepthReadingView(f){
+  const frame=f.depthFrames.at(-1).frame,stage=f.el('stage'),view=frame.fineView;
+  assert.ok(view,'reading labels need a camera-scaled raster window too');
+  assert.equal(view.w,stage.clientWidth);assert.equal(view.h,stage.clientHeight);
+  const pose=cameraPose(f.el('book').style.transform);
+  ['x','y','scale'].forEach((key,i)=>assert.ok(Math.abs(view.camera[key]-pose[i])<1e-10,
+    `reading depth ${key} must match the actual SVG camera, not its last directory pose`));
+  assert.equal(frame.pick,false);assert.equal(frame.printed,null);
+  return frame;
+}
 function assertVectorReading(f,spread,svg){
   const book=f.el('book'),stage=f.el('stage');
   assert.equal(stage.dataset.scene,'reading');assert.equal(stage.dataset.spread,String(spread));
@@ -81,6 +91,7 @@ function assertVectorReading(f,spread,svg){
   assert.deepEqual(['left-paper','right-paper'].map(id=>f.el(id).innerHTML),svg,
     'zoom must retain the exact scripture, font sizes and SVG glyph coordinates');
   assert.equal(f.depthFrames.at(-1).frame.printed,null,'static scripture must not stay in the curved raster');
+  assertDepthReadingView(f);
 }
 test('long press exposes true next recto while spread is unchanged; cancel restores original',()=>{
   const f=fixture(),original=f.el('right-paper').innerHTML,p=f.held();assert.equal(f.el('stage').dataset.foldState,'held');
@@ -529,6 +540,29 @@ test('218 percent reading zoom keeps exact vector glyphs and uses a 2D camera wi
   f.el('zoom-in').onclick();assertVectorReading(f,1174,svg);
   assert.deepEqual(cameraPose(f.el('book').style.transform),highPose,'zoom out/in at the same centre must restore the same camera');
   assert.ok(f.saved.every(s=>s.value.spread===1174),'zoom cannot persist a different opening');
+});
+test('reading edge zoom and pan update only the retained raster camera, not material or index geometry',()=>{
+  const f=fixture(1174,{width:1600,height:1168,depth:true}),stage=f.el('stage');
+  const initial=assertDepthReadingView(f),svg=['left-paper','right-paper'].map(id=>f.el(id).innerHTML);
+  const geometryCalls=f.indexCalls.filter(c=>c.type==='geometry').length,frames=f.depthFrames.length;
+  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
+  assert.equal(f.depthFrames.length,frames+3,'every zoom immediately refreshes the depth raster');
+  const high=assertDepthReadingView(f);
+  assert.equal(high.fineView.camera.scale,3.2);
+  for(const key of ['material','shape','packet','printed','close','digital','pick','hideInk'])
+    assert.equal(high[key],initial[key],`camera-only redraw cannot alter ${key}`);
+  const beforePan=cameraPose(f.el('book').style.transform),beforeFrames=f.depthFrames.length;
+  stage.handlers.wheel({deltaX:43,deltaY:57,preventDefault(){}});
+  const panned=assertDepthReadingView(f);
+  assert.equal(f.depthFrames.length,beforeFrames+1,'wheel pan refreshes the current raster tile');
+  assert.notDeepEqual(cameraPose(f.el('book').style.transform).slice(0,2),beforePan.slice(0,2));
+  assert.equal(panned.material,high.material);assert.equal(panned.shape,high.shape);
+  assert.equal(f.indexCalls.filter(c=>c.type==='geometry').length,geometryCalls,'zoom/pan cannot rebuild index geometry');
+  assert.deepEqual(['left-paper','right-paper'].map(id=>f.el(id).innerHTML),svg);
+  assert.equal(stage.dataset.spread,'1174');assert.equal(f.rendered.length,0);
+  stage.clientWidth=390;stage.clientHeight=844;f.resize();assertDepthReadingView(f);
+  f.el('focus-right').onclick();assertDepthReadingView(f);
+  f.el('fit-book').onclick();assertDepthReadingView(f);
 });
 test('directory selection returns to unpromoted vector zoom without changing target scripture geometry',async()=>{
   const f=fixture(1174,{width:1600,height:1168,depth:true}),book=f.el('book');

@@ -11,10 +11,11 @@
   const COLUMNS=8,TILE_W=128,TILE_H=152,STRIDE=12;
   const labelRow=(n,v)=>clamp(Math.round((v-.5)*n.indices.length/.69+(n.indices.length-1)/2),0,n.indices.length-1);
   // Size the source ink as well as the output buffer. A high-DPR framebuffer
-  // cannot restore strokes from a twenty-pixel, four-book stamp.
+  // cannot restore strokes from a twenty-pixel, four-book stamp. The obsolete
+  // second atlas bank is gone: 3x ink uses less memory than two 2.25x banks.
   function atlasRaster(count,limit=4096){
-    const rows=Math.max(1,Math.ceil(count/COLUMNS)),w=COLUMNS*TILE_W,h=2*rows*TILE_H;
-    const scale=Math.min(2.25,limit/w,limit/h);
+    const rows=Math.max(1,Math.ceil(count/COLUMNS)),w=COLUMNS*TILE_W,h=rows*TILE_H;
+    const scale=Math.min(3,limit/w,limit/h);
     return {width:Math.floor(w*scale),height:Math.floor(h*scale),scaleX:Math.floor(w*scale)/w,scaleY:Math.floor(h*scale)/h};
   }
   const labelInkEllipse=Object.freeze({rx:.46,ry:.48});
@@ -35,11 +36,83 @@
     const target=n.foldSign>0?.35:Math.PI-.35;
     let turn=target-angle;while(turn>Math.PI)turn-=2*Math.PI;while(turn< -Math.PI)turn+=2*Math.PI;
     const a=angle+turn*inspection,e={x:Math.cos(a),y:0,z:Math.sin(a)};
-    const point=(u,v)=>({x:H.x+e.x*w*u,y:H.y+h*v,z:H.z+e.z*w*u});
-    return {carrierDepth:c,width:w,height:h,point,rootU,
-      basePoint:(u,v)=>section.point(c,rootU+u*w/K.WIDTH,n.y-h/2+h*v),
+    const basePoint=(u,v)=>section.point(c,rootU+u*w/K.WIDTH,n.y-h/2+h*v);
+    const rigidPoint=(u,v)=>({x:H.x+e.x*w*u,y:H.y+h*v,z:H.z+e.z*w*u});
+    // In an open/fanned book this is the original leaf, including its slight
+    // page curvature. The closed inspection pose has a rigid printed margin.
+    const point=(u,v)=>{
+      const b=basePoint(u,v);if(inspection===0)return b;
+      const r=rigidPoint(u,v);if(inspection===1)return r;
+      return {x:mix(b.x,r.x,inspection),y:mix(b.y,r.y,inspection),z:mix(b.z,r.z,inspection)};
+    };
+    return {carrierDepth:c,width:w,height:h,point,rootU,basePoint,
       side:section.side,moving:!!section.moving,
       matrix:[e.x,0,e.z,0,0,1,0,0,-e.z,0,e.x,0,H.x,H.y,H.z,1]};
+  }
+  function carrierPatch(n,section,inspection,notches){
+    const frame=labelFrame(n,section,inspection),w=frame.width,h=frame.height,c=n.carrierDepth;
+    const material={totalDepth:Math.max(36,section.hi,c)},all=K.prepare(material,0,{notches});
+    const other=K.prepare(material,0,{notches:notches.filter(x=>x.group!==n.group)});
+    const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
+    const protect=v=>1-smooth((Math.abs((v-.5)*h)-h/2)/Math.max(.001,n.radius-h/2));
+    const local=u=>(u-frame.rootU)*K.WIDTH/w;
+    function bounds(v){
+      const y=n.y+(v-.5)*h,p=protect(v),cut=local(1-all.edgeInset(section.side,c,y)/K.WIDTH);
+      const end=local(1-other.edgeInset(section.side,c,y)*(1-p)/K.WIDTH);
+      // The fold root can start inside the pre-existing page margin. Retain
+      // that unprinted material rather than connecting an isolated paper card
+      // by a neck. At either cut extremum protection vanishes and width is 0.
+      const start=cut>0?cut*(1-p):cut;
+      return {start,cut,end:Math.max(start,end),protect:p};
+    }
+    const frameCache=new Map();
+    function point(u,v){
+      const b=frame.basePoint(u,v);if(inspection===0||u<=0)return b;
+      const limits=bounds(v),fold=inspection*limits.protect;if(fold<=0)return b;
+      let f=frameCache.get(fold);if(!f){f=labelFrame(n,section,fold);frameCache.set(fold,f);}
+      const p=f.point(u,v);
+      // Beyond the printed area the paper turns progressively from its true
+      // attachment edge; only this unprinted rim is allowed to bend in y.
+      const attachment=limits.start<=0?1:smooth((u-limits.start)/Math.max(.001,(limits.end-limits.start)*.2));
+      return {x:mix(b.x,p.x,attachment),y:mix(b.y,p.y,attachment),z:mix(b.z,p.z,attachment)};
+    }
+    const rows=unique([.5-n.radius/h,0,1,.5+n.radius/h,
+      ...Array.from({length:33},(_,j)=>.5-n.radius*Math.cos(Math.PI*j/32)/h),
+      ...Array.from({length:n.indices.length-1},(_,j)=>.5+(j+1-n.indices.length/2)*.69/n.indices.length)]);
+    // Clip in material UV space, so an ink/plain seam is the very same edge
+    // in both meshes. Sampling outside the tile would leak another book's ink.
+    function clip(poly,axis,value,greater){
+      const out=[];
+      for(let i=0;i<poly.length;i++){
+        const a=poly[i],b=poly[(i+1)%poly.length],inside=p=>greater?p[axis]>=value:p[axis]<=value;
+        const aa=inside(a),bb=inside(b);if(aa)out.push(a);
+        if(aa!==bb){const t=(value-a[axis])/(b[axis]-a[axis]);const p=[mix(a[0],b[0],t),mix(a[1],b[1],t)];p[axis]=value;out.push(p);}
+      }
+      return out;
+    }
+    const polygons=[];
+    const add=(kind,coords,book=-1)=>{
+      // Clipping at an existing corner can emit that corner twice (including
+      // a repeated first vertex at the end). A fan of that ring would create
+      // a zero-area triangle and duplicate its attachment edge.
+      const same=(a,b)=>Math.abs(a[0]-b[0])<1e-12&&Math.abs(a[1]-b[1])<1e-12;
+      coords=coords.filter((p,i)=>i===0||!same(p,coords[i-1]));
+      if(coords.length>1&&same(coords[0],coords[coords.length-1]))coords.pop();
+      if(coords.length<3)return;
+      const area=Math.abs(coords.reduce((sum,p,i)=>{const q=coords[(i+1)%coords.length];return sum+p[0]*q[1]-p[1]*q[0];},0));
+      if(area>1e-12)polygons.push({kind,coords,book});
+    };
+    for(let j=0;j<rows.length-1;j++){
+      const a=rows[j],b=rows[j+1],lo=bounds(a),hi=bounds(b);
+      const quad=[[lo.start,a],[lo.end,a],[hi.end,b],[hi.start,b]];
+      const printed=a>=-1e-8&&b<=1+1e-8;
+      // Plain rows use the same u boundaries, including the rows immediately
+      // above/below the atlas. This avoids T-junctions along its four sides.
+      add(6,clip(quad,0,0,false));
+      add(printed?5:6,clip(clip(quad,0,0,true),0,1,false),printed?n.indices[labelRow(n,(a+b)/2)]:-1);
+      add(6,clip(quad,0,1,true));
+    }
+    return {frame,rows,bounds,point,polygons,protect,carrierDepth:c};
   }
   function labelSection(n,sections){
     const c=n.carrierDepth+1e-8;
@@ -64,9 +137,9 @@
       // Centre the cavity around the actual sheet and its fixed folding space.
       // Only the support interval is clipped by the book ends; never move the
       // carrier to a decorative notch centre or split a label across sheets.
-      const span=Math.max(n.span*1.16,labelWidth/3.6*1.3);
-      return {...n,depth:carrier.anchorDepth+foldSign*span*.25,span,radius,milled:true,
-        inset:labelWidth+6,carrierDepth:carrier.anchorDepth,carrierSheet:carrier.sheet,
+      const span=Math.max(n.span*1.16,labelWidth/3.6*.85);
+      return {...n,depth:carrier.anchorDepth+foldSign*span*.5,span,radius,milled:true,
+        inset:labelWidth+4,carrierDepth:carrier.anchorDepth,carrierSheet:carrier.sheet,
         labelWidth,labelHeight:labelRadius*1.84,maxChars,foldSign,
         group:g.index,indices:g.indices,testament:g.testament};
     });
@@ -94,9 +167,9 @@
       return {lo,hi,ys,cuts};
     });
   }
-  function atlasUV(n,u,v,rows,inspection=false){
+  function atlasUV(n,u,v,rows){
     return [((n.group%COLUMNS)*TILE_W+2+u*(TILE_W-4))/(COLUMNS*TILE_W),
-      ((Math.floor(n.group/COLUMNS)+(inspection?rows:0))*TILE_H+2+v*(TILE_H-4))/(2*rows*TILE_H)];
+      (Math.floor(n.group/COLUMNS)*TILE_H+2+v*(TILE_H-4))/(rows*TILE_H)];
   }
   function projectTriangle(tri){
     const p=tri.points.map(Solid.project),xs=p.map(v=>v.x),ys=p.map(v=>v.y);
@@ -111,7 +184,7 @@
     const w=1-u-v;if(u< -1e-6||v< -1e-6||w< -1e-6)return null;
     // Undo the same homogeneous lens used by the GPU for hit testing.
     const a0=u/(1-a.z/R.PERSPECTIVE),b0=v/(1-b.z/R.PERSPECTIVE),c0=w/(1-c.z/R.PERSPECTIVE),sum=a0+b0+c0;
-    return {z:(a.z*a0+b.z*b0+c.z*c0)/sum,v:tri.meta?(tri.meta[0][1]*a0+tri.meta[1][1]*b0+tri.meta[2][1]*c0)/sum:0};
+    return {z:(a.z*a0+b.z*b0+c.z*c0)/sum,u:tri.meta?(tri.meta[0][0]*a0+tri.meta[1][0]*b0+tri.meta[2][0]*c0)/sum:0,v:tri.meta?(tri.meta[0][1]*a0+tri.meta[1][1]*b0+tri.meta[2][1]*c0)/sum:0};
   }
   function frontAt(tris,x,y){
     let best=null;
@@ -157,10 +230,12 @@
     varying vec2 uv;varying vec2 floorUV;varying vec4 paper;varying float visibleInk;
     uniform sampler2D u_tex;uniform float u_stamp;uniform float u_sheets;uniform float u_closed;uniform float u_inspect;
     void main(){
-      if(paper.w>5.5){gl_FragColor=vec4(vec3(.991,.955,.884)*paper.z,1.0);return;}
       if(paper.w>4.5){
+        // The restored margin is the same leaf as paper-page.js, not a
+        // differently coloured backing card. paper.y is its outward u.
+        vec3 stock=mix(vec3(1.0,.9960784,.9607843),vec3(.9764706,.9647059,.9215686),clamp((paper.y-.9)*10.0,0.0,1.0))*paper.z;
+        if(paper.w>5.5){gl_FragColor=vec4(stock,1.0);return;}
         vec4 ink=texture2D(u_tex,gl_FrontFacing?floorUV:uv);
-        vec3 stock=vec3(.991,.955,.884)*paper.z;
         gl_FragColor=vec4(mix(stock,ink.rgb,u_stamp*ink.a),1.0);return;
       }
       if(paper.w>2.5){
@@ -425,46 +500,26 @@
       labelFrames=new Map();
       for(const n of notches){
         const section=labelSection(n,sections);if(!section)continue;
-        const frame=labelFrame(n,section,inspection);labelFrames.set(n.group,frame);
-        const vs=unique([0,.3,.7,1,...Array.from({length:17},(_,j)=>j/16),
-          ...Array.from({length:n.indices.length-1},(_,j)=>.5+(j+1-n.indices.length/2)*.69/n.indices.length)]);
-        // An unprinted neck joins the retained page to the ellipse. Its
-        // inner edge follows the ACTUAL combined cut, not a fixed offset.
-        // Stop at the ellipse boundary: no coincident overlay can steal hits.
-        const paperQuad=coords=>{
-          for(const ids of [[0,1,2],[0,2,3]]){
-            const points=ids.map(i=>coords[i]);
-            for(const p of points)body.push(p.x,p.y,p.z,.0001,.0001,n.carrierDepth/T,0,1,6,.0001,.0001,0);
-            if(pick)hitTris.push(projectTriangle({points,n:null,book:-1}));
-          }
-        };
-        const leftEdge=v=>.5-.5*Math.sqrt(Math.max(0,1-(2*v-1)**2));
-        const neckRows=vs.filter(v=>v>=.3&&v<=.7);
-        for(let j=0;j<neckRows.length-1;j++){
-          const a=neckRows[j],b=neckRows[j+1];
-          const inner=v=>{
-            const y=n.y+(v-.5)*frame.height;
-            const u=Math.min(frame.rootU-2/K.WIDTH,1-(inset(n.carrierDepth,y)+1)/K.WIDTH);
-            return section.point(n.carrierDepth,u,y);
-          };
-          paperQuad([inner(a),frame.point(0,a),frame.point(0,b),inner(b)]);
-          paperQuad([frame.point(0,a),frame.point(leftEdge(a),a),frame.point(leftEdge(b),b),frame.point(0,b)]);
-        }
-        // Curved outline, planar substrate: all vertices below have the SAME
-        // material s. Subdivide at row boundaries only for unambiguous hits.
-        for(let j=0;j<vs.length-1;j++){
-          const v0=vs[j],v1=vs[j+1];
-          const half=v=>.5*Math.sqrt(Math.max(0,1-(2*v-1)**2));
-          const coords=[[.5-half(v0),v0],[.5+half(v0),v0],[.5+half(v1),v1],[.5-half(v1),v1]];
-          const book=n.indices[labelRow(n,(v0+v1)/2)];
-          for(const ids of [[0,1,2],[0,2,3]]){
-            const points=ids.map(i=>frame.point(...coords[i]));
+        const patch=carrierPatch(n,section,inspection,notches),frame=patch.frame;
+        labelFrames.set(n.group,frame);
+        const pa=frame.point(.49,.5),pb=frame.point(.51,.5);
+        const leafLight=.89+.11*Math.abs(pb.x-pa.x)/(Math.hypot(pb.x-pa.x,pb.z-pa.z)||1);
+        // Restore the actual carrier leaf at its cut, not an oval piece of
+        // backing paper. The oval lives in the ink atlas only; the surrounding
+        // stock tapers into the existing leaf and is occluded by adjacent pages.
+        for(const {kind,coords,book}of patch.polygons){
+          for(let j=1;j<coords.length-1;j++){
+            const local=[coords[0],coords[j],coords[j+1]],points=local.map(([u,v])=>patch.point(u,v));
             for(let k=0;k<3;k++){
-              const [u,v]=coords[ids[k]],p=points[k],uv=atlasUV(n,u,v,rows);
-              const backUV=atlasUV(n,1-u,v,rows);
-              body.push(p.x,p.y,p.z,...uv,n.carrierDepth/T,0,1,5,...backUV,1);
+              const [u,v]=local[k],p=points[k],uv=kind===5?atlasUV(n,u,v,rows):[.0001,.0001];
+              const backUV=kind===5?atlasUV(n,1-u,v,rows):[.0001,.0001];
+              const outwardU=frame.rootU+u*frame.width/K.WIDTH;
+              // Only the unprinted return fold receives this soft recess
+              // shade. Shared UV boundaries use identical material/light.
+              const light=leafLight*(1-.10*inspection*(1-patch.protect(v)));
+              body.push(p.x,p.y,p.z,...uv,n.carrierDepth/T,outwardU,light,kind,...backUV,kind===5?1:0);
             }
-            if(pick)hitTris.push(projectTriangle({points,meta:ids.map(i=>coords[i]),n,book}));
+            if(pick)hitTris.push(projectTriangle({points,meta:kind===5?local:null,n:kind===5?n:null,book}));
           }
         }
       }
@@ -524,7 +579,7 @@
     function hit(x,y,slop,side){
       const at=(x,y)=>frontAt(projected.get(Math.floor(y/32))||[],x,y);
       const direct=at(x,y);
-      if(direct?.tri.n){
+      if(direct?.tri.n&&((direct.u-.5)/labelInkEllipse.rx)**2+((direct.v-.5)/labelInkEllipse.ry)**2<=1){
         const i=direct.tri.book;
         if(targets.some(t=>t.index===i&&(side==='both'||side===t.side)))return i;
       }
@@ -548,5 +603,5 @@
     }
     return {update,hit,prepare,getLabelFrame,getStats:()=>cost,hide:()=>{canvas.hidden=true;},show:()=>{canvas.hidden=false;}};
   }
-  return {create,milling,topology,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,labelInkEllipse,labelGlyph,labelFrame,labelSection,labelRow};
+  return {create,milling,topology,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,labelInkEllipse,labelGlyph,labelFrame,carrierPatch,labelSection,labelRow};
 });

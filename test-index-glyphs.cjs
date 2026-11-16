@@ -14,12 +14,13 @@ const near=(a,b,message)=>assert.ok(Math.abs(a-b)<1e-8,message||`${a} != ${b}`);
 assert.equal(model.slots.length,66);assert.equal(notches.length,39);
 assert.equal(JSON.stringify(model),before,'milling cannot move semantic targets');
 const fullAtlas=Depth.atlasRaster(notches.length,4096);
-assert.ok(fullAtlas.scaleX>2&&fullAtlas.scaleY>2,'dense phone ink keeps a high-resolution source');
+assert.ok(fullAtlas.scaleX>=3&&fullAtlas.scaleY>=3,'reading zoom keeps a dense 3x ink source');
+assert.ok(fullAtlas.width*fullAtlas.height<2304*3420,'single-bank 3x ink costs less memory than the obsolete two-bank 2.25x atlas');
 for(const count of [0,1,8,9,39,66])for(const limit of [512,1024,2048,3072,4096,8192]){
   const a=Depth.atlasRaster(count,limit),rows=Math.max(1,Math.ceil(count/8));
   assert.ok(Number.isInteger(a.width)&&Number.isInteger(a.height));
   assert.ok(a.width>0&&a.height>0&&a.width<=limit&&a.height<=limit);
-  near(a.scaleX,a.width/(8*128));near(a.scaleY,a.height/(2*rows*152));
+  near(a.scaleX,a.width/(8*128));near(a.scaleY,a.height/(rows*152));
 }
 const section={side:'right',lo:0,hi:model.totalDepth,point:(s,u,y)=>prepared.pagePoint('right',s,u,y)};
 const envelopes=notches.flatMap(n=>n.indices.map((index,j)=>{

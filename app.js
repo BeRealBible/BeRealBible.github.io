@@ -11,7 +11,7 @@
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
   const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const Physics=window.PaperPhysics, Material=window.PaperBookMaterial;
-  let material=null,ribbons=null,lastSceneFrame=null,edgeY=352,edgeDrag=null,depth=null,solid=null,notches=[];
+  let material=null,ribbons=null,lastSceneFrame=null,edgeY=352,edgeDrag=null,depth=null,depthState=null,solid=null,notches=[];
   let fanSide=null,fanAmount=0,fanCamera=0,fanY=352,fanBackPose=null;
   const K=window.PaperBookKinematics;
   let spread=0,scale=1,x=0,y=0,fitScale=1,mode='open',focus='fit',gesture=null;
@@ -168,10 +168,11 @@
     const packet=fold?.packet,drawPrinted=!!packet||f.close>0||fanAmount>0;
     let curved;
     if(depth){
-      depth.update({material,close:f.close,shape,packet:packet?.frame,
+      depthState={material,close:f.close,shape,packet:packet?.frame,
         printed:drawPrinted&&f.close<1?(packet?.pages||[spread,spread+1]):null,
         pick:['fan','edge'].includes(sceneState)&&digitalProgress===0,
-        digital:digitalProgress,hideInk,fineView:['fan','edge'].includes(sceneState)?{...view,camera:f}:null});
+        digital:digitalProgress,hideInk,fineView:['reading','fan','edge'].includes(sceneState)?{...view,camera:f}:null};
+      depth.update(depthState);
       curved={active:drawPrinted};
     }else{
       solid.update(material,f.close,shape);
@@ -215,6 +216,13 @@
   }
   function transform(){
     book.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
+    // The visible reading edge is still a depth raster even though its body
+    // text is SVG. Repaint only that raster window at the actual camera;
+    // retaining material/shape keys lets Depth reuse its existing geometry.
+    if(depth&&depthState&&sceneState==='reading'&&!fold){
+      depthState={...depthState,fineView:{...view,camera:{x,y,scale}}};
+      depth.update(depthState);
+    }
     $('zoom-value').textContent=Math.round(scale/fitScale*100)+'%';
     $('zoom-in').disabled=scale>=3.2;$('zoom-out').disabled=scale<=fitScale;
     const map=$('viewport-map'),mw=map.clientWidth,mh=map.clientHeight;

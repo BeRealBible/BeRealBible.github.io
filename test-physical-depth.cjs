@@ -31,22 +31,43 @@ const knots=topology.flatMap(v=>[v.lo,v.hi]);
 for(const n of notches)for(const q of [-1,-.42,0,.42,1]){
   assert.ok(knots.some(s=>Math.abs(s-Math.max(0,Math.min(36,n.depth+n.span*q)))<1e-8),'true lip and plateau boundaries are sampled');
 }
-// A printed label is a rigid local patch of one material leaf. No sample
-// used to construct its basis is allowed to come from another paper depth.
-let planarChecks=0,closedLabelChecks=0;
+// Ink belongs to the original curved leaf while reading, and to that same
+// leaf's rigid folded margin while inspecting. Neither basis may cross sheets.
+let planarChecks=0,originalLeafChecks=0,transitionChecks=0,closedLabelChecks=0,cutContinuityChecks=0;
 for(const n of notches){
   for(const close of [0,.5,.8,1])for(const split of [0,1216,1244]){
     const m=mat(split),p=K.prepare(m,close,{notches,fanLeft:1,fanRight:1,edgeInspection:true});
     const side=n.carrierDepth+1e-8<m.leftDepth?'left':'right',samples=[];
     const section={side,point:(s,u,y)=>{samples.push(s);return p.pagePoint(side,s,u,y);}};
-    const frame=Depth.labelFrame(n,section,K.inspectionAmount(close));
-    assert.ok(samples.length>0&&samples.every(s=>s===n.carrierDepth),'the label basis never crosses material sheets');
+    const inspection=K.inspectionAmount(close),frame=Depth.labelFrame(n,section,inspection);
     const o=frame.point(0,0),x=frame.point(1,0),y=frame.point(0,1);
-    assert.ok(Math.abs(dist(o,x)-n.labelWidth)<1e-8,'inspection folds the leaf, never stretches ink width');
-    assert.ok(Math.abs(dist(o,y)-n.labelHeight)<1e-8,'inspection preserves ink height');
+    if(inspection===1){
+      assert.ok(Math.abs(dist(o,x)-n.labelWidth)<1e-8,'inspection folds the leaf, never stretches ink width');
+      assert.ok(Math.abs(dist(o,y)-n.labelHeight)<1e-8,'inspection preserves ink height');
+    }
     for(const [u,v]of [[.2,.3],[.8,.9],[.5,.5],[1,1]]){
-      const q=frame.point(u,v),expected={x:o.x+u*(x.x-o.x)+v*(y.x-o.x),y:o.y+u*(x.y-o.y)+v*(y.y-o.y),z:o.z+u*(x.z-o.z)+v*(y.z-o.z)};
-      assert.ok(dist(q,expected)<1e-8,'all ink is on one plane, never a paper-stack curve');planarChecks++;
+      const q=frame.point(u,v),base=section.point(n.carrierDepth,frame.rootU+u*frame.width/K.WIDTH,n.y+(v-.5)*frame.height);
+      if(inspection===0){
+        assert.ok(dist(q,base)<1e-8,'ordinary reading ink is exactly on the existing curved carrier, not a floating tangent plane');originalLeafChecks++;
+      }else if(inspection===1){
+        const expected={x:o.x+u*(x.x-o.x)+v*(y.x-o.x),y:o.y+u*(x.y-o.y)+v*(y.y-o.y),z:o.z+u*(x.z-o.z)+v*(y.z-o.z)};
+        assert.ok(dist(q,expected)<1e-8,'closed inspection ink is one plane, never a paper-stack curve');planarChecks++;
+      }else{
+        const a=frame.matrix,rigid={x:a[12]+a[0]*frame.width*u+a[4]*frame.height*v,
+          y:a[13]+a[1]*frame.width*u+a[5]*frame.height*v,z:a[14]+a[2]*frame.width*u+a[6]*frame.height*v};
+        const expected=Object.fromEntries(['x','y','z'].map(k=>[k,base[k]+(rigid[k]-base[k])*inspection]));
+        assert.ok(dist(q,expected)<1e-8,'folding continuously interpolates the same carrier and its ink');transitionChecks++;
+      }
+    }
+    assert.ok(samples.length>0&&samples.every(s=>s===n.carrierDepth),'the label basis never crosses material sheets');
+    const patch=Depth.carrierPatch(n,section,inspection,notches);
+    for(const v of [patch.rows[0],patch.rows.at(-1)]){
+      const b=patch.bounds(v);assert.ok(Math.abs(b.end-b.start)<1e-7,'carrier repair tapers to the true cut extremum, not a rectangular card');cutContinuityChecks++;
+    }
+    for(const v of [0,.25,.5,.75,1]){
+      assert.ok(dist(patch.point(0,v),frame.basePoint(0,v))<1e-8,'fold root stays attached to the exact original page');
+      if(inspection===1)for(const u of [.1,.5,.9])assert.ok(dist(patch.point(u,v),frame.point(u,v))<1e-8,'paper repair does not bend the closed glyph domain');
+      cutContinuityChecks++;
     }
   }
   const a=K.prepare(mat(0),1,{notches,edgeInspection:true}),b=K.prepare(mat(1244),1,{notches,edgeInspection:true});
@@ -66,11 +87,11 @@ for(const index of [8,13,25,37])for(const fanRight of [.42,.68,1]){
       .map(([s,y])=>p.foreedgePoint('right',s,y));
     tris.push(...[[0,1,2],[0,2,3]].map(ids=>Depth.projectTriangle({points:ids.map(i=>points[i]),n:null})));
   }
-  const f=Depth.labelFrame(n,{side:'right',lo:0,hi:36,point:(s,u,y)=>p.pagePoint('right',s,u,y)},0),leaf=[];
-  for(let i=0;i<32;i++){
-    const t=i/32*2*Math.PI,next=(i+1)/32*2*Math.PI;
-    const tri=Depth.projectTriangle({points:[f.point(.5,.5),f.point(.5+.5*Math.cos(t),.5+.5*Math.sin(t)),f.point(.5+.5*Math.cos(next),.5+.5*Math.sin(next))],n});
-    leaf.push(tri);tris.push(tri);
+  const patch=Depth.carrierPatch(n,{side:'right',lo:0,hi:36,point:(s,u,y)=>p.pagePoint('right',s,u,y)},0,[n]),leaf=[];
+  for(const poly of patch.polygons)for(let j=1;j<poly.coords.length-1;j++){
+    const coords=[poly.coords[0],poly.coords[j],poly.coords[j+1]];
+    const tri=Depth.projectTriangle({points:coords.map(uv=>patch.point(...uv)),meta:poly.kind===5?coords:null,n:poly.kind===5?n:null});
+    if(poly.kind===5)leaf.push(tri);tris.push(tri);
   }
   for(const tri of leaf)for(const weights of [[.05,.45,.5],[.2,.2,.6],[.35,.35,.3],[.65,.15,.2]]){
     const x=tri.p.reduce((a,p,i)=>a+p.x*weights[i],0),y=tri.p.reduce((a,p,i)=>a+p.y*weights[i],0);
@@ -127,4 +148,4 @@ for(const [start,end] of [[0,books[18].first],[990,books[18].first],[622,books[4
 const last=mat(1244),full=mat(0),state={notches,fanRight:1};
 function bandWidth(m){const a=K.pagePoint('right',m.leftDepth,1,355,m,0,state),b=K.pagePoint('right',36,1,355,m,0,state);return dist(a,b);}
 assert.ok(bandWidth(last)<bandWidth(full)*.065,'last remaining recto cannot fan like a full stack');
-console.log(JSON.stringify({outlineChecks,planarChecks,closedLabelChecks,shadowed,visible,packets,maxFrame,maxAccel,maxLastSideWorldWidth:bandWidth(last),paperFaces:pages.length,slots:model.slots.length}));
+console.log(JSON.stringify({outlineChecks,planarChecks,originalLeafChecks,transitionChecks,closedLabelChecks,cutContinuityChecks,shadowed,visible,packets,maxFrame,maxAccel,maxLastSideWorldWidth:bandWidth(last),paperFaces:pages.length,slots:model.slots.length}));
