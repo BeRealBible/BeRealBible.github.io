@@ -12,7 +12,7 @@
     if(requested){
       const m=/^([A-Z0-9]{3})\.(\d+):(\d+)$/.exec(requested);
       const page=m&&window.PaperEdition.locate(data,m[1],`${m[2]}:${m[3]}`);
-      if(Number.isInteger(page))window.PAPER_INITIAL_SPREAD=page&~1;
+      if(Number.isInteger(page)){window.PAPER_INITIAL_SPREAD=page&~1;window.PAPER_INITIAL_PAGE=page;}
     }
     window.BIBLE_DATA=data;
     window.PAPER_RULE_LAYOUT={edition:data.edition,pages:data.pages.length,durationMs:performance.now()-started};

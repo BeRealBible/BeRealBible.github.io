@@ -1,0 +1,83 @@
+/* These are paper-edge stickers, not a second directory or a WebGL texture. */
+.sticker-index {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 960px;
+  height: 704px;
+  z-index: 70;
+  overflow: visible;
+  pointer-events: none;
+  isolation: isolate;
+  transform-style: flat;
+}
+.sticker-index__tab {
+  position: absolute;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 34px;
+  margin: 0;
+  padding: 1px 0;
+  border: 1px solid #c4b497;
+  border-radius: 1px 3px 3px 1px;
+  color: #453d31;
+  background: linear-gradient(90deg, #e5d8bd, #eee3ca 38%, #f3ead6);
+  box-shadow: 0 1px 1px #3d2b191a;
+  font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: 0;
+  text-align: center;
+  text-shadow: none;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Do not transform/rotate/blur text or interpolate its screen position. */
+  transition: background-color 90ms, border-color 90ms;
+}
+.sticker-index__tab::before {
+  /* Root length follows the occupied display column, not a hidden canonical
+     column. Late books therefore sit close to the edge rather than on rods. */
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  bottom: 2px;
+  right: 100%;
+  width: var(--sticker-root, 3px);
+  background: #e9dfca;
+  border-top: 1px solid #c4b49770;
+  border-bottom: 1px solid #c4b49770;
+  pointer-events: none;
+}
+.sticker-index__tab[data-side="left"] {
+  border-radius: 3px 1px 1px 3px;
+  background: linear-gradient(90deg, #f3ead6, #eee3ca 62%, #e5d8bd);
+}
+.sticker-index__tab[data-side="left"]::before { right: auto; left: 100%; }
+.sticker-index__label {
+  display: block;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  pointer-events: none;
+}
+.sticker-index__tab[aria-current="page"] {
+  color: #fff7e7;
+  border-color: #69503a;
+  background: #735b43;
+}
+@media (hover: hover) {
+  .sticker-index__tab:hover:not(:disabled) { border-color: #80694c; background: #e1cfaa; }
+  .sticker-index__tab[aria-current="page"]:hover:not(:disabled) { background: #614b36; }
+}
+.sticker-index__tab:focus-visible { outline: 2px solid #705233; outline-offset: 2px; }
+.sticker-index__tab:disabled { cursor: default; pointer-events: none; }
+@media (forced-colors: active) {
+  .sticker-index__tab { border-color: ButtonText; color: ButtonText; background: ButtonFace; }
+  .sticker-index__tab[aria-current="page"] { color: HighlightText; background: Highlight; }
+}

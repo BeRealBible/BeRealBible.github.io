@@ -1,4 +1,4 @@
-/* Immersive shell only. Reading gestures and the continuous book scene belong to app.js. */
+/* Immersive shell only. Reading gestures belong to sticker-reader.js. */
 (() => {
   'use strict';
   const root = document.documentElement;
@@ -152,7 +152,7 @@
         </button>
       </div>
       <div id="immersion-extra" class="immersion-extra" role="group" aria-label="沉浸阅读设置">
-        <button id="immersion-directory" type="button" aria-label="合起书，查看书侧目录">书侧目录</button>
+        <button id="immersion-directory" type="button" aria-label="选择书卷与章节">书卷章节</button>
         <button id="immersion-fullscreen" type="button" aria-pressed="false">全屏阅读</button>
         <button id="immersion-install" type="button">添加到主屏幕</button>
         <button id="immersion-ribbons" type="button">丝带书签</button><button id="immersion-about" type="button">关于</button>
