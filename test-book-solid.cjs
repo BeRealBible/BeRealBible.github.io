@@ -94,7 +94,8 @@ for(const spread of [0,398,570,920,1232])for(const close of [0,.3,.7,1]){
 }
 // 39 individual cuts replace 22 coarse groups; their narrowed depth floor
 // retains every anchor without the initial 2760-face broad support.
-check(maxActualFaces<=1500,'39 semantic rounded cuts remain within 1500 active faces');
+// One-sided stop faces add topology; keep five-point curves, a bounded 1800 pool, and all reuse gates.
+check(maxActualFaces<=1800,'39 semantic rounded cuts remain within 1800 active faces');
 const ruleEdition=require('./paper-layout.js').paginate(require('./data/bible-source.js'));
 const ruleNotches=Index.geometry(ruleEdition.books,ruleEdition.pages.length).groups.map(g=>g.notch);
 let maxRuleFaces=0;
@@ -102,7 +103,7 @@ for(let spread=0;spread<ruleEdition.pages.length;spread+=2)for(const close of [0
   solid.update(M.compute(spread,ruleEdition.pages.length,ruleEdition.books),close,{fanLeft:1,fanRight:1,notches:ruleNotches});
   maxRuleFaces=Math.max(maxRuleFaces,solid.getStats().activeFaces);
 }
-check(maxRuleFaces<=1500,'all current rule-edition spreads remain within the measured geometry budget');
+check(maxRuleFaces<=1800,'all current rule-edition spreads remain within the measured geometry budget');
 console.log(JSON.stringify({legacyMaxFaces:maxActualFaces,ruleEditionMaxFaces:maxRuleFaces}));
 
 // Compare the optimised renderer with the same tessellator forced through
@@ -156,9 +157,17 @@ check(thinLines.every(line=>line.width<.012&&line.alpha<.13),'thin tail is not p
 check(fore.includes(Solid.PAPER),'SVG paper stock matches the shared flat fallback');
 for(const node of fastFixture.host.children.filter(n=>!n.hidden&&n.dataset.kind!=='leather')){
   check(node.style.backgroundColor===Solid.PAPER,'face fallback cannot expose a darker rectangular grid');
-  check(/^var\(--bs-texture-\d+\)$/.test(node.style.backgroundImage),'fine texture is referenced once rather than duplicated in each face');
+  check(/^url\("data:image\/svg\+xml/.test(node.style.backgroundImage),'scoped faces retain immutable image values, not recyclable CSS slot references');
 }
-check(fast.getStats().textureSlots<=160,'shared texture-variable slots remain bounded');
+check(fast.getStats().textureSlots===0,'scoped material cannot reuse live CSS variable slots');
+check(fast.getStats().cacheEntries<=160,'immutable image generation cache remains bounded');
+const liveImages=fastFixture.host.children.filter(n=>!n.hidden&&n.dataset.kind!=='leather').map(n=>n.style.backgroundImage);
+check(new Set(liveImages).size>160,'the regression exercises more live immutable images than the generation LRU can retain');
+// Return the reused fixture from scoped material to the original legacy state.
+solid.update(materials.at(-1),.7,state);
+for(const node of f.host.children.filter(n=>!n.hidden&&n.dataset.kind!=='leather'))
+  check(/^var\(--bs-texture-\d+\)$/.test(node.style.backgroundImage),'legacy narrow-cut surfaces retain shared texture references');
+check(solid.getStats().textureSlots<=160,'legacy shared texture-variable slots remain bounded');
 
 
 // Optional raster keeps the same material geometry but owns ONE DOM canvas.

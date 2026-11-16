@@ -65,13 +65,17 @@ test('one/two/dense groups use 18/12/8px targets inside their own recess',()=>{
   for(const group of model.groups){
     const members=group.indices.map(i=>model.slots[i]),n=members.length,height=n===1?18:n===2?12:8;
     assert.equal(group.notch.radius,Math.max(13,n*height/2+1));
-    assert.ok(group.notch.span>=.3,'retain the reduced physical depth support');
+    assert.ok(group.notch.span>0,'even a boundary carrier retains its real half-leaf stop');
+    assert.ok(group.notch.cutStart>=0&&group.notch.cutStart<=group.carrierDepth);
+    near(group.notch.cutEnd,group.carrierDepth+model.totalDepth/model.totalSheets*.5);
+    near(group.notch.depth,(group.notch.cutStart+group.notch.cutEnd)/2);
+    near(group.notch.span,(group.notch.cutEnd-group.notch.cutStart)/2);
     members.forEach((slot,i)=>{
       assert.equal(slot.group,group.index);assert.equal(slot.groupRow,i);
       assert.equal(slot.physical.height,height);
       assert.ok(slot.physical.y>=group.notch.y-group.notch.radius);
       assert.ok(slot.physical.y+height<=group.notch.y+group.notch.radius);
-      assert.ok(Math.abs(slot.anchorDepth-group.notch.depth)<=group.notch.span*.7);
+      near(slot.anchorDepth,slot.sheet/model.totalSheets*model.totalDepth); // Navigation depth is not the physical cut centre.
       if(i)near(slot.physical.y-members[i-1].physical.y,height);
     });
     near((members[0].physical.y+members.at(-1).physical.y+height)/2,group.notch.y);

@@ -21,14 +21,14 @@
       fallbackDepth>=0&&fallbackDepth<=totalDepth?fallbackDepth:fallbackDepth-WIDTH+totalDepth/2));
     const selectedDepth=Math.max(0,Math.min(totalDepth,rawDepth));
     const edgeBand=finite(options.inspectionBand,0);
-    const physicalScale=edgeBand>0?Math.min(w<600?2.9:3.1,Math.max(.85,(w-26)/edgeBand))*(1+.11*focus):(w<600?2.6:2.4)*(1+.18*focus);
+    const physicalScale=edgeBand>0?Math.min(w<600?2.9:3.1,Math.max(.85,(w-finite(options.inspectionPadding,26))/edgeBand))*(1+.11*focus):(w<600?2.6:2.4)*(1+.18*focus);
     const digitalScale=Math.max(.18,Math.min((w-42)/510,(h-160)/740,1.18));
     const visibleHeight=Math.max(64,h-160)/physicalScale;
     const halfHeight=Math.min(HEIGHT/2,visibleHeight/2);
     const requestedY=mix(finite(options.edgeY,HEIGHT/2),finite(rect?.y,finite(options.edgeY,HEIGHT/2)),focus);
     const physicalY=Math.max(halfHeight,Math.min(HEIGHT-halfHeight,requestedY));
     const edgeCenterY=mix(physicalY,HEIGHT/2,digital);
-    const edgeCenterX=WIDTH+(selectedDepth-totalDepth/2)*focus*(edgeBand>0?edgeBand/totalDepth:1);
+    const edgeCenterX=mix(finite(options.inspectionCenter,WIDTH),WIDTH,digital)+(selectedDepth-totalDepth/2)*focus*(edgeBand>0?edgeBand/totalDepth:1);
     const projectedCenterX=WIDTH+(edgeCenterX-WIDTH)/depthScale;
     const projectedCenterY=HEIGHT/2+(edgeCenterY-HEIGHT/2)/depthScale;
     const presentedScale=mix(physicalScale,digitalScale,digital)*depthScale;
@@ -49,6 +49,15 @@
     const q=PERSPECTIVE/(PERSPECTIVE-point.z);
     return {x:WIDTH+(point.x-WIDTH)*q,y:HEIGHT/2+(point.y-HEIGHT/2)*q};
   }
+  // Frame the real projected paper and printed margins, including a folded
+  // carrier at either end of the block. Do not shrink the glyphs to fit.
+  function inspectionFraming(points){
+    const xs=points.map(p=>project(p).x).filter(Number.isFinite);
+    if(!xs.length)return {inspectionBand:0,inspectionCenter:WIDTH};
+    const lo=Math.min(...xs),hi=Math.max(...xs),depthScale=1-WIDTH/PERSPECTIVE;
+    return {inspectionBand:(hi-lo)*depthScale,
+      inspectionCenter:WIDTH+((lo+hi)/2-WIDTH)*depthScale,inspectionPadding:18};
+  }
   function fanFrame(rest,amount,side,topPoint,basePoint,requestedY,view){
     const p=clamp(amount);if(p===0)return rest;
     const top=project(topPoint),base=project(basePoint),dir=side==='right'?1:-1;
@@ -62,5 +71,5 @@
       x:p===1?target.x:mix(rest.x,target.x,p),y:p===1?target.y:mix(rest.y,target.y,p),
       edgeCenterY:cy,edgePixelsPerUnit:scale};
   }
-  return {sample,fanFrame,project,smooth,mix,WIDTH,HEIGHT,PERSPECTIVE};
+  return {sample,fanFrame,project,inspectionFraming,smooth,mix,WIDTH,HEIGHT,PERSPECTIVE};
 });

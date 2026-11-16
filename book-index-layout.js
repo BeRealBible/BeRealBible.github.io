@@ -9,7 +9,7 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const WIDTH=36,HEIGHT=704,DIGITAL_WIDTH=480,ROW=70;
-  const TOP=56,BOTTOM=648,SLOT_HEIGHT=8,FINAL_TRACK_OFFSET=20;
+  const TOP=56,BOTTOM=648,SLOT_HEIGHT=8,FINAL_TRACK_OFFSET=20,CUT_SHEETS=100;
   const tracks=Object.freeze([
     {id:'ot-a',testament:'old',rows:11,offset:0,groups:[
       ['GEN'],['EXO'],['LEV'],['NUM'],['DEU'],['JOS'],['JDG'],['RUT'],
@@ -58,6 +58,7 @@
     const count=Math.max(2,Math.floor(finite(pageCount,sourceCount(books))));
     const sheets=Math.ceil(count/2),depth=Math.max(.001,finite(totalDepth,WIDTH));
     const labelWidth=Math.min(18,depth),plan=semanticPlan(books),slots=Array(books.length),groups=[];
+    const trackOrder=[...new Set(plan.groups.map(g=>g.track))],pitch=depth/sheets;
     for(const definition of plan.groups){
       const index=groups.length,indices=definition.indices,n=indices.length;
       const centerY=TOP+(BOTTOM-TOP)*definition.trackRow/(definition.trackRows-1)+definition.offset;
@@ -74,18 +75,26 @@
           digital:{x:23+(bookIndex%2)*221,y:91+Math.floor(bookIndex/2)*ROW,width:212,height:64}};
       });
       const members=indices.map(i=>slots[i]),first=members[0],anchors=members.map(s=>s.anchorDepth);
-      const lo=Math.min(...anchors),hi=Math.max(...anchors);
+      const previous=trackOrder[trackOrder.indexOf(definition.track)-1];
+      const preceding=groups.filter(g=>g.track===previous);
+      const upstream=preceding.filter(g=>g.trackRow<=definition.trackRow).at(-1)||preceding[0];
+      // A column is cut from the previous column at the same height up to
+      // this real carrier leaf. Later leaves have never been milled here.
+      const cutStart=Math.max(upstream?Math.min(first.anchorDepth,upstream.carrierDepth):0,first.anchorDepth-CUT_SHEETS*pitch);
+      const cutEnd=Math.min(depth,first.anchorDepth+pitch*.5);
+
       groups.push({index,first:indices[0],indices:indices.slice(),codes:definition.codes.slice(),
         track:definition.track,trackRow:definition.trackRow,testament:definition.testament,
         x:first.physical.x,y:centerY-radius,width:labelWidth,height:radius*2,
         anchorDepth:first.anchorDepth,carrierSheet:first.sheet,carrierDepth:first.anchorDepth,
         fraction:first.anchorDepth/depth,
-        notch:{depth:(lo+hi)/2,y:centerY,radius,span:Math.max(.3,(hi-lo)/2/.7+.1)}});
+        notch:{depth:(cutStart+cutEnd)/2,y:centerY,radius,span:(cutEnd-cutStart)/2,
+          cutStart,cutEnd,carrierDepth:first.anchorDepth,carrierSheet:first.sheet}});
     }
     return {groups,slots,totalDepth:depth,pageCount:count,totalSheets:sheets,mode:plan.mode,
       digitalHeight:91+Math.ceil(books.length/2)*ROW+38};
   }
   const groupBooks=(books,pageCount,totalDepth)=>geometry(books,pageCount,totalDepth).groups;
-  return {WIDTH,HEIGHT,DIGITAL_WIDTH,ROW,TOP,BOTTOM,SLOT_HEIGHT,FINAL_TRACK_OFFSET,tracks,canonical,
+  return {WIDTH,HEIGHT,DIGITAL_WIDTH,ROW,TOP,BOTTOM,SLOT_HEIGHT,FINAL_TRACK_OFFSET,CUT_SHEETS,tracks,canonical,
     sourceCount,geometry,groupBooks};
 });

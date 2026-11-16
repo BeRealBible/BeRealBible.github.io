@@ -85,8 +85,8 @@ test('physical wheel/drag pans the real edge while moved pointers cannot acciden
 });
 test('39 thumb recesses retain fixed sheet-depth and variable semantic rows',()=>{
  const f=fixture(),model=Index.geometry(books,pageCount),notches=f.index.getNotches();assert.equal(notches.length,39);
- model.groups.forEach((group,g)=>{const cut=notches[g];assert.equal(cut.y,group.y+group.height/2);assert.equal(cut.radius,Math.max(13,group.indices.length*4+1));assert.ok(cut.span>=.3);
-  group.indices.forEach(i=>{const slot=model.slots[i];assert.ok(Math.abs(slot.anchorDepth-cut.depth)<=cut.span*.7);assert.ok(Math.abs(slot.physical.y+slot.physical.height/2-cut.y)<cut.radius);});
+ model.groups.forEach((group,g)=>{const cut=notches[g];assert.equal(cut.y,group.y+group.height/2);assert.equal(cut.radius,Math.max(13,group.indices.length*4+1));assert.ok(cut.span>0);assert.equal(cut.carrierDepth,group.carrierDepth);assert.ok(cut.cutEnd>group.carrierDepth&&cut.cutEnd<=group.carrierDepth+model.totalDepth/model.totalSheets);
+  group.indices.forEach(i=>{const slot=model.slots[i];assert.equal(slot.anchorDepth,slot.sheet/model.totalSheets*model.totalDepth);/* Group members navigate independently; only the first carries the ink. */assert.ok(Math.abs(slot.physical.y+slot.physical.height/2-cut.y)<cut.radius);});
  });
  notches[0].depth=900;assert.notEqual(f.index.getNotches()[0].depth,900);assert.equal(f.nodes.filter(n=>n.className==='pbi-recess-shadow').length,39);
 });

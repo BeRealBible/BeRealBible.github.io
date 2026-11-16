@@ -10,14 +10,15 @@ for(const n of notches){
   const local={notches:[n]},m=mat(202),p=K.prepare(m,0,local);
   assert.ok(n.span>0&&n.radius>=13&&n.inset>=10);
   for(const y of [n.y-n.radius,n.y+n.radius])assert.ok(p.edgeInset('right',n.depth,y)<1e-5,'rounded vertical extrema');
-  for(const s of [n.depth-n.span,n.depth+n.span].filter(s=>s>0&&s<36))
-    assert.ok(p.edgeInset('left',s,n.y)<1e-5,'continuous side limit');
-  assert.equal(p.edgeInset('right',n.depth,n.y),n.inset);
-  assert.ok(p.edgeInset('right',n.depth,n.y+n.radius*.78)>n.inset*.59,'semicircular cross section');
-  if(n.depth+n.span*.84<36){
-    assert.ok(p.edgeInset('right',n.depth+n.span*.84,n.y)>n.inset*.55,'far wall slopes to floor');
-    assert.equal(p.edgeInset('right',n.depth+n.span*.84,n.y+n.radius*.6),0,'upper corners remain uncut');
-  }
+  assert.ok(n.cutStart>=0 && n.cutStart<=n.carrierDepth);
+  assert.ok(n.cutEnd>n.carrierDepth && n.cutEnd<=n.carrierDepth+36/model.totalSheets);
+  if(n.cutStart<n.carrierDepth)assert.ok(p.edgeInset('left',n.cutStart,n.y)<1e-5,'continuous opening shoulder');
+  assert.equal(p.edgeInset('right',n.cutEnd,n.y),0,'half-open stop stays inside the carrier leaf');
+  assert.equal(p.edgeInset('right',n.carrierDepth,n.y),n.inset,'the index is printed on the stop leaf');
+  assert.ok(p.edgeInset('right',n.carrierDepth,n.y+n.radius*.78)>n.inset*.59,'semicircular cross section');
+  const tail=(n.carrierDepth+n.cutEnd)/2;
+  assert.ok(p.edgeInset('right',tail,n.y)>n.inset*.8,'the thin terminal shoulder closes continuously');
+  assert.ok(p.edgeInset('right',n.cutEnd-1e-10,n.y)<.01,'no abrupt full-depth cliff at the stop');
   const close1=K.foreedgePoint('right',n.depth,n.y,mat(0),1,shape);
   const close2=K.foreedgePoint('left',n.depth,n.y,mat(1244),1,shape);
   assert.ok(dist(close1,close2)<1e-8,'closed solid is independent of the reading split');
@@ -65,9 +66,21 @@ for(const n of notches){
       const b=patch.bounds(v);assert.ok(Math.abs(b.end-b.start)<1e-7,'carrier repair tapers to the true cut extremum, not a rectangular card');cutContinuityChecks++;
     }
     for(const v of [0,.25,.5,.75,1]){
-      assert.ok(dist(patch.point(0,v),frame.basePoint(0,v))<1e-8,'fold root stays attached to the exact original page');
-      if(inspection===1)for(const u of [.1,.5,.9])assert.ok(dist(patch.point(u,v),frame.point(u,v))<1e-8,'paper repair does not bend the closed glyph domain');
+      const root=frame.foldRoot;
+      assert.ok(Number.isFinite(root)&&root<0,'inspection has a real unprinted root on the same leaf');
+      assert.ok(dist(patch.point(root,v),frame.basePoint(root,v))<1e-8,'the unprinted fold root stays attached to the exact original page');
       cutContinuityChecks++;
+    }
+    // The surrounding blank stock may bend back; actual character envelopes
+    // must still be rigid and cannot acquire the bend of an unprinted corner.
+    for(const index of n.indices){
+      const slot=model.slots[index],glyph=Depth.labelGlyph(n,slot.label);
+      const v=.5+(slot.groupRow-(n.indices.length-1)/2)*.69/n.indices.length;
+      for(const [dx,dy]of [[0,0],[-1,-1],[1,-1],[-1,1],[1,1],[0,-1],[0,1],[-1,0],[1,0]]){
+        const u=.5+dx*glyph.width/2,yy=v+dy*glyph.height/2;
+        assert.ok(dist(patch.point(u,yy),frame.point(u,yy))<1e-8,'paper repair never bends the real glyph em envelope');
+        cutContinuityChecks++;
+      }
     }
   }
   const a=K.prepare(mat(0),1,{notches,edgeInspection:true}),b=K.prepare(mat(1244),1,{notches,edgeInspection:true});

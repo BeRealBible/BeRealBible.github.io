@@ -41,7 +41,7 @@
   function edgeProfile(side,depth,material,state={}){
     // A cut at another absolute layer cannot affect this page silhouette.
     // Avoid sampling all 22 groups for each of the 64 printed strips.
-    const relevant=(state.notches||[]).filter(n=>Math.abs(depth-Number(n.depth))<(Number(n.span)||1.2));
+    const relevant=(state.notches||[]).filter(n=>{const [a,b]=K.cutRange(n);return depth>=a&&depth<b;});
     if(!relevant.length)return {edge:[],max:0};
     const edge=samples({notches:relevant}).map(y=>({y,inset:Math.max(0,Number(K.edgeInset(side,depth,y,material,state))||0)}));
     return {edge,max:Math.max(0,...edge.map(p=>p.inset))};

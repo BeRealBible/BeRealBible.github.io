@@ -31,11 +31,15 @@
   // visible surface, not on the analytic recess below a chord approximation.
   function facetSampler(material,close,state){
     const total=material.totalDepth,bands=Solid?.DEPTH_BANDS||5,depths=Array.from({length:bands+1},(_,i)=>total*i/bands),points=K.prepare(material,close,state);
-    for(const n of state.notches)if(n.span<total/bands*.4)depths.push(clamp(n.depth,0,total));
+    for(const n of state.notches){
+      const scoped=Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd);
+      for(const d of scoped?[...K.cutRange(n),n.depth,n.carrierDepth]:n.span<total/bands*.4?[n.depth]:[])
+        if(Number.isFinite(d))depths.push(clamp(d,0,total));
+    }
     const sorted=[...new Set(depths)].sort((a,b)=>a-b),topology=[];
     for(let i=0;i<sorted.length-1;i++){
       const from=sorted[i],to=sorted[i+1],ys=[0,HEIGHT];
-      for(const n of state.notches)if(n.depth+n.span>=from&&n.depth-n.span<=to)for(const q of [-1,-.8660254038,-.5,0,.5,.8660254038,1])ys.push(clamp(n.y+n.radius*q,0,HEIGHT));
+      for(const n of state.notches)if(K.cutRange(n)[1]>=from&&K.cutRange(n)[0]<=to)for(const q of [-1,-.8660254038,-.5,0,.5,.8660254038,1])ys.push(clamp(n.y+n.radius*q,0,HEIGHT));
       const sortedYs=[...new Set(ys)].sort((a,b)=>a-b),split=material.leftDepth;
       if(split>from+1e-8&&split<to-1e-8){topology.push({from,to:split,ys:sortedYs},{from:split,to,ys:sortedYs});}
       else topology.push({from,to,ys:sortedYs});

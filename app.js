@@ -11,7 +11,7 @@
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
   const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const Physics=window.PaperPhysics, Material=window.PaperBookMaterial;
-  let material=null,ribbons=null,lastSceneFrame=null,edgeY=352,edgeDrag=null,depth=null,depthState=null,solid=null,notches=[];
+  let material=null,ribbons=null,lastSceneFrame=null,edgeY=352,edgeDrag=null,depth=null,depthState=null,solid=null,notches=[],inspectionView=null;
   let fanSide=null,fanAmount=0,fanCamera=0,fanY=352,fanBackPose=null;
   const K=window.PaperBookKinematics;
   let spread=0,scale=1,x=0,y=0,fitScale=1,mode='open',focus='fit',gesture=null;
@@ -149,7 +149,7 @@
   }
   function surfaceState(){return {fanLeft:fanSide==='left'?fanAmount:0,fanRight:fanSide==='right'?fanAmount:0,edgeInspection:!!depth,notches};}
   function sceneOptions(material){
-    return {digital:digitalProgress,edgeY,inspectionBand:depth?material.totalDepth+2*K.WIDTH*Math.sin(K.EDGE_SWEEP/2):0};
+    return {digital:digitalProgress,edgeY,...(depth&&inspectionView?inspectionView:{inspectionBand:0})};
   }
   function applyMaterial(next,sceneFrame){
     material=next||Material.compute(spread,D.pages.length,D.books);
@@ -292,6 +292,18 @@
   if(window.PaperBookDepth){
     const indexModel=window.PaperBookIndex.geometry(D.books,D.pages.length);
     notches=window.PaperBookDepth.milling(indexModel);
+    const closed=K.prepare({totalDepth:indexModel.totalDepth,leftDepth:0},1,{notches,edgeInspection:true});
+    const section={side:'right',point:(s,u,y)=>closed.pagePoint('right',s,u,y)};
+    const bounds=[closed.pagePoint('right',0,1,352),closed.pagePoint('right',indexModel.totalDepth,1,352)];
+    for(const n of notches){
+      const frame=window.PaperBookDepth.labelFrame(n,section,1);
+      for(const i of n.indices){
+        const slot=indexModel.slots[i],glyph=window.PaperBookDepth.labelGlyph(n,slot.label);
+        const v=.5+(slot.groupRow-(n.indices.length-1)/2)*.69/n.indices.length;
+        for(const [x,y]of [[-1,-1],[1,-1],[1,1],[-1,1]])bounds.push(frame.point(.5+x*glyph.width/2,v+y*glyph.height/2));
+      }
+    }
+    inspectionView=window.PaperBookScene.inspectionFraming(bounds);
     depth=window.PaperBookDepth.create({host:$('paper-solid'),model:indexModel,notches,paintPage,onContextLoss:()=>{
       fallbackSolid();if(fold?.packet)finishFold(false);else paintScene();
       feedback('已切换到兼容绘图');

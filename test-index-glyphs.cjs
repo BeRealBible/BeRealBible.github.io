@@ -9,7 +9,7 @@ const {books,pages}=require('./paper-layout.js').paginate(require('./data/bible-
 const model=Layout.geometry(books,pages.length),before=JSON.stringify(model);
 const notches=Depth.milling(model),material=Material.compute(0,pages.length,books);
 const shape={notches,edgeInspection:true},prepared=K.prepare(material,1,shape);
-const inspectionBand=model.totalDepth+K.WIDTH*2*Math.sin(K.EDGE_SWEEP/2);
+
 const near=(a,b,message)=>assert.ok(Math.abs(a-b)<1e-8,message||`${a} != ${b}`);
 assert.equal(model.slots.length,66);assert.equal(notches.length,39);
 assert.equal(JSON.stringify(model),before,'milling cannot move semantic targets');
@@ -40,9 +40,12 @@ const envelopes=notches.flatMap(n=>n.indices.map((index,j)=>{
   near(n.carrierDepth,model.slots[model.groups[slot.group].first].anchorDepth,'one group uses its first leaf, not notch centre');
   return {n,index,label:slot.label,chars,glyph,v,frame};
 }));
+const inspectionPoints=[prepared.pagePoint('right',0,1,352),prepared.pagePoint('right',model.totalDepth,1,352),
+  ...envelopes.flatMap(e=>[[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y])=>e.frame.point(.5+x*e.glyph.width/2,e.v+y*e.glyph.height/2)))];
+const inspectionView=Scene.inspectionFraming(inspectionPoints);
 const summaries=[];
 for(const view of [{w:320,h:568},{w:390,h:844},{w:430,h:932},{w:1280,h:720}]){
-  const camera=Scene.sample(1,{zoom:1,cx:480,cy:352},view,.4,null,0,material,{inspectionBand});
+  const camera=Scene.sample(1,{zoom:1,cx:480,cy:352},view,.4,null,0,material,inspectionView);
   const raster=Depth.rasterRegion({...view,camera},3);
   const densityX=raster.px/raster.w/camera.scale,densityY=raster.py/raster.h/camera.scale;
   const boxes=envelopes.map(e=>{

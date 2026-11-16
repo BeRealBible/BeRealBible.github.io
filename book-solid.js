@@ -35,13 +35,20 @@
     }
     return result;
   }
+  const strataCache=new Map();
+  function strataRange(total,from,to){
+    let lines=strataCache.get(total);
+    if(!lines){lines=strata(total);strataCache.set(total,lines);if(strataCache.size>4)strataCache.delete(strataCache.keys().next().value);}
+    const pitch=total/SHEETS;
+    return lines.slice(Math.max(0,Math.floor(from/pitch)-2),Math.min(lines.length,Math.ceil(to/pitch)+2));
+  }
   const uri=svg=>'url("data:image/svg+xml,'+encodeURIComponent(svg)+'")';
   function texture(total,from,to,kind){
     const span=to-from,fore=kind==='foreedge',diagonal=kind==='triangle-2';
     const width=fore?total:TILE,height=fore?K.HEIGHT:TILE;
     const axis=fore?`x1="0" y1="0" x2="${fmt(total)}" y2="0"`:diagonal?'x1="0" y1="0" x2="50" y2="50"':'x1="0" y1="0" x2="0" y2="100"';
     let paths='';
-    for(const line of strata(total)){
+    for(const line of strataRange(total,from,to)){
       if(line.depth<from||line.depth>to||span<=0)continue;
       const q=(line.depth-from)/span*TILE;
       const d=fore?`M${fmt(line.depth)} 0V${K.HEIGHT}`:diagonal?`M0 ${fmt(q)}L${fmt(q)} 0`:`M0 ${fmt(q)}H100`;
@@ -92,7 +99,7 @@
       const tile=doc.createElement('canvas');tile.width=tile.height=tileSize;const paint=tile.getContext('2d');
       paint.fillStyle=PAPER;paint.fillRect(0,0,tileSize,tileSize);
       const span=spec.to-spec.from,diagonal=spec.kind==='triangle-2';
-      for(const line of strata(spec.total)){
+      for(const line of strataRange(spec.total,spec.from,spec.to)){
         if(line.depth<spec.from||line.depth>spec.to||span<=0)continue;
         const q=(line.depth-spec.from)/span*tileSize;
         paint.strokeStyle=`rgba(138,126,104,${line.alpha})`;
@@ -130,7 +137,7 @@
       const triangles=[];lastFaces=0;
       for(const item of records){
         if(item.hidden||!item._vertices)continue;lastFaces++;
-        const [a,b,d]=item._vertices,name=item.style.backgroundImage?.match(/^var\((.+)\)$/)?.[1],spec=specs.get(name),kind=item.dataset.kind;
+        const [a,b,d]=item._vertices,name=item.style.backgroundImage?.match(/^var\((.+)\)$/)?.[1],spec=item._textureSpec||specs.get(name),kind=item.dataset.kind;
         if(kind!=='leather'&&!spec)continue;
         const add=(vertices,uv)=>triangles.push({points:vertices.map(project),uv,spec,kind,z:vertices.reduce((sum,p)=>sum+p.z,0)/3});
         if(item._rectangle){
@@ -158,7 +165,7 @@
     if(!host||!host.ownerDocument||typeof host.ownerDocument.createElement!=='function')throw new TypeError('PaperBookSolid.create requires a DOM host with ownerDocument');
     if(options.raster)return createRaster(host,options);
     const doc=host.ownerDocument,owned=[],pool=[],paintCache=[],sideCache={},cache=new Map(),textureNames=new Set();
-    let destroyed=false,textureBuilds=0,updates=0,used=0,topologyKey='',topology=[],endBands=[],lastKey='',lastFrame=null,skipped=0,skippedSides=0,textureSlots=0;
+    let destroyed=false,textureBuilds=0,updates=0,used=0,topologyKey='',topology=[],endBands=[],lastKey='',lastFrame=null,skipped=0,skippedSides=0,textureSlots=0,scopedTextures=false;
     host.classList.add('book-solid');host.setAttribute('aria-hidden','true');
     function node(){
       const item=doc.createElement('div');item.className='bs-face bs-paper-triangle';
@@ -167,7 +174,16 @@
     function cached(total,from,to,kind){
       const key=keyOf(total,from,to,kind);
       if(cache.has(key)){const hit=cache.get(key);cache.delete(key);cache.set(key,hit);return hit.reference;}
-      const image=host._raster?null:texture(total,from,to,kind);textureBuilds++;let name;
+      const image=host._raster?null:texture(total,from,to,kind);textureBuilds++;
+      if(scopedTextures){
+        // Scoped stop walls need more distinct UV ranges than the old pool.
+        // Immutable values may be evicted from the generation cache without
+        // overwriting a texture still referenced by an unchanged paper face.
+        const reference=host._raster?'paper:'+JSON.stringify({total,from,to,kind}):image;
+        if(cache.size>=MAX_TEXTURES)cache.delete(cache.keys().next().value);
+        cache.set(key,{reference});return reference;
+      }
+      let name;
       if(cache.size>=MAX_TEXTURES){const oldest=cache.keys().next().value;name=cache.get(oldest).name;cache.delete(oldest);}
       else{name='--bs-texture-'+textureSlots++;textureNames.add(name);}
       // Each fine-line SVG is parsed/stored once on the shared host. Faces
@@ -185,7 +201,9 @@
       if(paint.kind!==kind){item.dataset.kind=kind;paint.kind=kind;}if(paint.side!==side){item.dataset.side=side;paint.side=side;}
       const first=String(from),last=String(to);
       if(paint.from!==first){item.dataset.firstDepth=first;paint.from=first;}if(paint.to!==last){item.dataset.lastDepth=last;paint.to=last;}
-      if(item._raster){item._vertices=triangle;item._rectangle=rectangle;}
+      if(item._raster){item._vertices=triangle;item._rectangle=rectangle;
+        if(paint.image!==image)item._textureSpec=image?.startsWith('paper:')?JSON.parse(image.slice(6)):null;
+      }
       else{const transform=tileMatrix(triangle);if(paint.transform!==transform){item.style.transform=transform;paint.transform=transform;}}
       if(paint.image!==image){item.style.backgroundImage=image;paint.image=image;}
       const color=kind==='leather'?'#713b45':PAPER;
@@ -205,14 +223,41 @@
       topologyKey=key;topology=[];endBands=[];
       const depths=Array.from({length:DEPTH_BANDS+1},(_,i)=>total*i/DEPTH_BANDS);
       for(let i=0;i<END_BANDS;i++)endBands.push({s0:total*i/END_BANDS,s1:total*(i+1)/END_BANDS,end:true});
+      if(notches.some(n=>Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd))){
+        // Scope depth knots to the y bands they actually intersect. A global
+        // depth × height grid replicated each tiny stop wall across the book.
+        const ys=[...new Set([0,K.HEIGHT,...notches.flatMap(n=>[-1,-Math.SQRT1_2,0,Math.SQRT1_2,1]
+          .map(q=>Math.max(0,Math.min(K.HEIGHT,n.y+n.radius*q))))])].sort((a,b)=>a-b);
+        const shape=K.prepare({totalDepth:total},0,{notches}),blankRuns=new Map();
+        for(let j=1;j<ys.length;j++){
+          const y0=ys[j-1],y1=ys[j],active=notches.filter(n=>n.y+n.radius>y0&&n.y-n.radius<y1);
+          const local=[...new Set([...depths,...active.flatMap(n=>[...K.cutRange(n),n.carrierDepth])]
+            .filter(Number.isFinite).map(s=>Math.max(0,Math.min(total,s))))].sort((a,b)=>a-b);
+          const blank=(a,b)=>[a,(a+b)/2,b].every(s=>[y0,(y0+y1)/2,y1].every(y=>shape.edgeInset('right',s,y)===0));
+          for(let i=1;i<local.length;i++){
+            const s0=local[i-1];let s1=local[i];const regular=Math.floor((s0+s1)/2/(total/DEPTH_BANDS));
+            if(blank(s0,s1)){
+              while(i+1<local.length&&Math.floor((local[i]+local[i+1])/2/(total/DEPTH_BANDS))===regular&&blank(local[i],local[i+1]))s1=local[++i];
+              const key=s0+','+s1,prior=blankRuns.get(key);
+              if(prior&&prior.ys[1]===y0){prior.ys[1]=y1;continue;}
+              const band={s0,s1,ys:[y0,y1]};topology.push(band);blankRuns.set(key,band);
+            }else topology.push({s0,s1,ys:[y0,y1]});
+          }
+        }
+        return;
+      }
       // Include each milled recess's deepest material layer even when its
       // absolute depth falls between the regular edge tessellation samples.
-      for(const n of notches)if(n.span<total/DEPTH_BANDS*.4)depths.push(Math.max(0,Math.min(total,n.depth)));
+      for(const n of notches){
+        const scoped=Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd);
+        const points=scoped?[...K.cutRange(n),n.depth,n.carrierDepth]:n.span<total/DEPTH_BANDS*.4?[n.depth]:[];
+        for(const d of points)if(Number.isFinite(d))depths.push(Math.max(0,Math.min(total,d)));
+      }
       const sorted=[...new Set(depths)].sort((a,b)=>a-b);
       for(let band=0;band<sorted.length-1;band++){
         const s0=sorted[band],s1=sorted[band+1],ys=[0,K.HEIGHT];
         for(const n of notches){
-          if(n.depth+n.span<s0||n.depth-n.span>s1)continue;
+          const [cutStart,cutEnd]=K.cutRange(n);if(cutEnd<s0||cutStart>s1)continue;
           // A visible recess has curved shoulders and a shaded inset centre.
           for(const q of [-1,-.8660254038,-.5,0,.5,.8660254038,1])ys.push(Math.max(0,Math.min(K.HEIGHT,n.y+n.radius*q)));
         }
@@ -222,6 +267,14 @@
     function update(material,close,state={}){
       if(destroyed)return null;
       const f=K.frame(material,close,state),total=f.totalDepth;updates++;
+      const scoped=f.notches.some(n=>Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd));
+      if(scoped!==scopedTextures){
+        cache.clear();for(const name of textureNames){
+          if(host.style.removeProperty)host.style.removeProperty(name);else delete host.style[name];
+          host._textureSpecs?.delete(name);
+        }
+        textureNames.clear();textureSlots=0;scopedTextures=scoped;sideCache.left=null;sideCache.right=null;
+      }
       rebuildTopology(total,f.notches);
       const key=[total,f.leftDepth,f.close,f.fanLeft,f.fanRight,topologyKey].join('|');
       // Pan / camera-only updates must not re-tessellate a stationary book.
@@ -252,7 +305,11 @@
           // These vertices are the actual milled boundary of every depth
           // band. A cut reveals its curved paper wall rather than a black decal.
           if(!band.end)for(let j=0;j<band.ys.length-1;j++){
-            const y0=band.ys[j],y1=band.ys[j+1];
+            const y0=band.ys[j];let y1=band.ys[j+1];
+            // Coalesce untouched straight paper between the actual rounded
+            // cuts. Scoped end knots must not multiply blank CSS faces.
+            const blank=(a,b)=>[from,(from+to)/2,to].every(s=>[a,(a+b)/2,b].every(y=>points.edgeInset(side,s,y)===0));
+            if(blank(y0,y1))while(j+1<band.ys.length-1&&blank(band.ys[j+1],band.ys[j+2]))y1=band.ys[++j+1];
             const v=[points.foreedgePoint(side,from,y0),points.foreedgePoint(side,from,y1),
               points.foreedgePoint(side,to,y1),points.foreedgePoint(side,to,y0)];
             const inset=points.edgeInset(side,(from+to)/2,(y0+y1)/2);

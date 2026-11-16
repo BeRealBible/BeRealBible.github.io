@@ -70,19 +70,41 @@
     const q=Math.max(0,(Math.abs(ds)-flat)/(1-flat));
     return Math.sqrt(Math.max(0,1-q*q));
   }
+  // A milled thumb cut belongs to a fixed run of physical sheets. Its
+  // labelled carrier is the stop page, not the centre of a symmetric hole.
+  function cutRange(notch){
+    if(Number.isFinite(notch.cutStart)&&Number.isFinite(notch.cutEnd))return [notch.cutStart,notch.cutEnd];
+    const span=Math.max(.001,finite(notch.span,1.2)),depth=finite(notch.depth);
+    return [depth-span,depth+span];
+  }
+  function cutProfile(notch,s,vertical=1){
+    if(Number.isFinite(notch.cutStart)&&Number.isFinite(notch.cutEnd)){
+      const [start,end]=cutRange(notch);if(s<start||s>=end)return 0;
+      const stop=clamp(finite(notch.carrierDepth,end),start,end);
+      if(s<=stop){
+        const length=stop-start;if(length<1e-10)return 1;
+        const q=(stop-s)/length/Math.max(1e-10,vertical);
+        return Math.sqrt(Math.max(0,1-q*q));
+      }
+      const tail=(s-stop)/Math.max(1e-10,(end-stop)*vertical);
+      return Math.sqrt(Math.max(0,1-tail*tail));
+    }
+    const ds=(s-finite(notch.depth))/Math.max(.001,finite(notch.span,1.2));
+    return Math.abs(ds)>=1?0:shoulderFactor(notch,ds,vertical);
+  }
   function pagePoint(side,s,u,y,material,close,state){return at(side,s,u,y,frame(material,close,state));}
   function edgeInset(side,s,y,material,state={}){
     sign(side);const f=frame(material,0,state),layer=clamp(finite(s),0,f.totalDepth);let inset=0;
     // The milling profile is attached to ABSOLUTE sheets, never to whichever
     // side currently owns them. Closed-book split changes cannot move a cut.
     for(const notch of f.notches){
-      const radius=Math.max(.001,finite(notch.radius,13)),span=Math.max(.001,finite(notch.span,1.2));
-      const dy=(finite(y)-finite(notch.y))/radius,ds=(layer-finite(notch.depth))/span;
-      if(Math.abs(dy)>=1||Math.abs(ds)>=1)continue;
+      const radius=Math.max(.001,finite(notch.radius,13));
+      const dy=(finite(y)-finite(notch.y))/radius;
+      if(Math.abs(dy)>=1-1e-9)continue;
       // A thumb recess is milled through a run of neighbouring sheets:
       // a flat depth floor with rounded shoulders, not a tiny spherical dent.
       const vertical=Math.sqrt(1-dy*dy);
-      const value=Math.min(26,Math.max(0,finite(notch.inset,19)))*vertical*shoulderFactor(notch,ds,vertical);
+      const value=Math.min(26,Math.max(0,finite(notch.inset,19)))*vertical*cutProfile(notch,layer,vertical);
       inset=Math.max(inset,value);
     }
     return inset;
@@ -93,16 +115,15 @@
   function prepare(material,close,state={}){
     const f=frame(material,close,state),byY=new Map(),edgePoints={left:new Map(),right:new Map()};
     const notches=f.notches.map(n=>({depth:finite(n.depth),y:finite(n.y),radius:Math.max(.001,finite(n.radius,13)),
-      span:Math.max(.001,finite(n.span,1.2)),inset:Math.min(26,Math.max(0,finite(n.inset,19))),milled:n.milled}));
+      span:Math.max(.001,finite(n.span,1.2)),inset:Math.min(26,Math.max(0,finite(n.inset,19))),milled:n.milled,cutStart:n.cutStart,cutEnd:n.cutEnd,carrierDepth:n.carrierDepth}));
     function inset(side,s,y){
       sign(side);const layer=clamp(finite(s),0,f.totalDepth),yy=finite(y);let rows=byY.get(yy),value=0;
       if(!rows){
-        rows=[];for(const n of notches){const dy=(yy-n.y)/n.radius;if(Math.abs(dy)<1)rows.push({n,vertical:Math.sqrt(1-dy*dy)});}
+        rows=[];for(const n of notches){const dy=(yy-n.y)/n.radius;if(Math.abs(dy)<1-1e-9)rows.push({n,vertical:Math.sqrt(1-dy*dy)});}
         byY.set(yy,rows);
       }
       for(const {n,vertical}of rows){
-        const ds=(layer-n.depth)/n.span;if(Math.abs(ds)>=1)continue;
-        value=Math.max(value,n.inset*vertical*shoulderFactor(n,ds,vertical));
+        value=Math.max(value,n.inset*vertical*cutProfile(n,layer,vertical));
       }
       return value;
     }
@@ -180,7 +201,7 @@
   }
   function bottomMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,HEIGHT,segments,state);}
   function headMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,0,segments,state);}
-  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,EDGE_SWEEP,inspectionAmount,fanCapacity,frame,prepare,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
+  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,EDGE_SWEEP,inspectionAmount,fanCapacity,frame,prepare,cutRange,cutProfile,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
     surfaceStripMatrix,surfaceStripMatrixValues,
     topMatrix,topMatrixValues,foreedgeMatrix,foreedgeMatrixValues,matrixCSS,transformPoint,
     triangleMatrixValues,edgeMesh,bottomMesh,headMesh};

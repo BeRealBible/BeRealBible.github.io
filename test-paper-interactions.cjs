@@ -44,7 +44,7 @@ function fixture(startSpread=2,options={}){
     requestAnimationFrame:fn=>{const id=nextId++;timers.set(id,{fn:()=>fn(now),at:now+16});return id;},cancelAnimationFrame:id=>timers.delete(id),
     ResizeObserver:class{constructor(fn){observer=fn;}observe(){}},addEventListener:(name,fn)=>listen(events,name,fn),dispatchEvent:e=>events[e.type]?.(e)};
   const depthFrames=[];
-  if(options.depth){context.PaperBookPacket=require('./book-packet.js');context.PaperBookDepth={milling:require('./book-depth.js').milling,create:()=>({prepare(){},update:frame=>depthFrames.push({frame,pose:el('book').style.transform}),getStats:()=>({ms:1})})};}
+  if(options.depth){context.PaperBookPacket=require('./book-packet.js');context.PaperBookDepth={...require('./book-depth.js'),create:()=>({prepare(){},update:frame=>depthFrames.push({frame,pose:el('book').style.transform}),getStats:()=>({ms:1})})};}
   context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync('bible-data.js','utf8'),context);vm.runInContext(fs.readFileSync('book-kinematics.js','utf8'),context);vm.runInContext(fs.readFileSync('book-scene.js','utf8'),context);vm.runInContext(fs.readFileSync('paper-typography.js','utf8'),context);vm.runInContext(fs.readFileSync('paper-page.js','utf8'),context);vm.runInContext(fs.readFileSync('app.js','utf8'),context);
   function advance(ms){const end=now+ms;let loops=0;while(true){const upcoming=[...timers].filter(([id,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!upcoming)break;if(++loops>10000)throw Error('timer loop');now=upcoming[1].at;timers.delete(upcoming[0]);upcoming[1].fn();}now=end;}
   // A synchronous fake clock skips Promise continuations between RAF callbacks.

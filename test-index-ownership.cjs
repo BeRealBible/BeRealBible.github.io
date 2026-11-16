@@ -179,24 +179,88 @@ for(const n of notches){
     assert.equal(Depth.labelSection(n,sections).side,split===n.carrierDepth?'right':'left');
   }
 }
-let hitChecks=0,blockedSamples=0,closedHitChecks=0,closedInkChecks=0,blankPaperChecks=0;
+let hitChecks=0,blockedSamples=0,closedHitChecks=0,closedInkChecks=0,blankPaperChecks=0,visibleUploadChecks=0,occlusionProofChecks=0,occludedCodeChecks=0;
 function centre(slot,u=.5){
   const n=notches[slot.group],frame=f.renderer.getLabelFrame(slot.index);
   const v=.5+(slot.groupRow-(n.indices.length-1)/2)*.69/n.indices.length;
   return {...Solid.project(frame.point(u,v)),side:frame.side};
 }
+// Build an independent occlusion view from the actual Float32 GPU uploads.
+// Do not use the renderer's CPU frontAt/atPixel or its hit result to decide
+// which ordinary fan labels ought to be exposed. A passed carrier can now
+// correctly sit behind an uncut later leaf instead of staying always on top.
+function uploadedOcclusion(state){
+  const buckets=new Map(),lens=Solid.RASTER.PERSPECTIVE;
+  for(const data of state.draws)for(let base=0;base<data.length;base+=stride*3){
+    const kind=data[base+8],points=[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}));
+    const projected=points.map(Solid.project),[a,b,c]=projected;
+    const area=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);if(Math.abs(area)<1e-9)continue;
+    // CSS screen y points down, while WebGL front-facing winding points up.
+    // The printed leaf shader discards the non-reading face; the paper edge
+    // and single-carrier stock are double-sided.
+    if((kind===3||kind===4)&&((kind===4)!==(area<0)))continue;
+    let book=-1,group=-1;
+    if(kind===5){
+      const decoded=decode(data,base),n=decoded.n;group=n.group;
+      const v=decoded.local.reduce((sum,p)=>sum+p[1],0)/3;
+      const row=Math.max(0,Math.min(n.indices.length-1,Math.round((v-.5)*n.indices.length/.69+(n.indices.length-1)/2)));
+      book=n.indices[row];
+    }
+    const tri={kind,book,group,points,projected,minX:Math.min(a.x,b.x,c.x),maxX:Math.max(a.x,b.x,c.x),minY:Math.min(a.y,b.y,c.y),maxY:Math.max(a.y,b.y,c.y)};
+    for(let row=Math.floor(tri.minY/32);row<=Math.floor(tri.maxY/32);row++){
+      if(!buckets.has(row))buckets.set(row,[]);buckets.get(row).push(tri);
+    }
+  }
+  return (x,y)=>{
+    const hits=[];
+    for(const tri of buckets.get(Math.floor(y/32))||[]){
+      if(x<tri.minX-1e-5||x>tri.maxX+1e-5||y<tri.minY-1e-5||y>tri.maxY+1e-5)continue;
+      const [a,b,c]=tri.projected,det=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);
+      const wa=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/det;
+      const wb=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/det,wc=1-wa-wb;
+      if(Math.min(wa,wb,wc)<-1e-5)continue;
+      const weights=[wa,wb,wc].map((w,i)=>w/(1-tri.points[i].z/lens)),sum=weights.reduce((a,b)=>a+b,0);
+      const z=weights.reduce((s,w,i)=>s+w*tri.points[i].z,0)/sum;
+      hits.push({...tri,z});
+    }
+    return hits.sort((a,b)=>b.z-a.z);
+  };
+}
 function checkHits(spread,side,close,codes){
-  const state=draw(spread,side,close,true),found=new Set();
+  const state=draw(spread,side,close,true),found=new Set(),expectedVisible=new Set(),blockedByCode=new Map();
+  const uploaded=close<1?uploadedOcclusion(state):null;
   for(const slot of model.slots){
     const p=centre(slot),onSide=close===1?'both':p.side;
     for(const u of [.35,.5,.65]){
       const q=centre(slot,u),hit=f.renderer.hit(q.x,q.y,0,onSide);
-      if(hit===slot.index){found.add(books[slot.index].code);hitChecks++;}
+      const code=books[slot.index].code;
+      if(uploaded){
+        const layers=uploaded(q.x,q.y),target=layers.find(t=>t.kind===5&&t.book===slot.index);
+        assert.ok(target,`${spread}: ${code} has its actual uploaded ink triangle at this sample`);
+        // Occlusion uses the uploaded piecewise-planar depth, not q.z from
+        // the analytic curved leaf (their interiors need not be identical).
+        assert.ok(Number.isFinite(target.z),'the uploaded carrier has finite interpolated depth');
+        const blocker=layers.find(t=>!(t.kind===5&&t.book===slot.index)&&t.z>target.z+.0008);
+        if(blocker){
+          assert.notEqual(hit,slot.index,`${spread}: ${code} cannot be hit through a genuinely nearer uploaded paper face`);
+          assert.ok([0,1,2,3,4,5,6].includes(blocker.kind),'occlusion evidence is real paper/cover/another printed carrier');
+          assert.ok(blocker.kind!==5||blocker.book!==slot.index,'the target itself cannot be used as its own blocking proof');
+          blockedByCode.set(code,(blockedByCode.get(code)||0)+1);occlusionProofChecks++;
+        }else{
+          expectedVisible.add(code);
+          assert.equal(hit,slot.index,`${spread}: actually exposed ${code} must remain clickable`);visibleUploadChecks++;
+        }
+      }
+      if(hit===slot.index){found.add(code);hitChecks++;}
       else blockedSamples++;
       if(close<1)assert.notEqual(f.renderer.hit(q.x,q.y,0,p.side==='left'?'right':'left'),slot.index,'wrong-side filter cannot revive a label');
     }
   }
-  for(const code of codes)assert.ok(found.has(code),`${spread}/${side}/close=${close} loses readable clickable ${code}`);
+  for(const code of codes){
+    if(close===1||expectedVisible.has(code))assert.ok(found.has(code),`${spread}/${side}/close=${close} loses readable clickable ${code}`);
+    else{assert.equal(blockedByCode.get(code),3,`${spread}: every non-visible ${code} centre requires independent uploaded-paper occlusion evidence`);occludedCodeChecks++;}
+  }
+  if(close<1)assert.ok(expectedVisible.size>0&&found.size>0,'ordinary fanning still exposes real, usable labels; an all-hidden index is not accepted');
   if(close===1){
     checkUpload(state);
     closedHitChecks+=found.size;
@@ -267,5 +331,5 @@ for(const [start,end]of paths){
   }
 }
 assert.ok(blockedSamples>0,'real paper occlusion is included; tests do not treat all projected labels as always on top');
-console.log(JSON.stringify({ownershipStates:ownershipStates.length,carrierVertexChecks,plainEdgeChecks,plainCarrierVertexChecks,sharedEdgeChecks,originalLeafJoins,materialColourChecks,colourSeamChecks,hitChecks,blockedSamples,closedHitChecks,closedInkChecks,blankPaperChecks,
+console.log(JSON.stringify({ownershipStates:ownershipStates.length,carrierVertexChecks,plainEdgeChecks,plainCarrierVertexChecks,sharedEdgeChecks,originalLeafJoins,materialColourChecks,colourSeamChecks,hitChecks,blockedSamples,visibleUploadChecks,occlusionProofChecks,occludedCodeChecks,closedHitChecks,closedInkChecks,blankPaperChecks,
   packetPaths:paths.length,endpointChecks,reverseFrameChecks,printedFacesIncluded:true}));

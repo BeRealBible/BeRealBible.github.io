@@ -28,6 +28,7 @@
   function labelFrame(n,section,inspection=0){
     const c=n.carrierDepth,w=n.labelWidth,h=n.labelHeight;
     const rootU=1-(w+1)/K.WIDTH,H=section.point(c,rootU,n.y-h/2);
+    const foldRoot=-16/w;
     const B=section.point(c,rootU+.001,n.y-h/2);
     const angle=Math.atan2(B.z-H.z,B.x-H.x);
     // The original page margin is flat while fanned. Only its unprinted root
@@ -37,7 +38,8 @@
     let turn=target-angle;while(turn>Math.PI)turn-=2*Math.PI;while(turn< -Math.PI)turn+=2*Math.PI;
     const a=angle+turn*inspection,e={x:Math.cos(a),y:0,z:Math.sin(a)};
     const basePoint=(u,v)=>section.point(c,rootU+u*w/K.WIDTH,n.y-h/2+h*v);
-    const rigidPoint=(u,v)=>({x:H.x+e.x*w*u,y:H.y+h*v,z:H.z+e.z*w*u});
+    const origin={x:H.x,y:H.y,z:H.z+18*inspection};
+    const rigidPoint=(u,v)=>({x:origin.x+e.x*w*u,y:origin.y+h*v,z:origin.z+e.z*w*u});
     // In an open/fanned book this is the original leaf, including its slight
     // page curvature. The closed inspection pose has a rigid printed margin.
     const point=(u,v)=>{
@@ -45,9 +47,9 @@
       const r=rigidPoint(u,v);if(inspection===1)return r;
       return {x:mix(b.x,r.x,inspection),y:mix(b.y,r.y,inspection),z:mix(b.z,r.z,inspection)};
     };
-    return {carrierDepth:c,width:w,height:h,point,rootU,basePoint,
+    return {carrierDepth:c,width:w,height:h,point,rootU,foldRoot,basePoint,
       side:section.side,moving:!!section.moving,
-      matrix:[e.x,0,e.z,0,0,1,0,0,-e.z,0,e.x,0,H.x,H.y,H.z,1]};
+      matrix:[e.x,0,e.z,0,0,1,0,0,-e.z,0,e.x,0,origin.x,origin.y,origin.z,1]};
   }
   function carrierPatch(n,section,inspection,notches){
     const frame=labelFrame(n,section,inspection),w=frame.width,h=frame.height,c=n.carrierDepth;
@@ -62,18 +64,18 @@
       // The fold root can start inside the pre-existing page margin. Retain
       // that unprinted material rather than connecting an isolated paper card
       // by a neck. At either cut extremum protection vanishes and width is 0.
-      const start=cut>0?cut*(1-p):cut;
+      const oldStart=cut>0?cut*(1-p):cut;
+      const start=Math.min(oldStart,mix(cut,frame.foldRoot,p));
       return {start,cut,end:Math.max(start,end),protect:p};
     }
-    const frameCache=new Map();
     function point(u,v){
-      const b=frame.basePoint(u,v);if(inspection===0||u<=0)return b;
-      const limits=bounds(v),fold=inspection*limits.protect;if(fold<=0)return b;
-      let f=frameCache.get(fold);if(!f){f=labelFrame(n,section,fold);frameCache.set(fold,f);}
-      const p=f.point(u,v);
-      // Beyond the printed area the paper turns progressively from its true
-      // attachment edge; only this unprinted rim is allowed to bend in y.
-      const attachment=limits.start<=0?1:smooth((u-limits.start)/Math.max(.001,(limits.end-limits.start)*.2));
+      const b=frame.basePoint(u,v);if(inspection===0||u<=frame.foldRoot)return b;
+      const limits=bounds(v),radial=Math.hypot((u-.5)*2,(v-.5)*2);
+      // Retain the ink plane's tangential direction. Re-rotating each blank
+      // corner would curl it across the letters; only its lift falls away.
+      const oval=1-smooth((radial-1)/.3),p=frame.point(u,v);
+      p.z-=18*inspection*inspection*(1-oval);
+      const attachment=(u>=0&&limits.start<0?1:smooth((u-limits.start)/Math.max(.001,-limits.start)))*limits.protect;
       return {x:mix(b.x,p.x,attachment),y:mix(b.y,p.y,attachment),z:mix(b.z,p.z,attachment)};
     }
     const rows=unique([.5-n.radius/h,0,1,.5+n.radius/h,
@@ -109,7 +111,22 @@
       // Plain rows use the same u boundaries, including the rows immediately
       // above/below the atlas. This avoids T-junctions along its four sides.
       add(6,clip(quad,0,0,false));
-      add(printed?5:6,clip(clip(quad,0,0,true),0,1,false),printed?n.indices[labelRow(n,(a+b)/2)]:-1);
+      const rectangle=clip(clip(quad,0,0,true),0,1,false);
+      const half=v=>.5*Math.sqrt(Math.max(0,1-(2*clamp(v,0,1)-1)**2));
+      const left=[.5-half(a),.5-half(b)],right=[.5+half(a),.5+half(b)];
+      const diagonal=(poly,line,greater)=>{
+        const out=[],distance=p=>p[0]-mix(line[0],line[1],(p[1]-a)/(b-a));
+        for(let i=0;i<poly.length;i++){
+          const p=poly[i],q=poly[(i+1)%poly.length],dp=distance(p),dq=distance(q);
+          const ip=greater?dp>=0:dp<=0,iq=greater?dq>=0:dq<=0;if(ip)out.push(p);
+          if(ip!==iq){const t=dp/(dp-dq);out.push([mix(p[0],q[0],t),mix(p[1],q[1],t)]);}
+        }
+        return out;
+      };
+      const kind=printed?5:6,book=printed?n.indices[labelRow(n,(a+b)/2)]:-1;
+      add(kind,diagonal(rectangle,left,false),book);
+      add(kind,diagonal(diagonal(rectangle,left,true),right,false),book);
+      add(kind,diagonal(rectangle,right,true),book);
       add(6,clip(quad,0,1,true));
     }
     return {frame,rows,bounds,point,polygons,protect,carrierDepth:c};
@@ -120,11 +137,9 @@
   }
   const unique=xs=>[...new Set(xs.map(x=>+x.toFixed(9)))].sort((a,b)=>a-b);
   const tone=(n,s,y)=>{
-    const q=Math.abs((s-n.depth)/n.span),v=Math.abs((y-n.y)/n.radius);
-    const cut=Math.max(0,1-v*v);
-    // Thin bright cut fibres at the rim, warm deeper fibres at the floor.
-    const rim=Math.max(q,v);
-    return rim>=1?0:Math.min(.999,.24+.76*Math.pow(cut,.24)*Math.pow(1-q,.27));
+    const v=Math.abs((y-n.y)/n.radius);if(v>=1)return 0;
+    const vertical=Math.sqrt(1-v*v),profile=K.cutProfile(n,s,vertical);
+    return profile<=0?0:Math.min(.999,.24+.76*Math.pow(vertical,.48)*Math.pow(profile,.27));
   };
   function milling(model){
     return model.groups.map(g=>{
@@ -133,23 +148,20 @@
       const labelWidth=maxChars>1?20:13;
       const labelRadius=Math.max(n.radius,g.indices.length>=3?g.indices.length*5.6:13);
       const radius=labelRadius*1.2;
-      const foldSign=carrier.anchorDepth<d/2?1:-1;
-      // Centre the cavity around the actual sheet and its fixed folding space.
-      // Only the support interval is clipped by the book ends; never move the
-      // carrier to a decorative notch centre or split a label across sheets.
-      const span=Math.max(n.span*1.16,labelWidth/3.6*.85);
-      return {...n,depth:carrier.anchorDepth+foldSign*span*.5,span,radius,milled:true,
+      // Physical support comes from semantic layout, never label dimensions.
+      return {...n,radius,milled:true,
         inset:labelWidth+4,carrierDepth:carrier.anchorDepth,carrierSheet:carrier.sheet,
-        labelWidth,labelHeight:labelRadius*1.84,maxChars,foldSign,
+        labelWidth,labelHeight:labelRadius*1.84,maxChars,foldSign:-1,
         group:g.index,indices:g.indices,testament:g.testament};
     });
   }
   function topology(total,notches){
     const knots=[-1,-.88,-.65,-.42,0,.42,.65,.88,1];
     const depths=unique([0,total,...Array.from({length:11},(_,i)=>total*i/10),
-      ...notches.flatMap(n=>knots.map(q=>clamp(n.depth+n.span*q,0,total)))]);
+      ...notches.flatMap(n=>[...knots.map(q=>n.depth+n.span*q),...K.cutRange(n),n.carrierDepth,
+        n.cutStart+(n.carrierDepth-n.cutStart)*.5].filter(Number.isFinite).map(s=>clamp(s,0,total)))]);
     return depths.slice(1).map((hi,i)=>{
-      const lo=depths[i],active=notches.filter(n=>n.depth+n.span>lo+1e-8&&n.depth-n.span<hi-1e-8);
+      const lo=depths[i],active=notches.filter(n=>{const [a,b]=K.cutRange(n);return b>lo+1e-8&&a<hi-1e-8;});
       const ys=unique([0,K.HEIGHT,...active.flatMap(n=>[
         ...Array.from({length:9},(_,j)=>clamp(n.y-n.radius*Math.cos(Math.PI*j/8),0,K.HEIGHT)),
         // Keep deterministic cuts near the clustered semantic rows.
@@ -372,11 +384,19 @@
       let y0,y1;
       const result=[];
       for(let j=0;j<band.cuts.length;j++){
-        y0=band.ys[j];y1=band.ys[j+1];const n=band.cuts[j],mid=(a+b)/2;
-        if(!n){while(j+1<band.cuts.length&&!band.cuts[j+1])y1=band.ys[++j+1];}
+        y0=band.ys[j];y1=band.ys[j+1];let n=band.cuts[j];const mid=(a+b)/2;
+        const blank=(lo,hi)=>[a,mid,b].every(s=>[lo,(lo+hi)/2,hi].every(y=>pointSource.edgeInset(side,s,y)===0));
+        if(!n&&blank(y0,y1))while(j+1<band.cuts.length&&!band.cuts[j+1]&&blank(band.ys[j+1],band.ys[j+2]))y1=band.ys[++j+1];
+        if(!n&&!blank(y0,y1)){
+          let strength=0;
+          for(const candidate of notches){
+            const value=Math.max(...[a,mid,b].flatMap(s=>[y0,(y0+y1)/2,y1].map(y=>tone(candidate,s,y))));
+            if(value>strength){n=candidate;strength=value;}
+          }
+        }
         const verts=[[a,y0],[b,y0],[b,y1],[a,y1]];
         const meta=verts.map(([s,y])=>{
-          const cut=n?pointSource.edgeInset(side,s,y):0;
+          const cut=pointSource.edgeInset(side,s,y);
           const c=n?tone(n,s,y):0,tint=n?clamp(cut/(n.inset*.74),0,1):0;
           return [0,0,s,[tint,1-.12*tint+.025*c]];
         });
@@ -503,6 +523,7 @@
         const patch=carrierPatch(n,section,inspection,notches),frame=patch.frame;
         labelFrames.set(n.group,frame);
         const pa=frame.point(.49,.5),pb=frame.point(.51,.5);
+        const colourVertices=new Map();
         const leafLight=.89+.11*Math.abs(pb.x-pa.x)/(Math.hypot(pb.x-pa.x,pb.z-pa.z)||1);
         // Restore the actual carrier leaf at its cut, not an oval piece of
         // backing paper. The oval lives in the ink atlas only; the surrounding
@@ -513,10 +534,13 @@
             for(let k=0;k<3;k++){
               const [u,v]=local[k],p=points[k],uv=kind===5?atlasUV(n,u,v,rows):[.0001,.0001];
               const backUV=kind===5?atlasUV(n,1-u,v,rows):[.0001,.0001];
-              const outwardU=frame.rootU+u*frame.width/K.WIDTH;
+              let outwardU=frame.rootU+u*frame.width/K.WIDTH;
               // Only the unprinted return fold receives this soft recess
               // shade. Shared UV boundaries use identical material/light.
-              const light=leafLight*(1-.10*inspection*(1-patch.protect(v)));
+              let light=leafLight*(1-.10*inspection*(1-patch.protect(v)));
+              const colourKey=[p.x,p.y,p.z].map(Math.fround).join(',');
+              if(colourVertices.has(colourKey))[outwardU,light]=colourVertices.get(colourKey);
+              else colourVertices.set(colourKey,[outwardU,light]);
               body.push(p.x,p.y,p.z,...uv,n.carrierDepth/T,outwardU,light,kind,...backUV,kind===5?1:0);
             }
             if(pick)hitTris.push(projectTriangle({points,meta:kind===5?local:null,n:kind===5?n:null,book}));
@@ -524,7 +548,7 @@
         }
       }
       const leaf=(index,s,section,faceSide)=>{
-        const point=section.point,relevant=notches.filter(n=>Math.abs(n.depth-s)<n.span);
+        const point=section.point,relevant=notches.filter(n=>{const [a,b]=K.cutRange(n);return s>=a&&s<b;});
         const lastYs=unique([0,K.HEIGHT,...relevant.flatMap(n=>Array.from({length:17},(_,j)=>n.y-n.radius*Math.cos(j*Math.PI/16)))]);
         const uv=(u,y,light)=>[faceSide==='left'?1-u:u,y/K.HEIGHT,0,light];
         for(let i=0;i<32;i++){
