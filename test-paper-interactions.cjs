@@ -62,6 +62,26 @@ function fixture(startSpread=2,options={}){
 }
 const scenarios=[];
 function test(name,fn){scenarios.push({name,fn});}
+// Zero-Z 3D and 2D translations have identical geometry. Compare their
+// numeric camera pose at handoffs, without forcing the reading compositor
+// back into the old 3D spelling merely to satisfy a string equality.
+function cameraPose(transform){
+  const m=transform.match(/^translate(?:3d)?\(([-\d.]+)px,([-\d.]+)px(?:,0)?\) scale\(([-\d.]+)\)$/);
+  assert.ok(m,`unexpected book camera: ${transform}`);return m.slice(1).map(Number);
+}
+function assertVectorReading(f,spread,svg){
+  const book=f.el('book'),stage=f.el('stage');
+  assert.equal(stage.dataset.scene,'reading');assert.equal(stage.dataset.spread,String(spread));
+  assert.equal(f.el('body').dataset.paperScene,'reading');
+  assert.equal(book.classList.contains('curl-active'),false);
+  assert.equal(book.classList.contains('has-curved-leaves'),false);
+  assert.match(book.style.transform,/^translate\(/,'settled zoom must not force a 3D book layer');
+  const pose=cameraPose(book.style.transform);
+  ['x','y','scale'].forEach((key,i)=>assert.ok(Math.abs(pose[i]-Number(stage.dataset[key]))<.006,'camera UI and exact transform agree'));
+  assert.deepEqual(['left-paper','right-paper'].map(id=>f.el(id).innerHTML),svg,
+    'zoom must retain the exact scripture, font sizes and SVG glyph coordinates');
+  assert.equal(f.depthFrames.at(-1).frame.printed,null,'static scripture must not stay in the curved raster');
+}
 test('long press exposes true next recto while spread is unchanged; cancel restores original',()=>{
   const f=fixture(),original=f.el('right-paper').innerHTML,p=f.held();assert.equal(f.el('stage').dataset.foldState,'held');
   assert.deepEqual(f.rendered[0],{front:3,back:4,direction:1,count:1});assert.ok(f.el('right-paper').innerHTML.includes('第 5 页'));
@@ -457,7 +477,7 @@ test('depth packet: first paint keeps the fan, no mid-turn storage and last pose
     const page=f.context.BIBLE_DATA.books[i].first&~1;
     assert.equal(stage.dataset.spread,String(page));
     const last=f.depthFrames.filter(x=>x.frame.packet).at(-1);
-    assert.equal(last.frame.packet.progress,1);assert.equal(last.pose,book.style.transform);
+    assert.equal(last.frame.packet.progress,1);assert.deepEqual(cameraPose(last.pose),cameraPose(book.style.transform));
     assert.equal(last.frame.packet.s1,Material.compute(page,f.context.BIBLE_DATA.pages.length).leftDepth);
   }
 });
@@ -467,7 +487,7 @@ test('depth packet: reverse settles along the same path before any page commit',
   const fanned=book.style.transform;f.selectBook(39);await f.advanceAsync(800);
   const p=Number(stage.dataset.foldProgress),pose=book.style.transform;f.closeIndex();assert.equal(book.style.transform,pose);
   await f.advanceAsync(180);assert.ok(Number(stage.dataset.foldProgress)<p&&Number(stage.dataset.foldProgress)>0);
-  await f.untilScene('reading');assert.equal(stage.dataset.spread,'570');assert.equal(book.style.transform,readPose);
+  await f.untilScene('reading');assert.equal(stage.dataset.spread,'570');assert.deepEqual(cameraPose(book.style.transform),cameraPose(readPose));
   const last=f.depthFrames.filter(x=>x.frame.packet).at(-1);assert.equal(last.frame.packet.progress,0);assert.equal(last.pose,fanned);
 });
 test('fan vertical browsing only moves camera and blank tap puts the same paper back',async()=>{
@@ -484,6 +504,60 @@ test('fan digital fallback retains the same book and retracts before opening a d
 test('an empty first-page left side cannot fabricate a fan or extra paper',async()=>{
   const f=fixture(0);f.el('left-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.advanceAsync(1500);
   assert.equal(f.el('stage').dataset.scene,'reading');assert.equal(f.el('stage').dataset.leftSheets,'0.0000');
+});
+// These assertions protect the verified browser fix's controller/style
+// contract. They do NOT measure text rasterization or replace 218% visual QA.
+test('reading promotion override is scoped away from page curls and preserves the shared 3D lens',()=>{
+  const css=fs.readFileSync('book-scene.css','utf8'),base=fs.readFileSync('style.css','utf8');
+  const rule=css.match(/body\[data-paper-scene=['"]reading['"]\]\s+\.book:not\(\.curl-active\)\s*\{([^}]+)\}/);
+  assert.ok(rule,'only settled reading releases the pre-promoted book layer');
+  assert.match(rule[1],/^\s*will-change\s*:\s*auto\s*;?\s*$/,'do not flatten or replace the book perspective to fix text');
+  assert.match(base,/\.book\{[^}]*will-change:transform/,'directory and active curls retain the existing promotion hint');
+  assert.match(css,/\.book\{[^}]*transform-style:preserve-3d;perspective:1800px/);
+  assert.match(css,/\.book:not\(\.has-curved-leaves\) \.paper\{[^}]*translateZ\(300px\) scale\(\.833333333333\)/,
+    'retain the calibrated flat-ink depth isolation and its inverse projection');
+});
+test('218 percent reading zoom keeps exact vector glyphs and uses a 2D camera without page changes',()=>{
+  const f=fixture(1174,{width:1600,height:1168,depth:true});
+  const svg=['left-paper','right-paper'].map(id=>f.el(id).innerHTML),before=materialState(f);
+  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
+  assert.equal(f.el('zoom-value').textContent,'218%');assert.equal(f.el('stage').dataset.scale,'3.2000');
+  assertVectorReading(f,1174,svg);assert.equal(f.rendered.length,0);
+  for(const key of Object.keys(before))closeTo(materialState(f)[key],before[key],`zoom changed ${key}`);
+  const highPose=cameraPose(f.el('book').style.transform);
+  f.el('zoom-out').onclick();assertVectorReading(f,1174,svg);
+  f.el('zoom-in').onclick();assertVectorReading(f,1174,svg);
+  assert.deepEqual(cameraPose(f.el('book').style.transform),highPose,'zoom out/in at the same centre must restore the same camera');
+  assert.ok(f.saved.every(s=>s.value.spread===1174),'zoom cannot persist a different opening');
+});
+test('directory selection returns to unpromoted vector zoom without changing target scripture geometry',async()=>{
+  const f=fixture(1174,{width:1600,height:1168,depth:true}),book=f.el('book');
+  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
+  const initial=['left-paper','right-paper'].map(id=>f.el(id).innerHTML);
+  f.el('view-edge').onclick();await f.untilScene('edge');
+  assert.equal(f.el('body').dataset.paperScene,'directory');assert.match(book.style.transform,/^translate3d\(/);
+  assert.ok(book.classList.contains('has-curved-leaves'),'directory still renders physical 3D leaves');
+  f.el('scene-back').onclick();await f.untilScene('reading');assertVectorReading(f,1174,initial);
+  f.el('zoom-out').onclick();f.el('zoom-in').onclick();assertVectorReading(f,1174,initial);
+  f.el('view-edge').onclick();await f.untilScene('edge');
+  const target=52,page=f.context.BIBLE_DATA.books[target].first&~1;
+  f.selectBook(target);await f.untilScene('reading');
+  const expected=[page,page+1].map(i=>f.context.PaperPage.svg(f.context.BIBLE_DATA.pages[i],i,f.context.BIBLE_DATA.books));
+  assertVectorReading(f,page,expected);
+  for(let i=0;i<3;i++)f.el('zoom-in').onclick();assertVectorReading(f,page,expected);
+});
+test('ordinary turn keeps its curl surface and returns to exact vector text before renewed zoom',async()=>{
+  const f=fixture(1174,{width:1600,height:1168,depth:true});
+  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
+  f.el('next').onclick();
+  assert.ok(f.el('book').classList.contains('curl-active'),'active curl must stay outside the promotion override');
+  assert.equal(f.el('body').dataset.paperScene,'reading');assert.equal(f.rendered.length,1);
+  await f.advanceAsync(900);
+  const page=1176,expected=[page,page+1].map(i=>f.context.PaperPage.svg(f.context.BIBLE_DATA.pages[i],i,f.context.BIBLE_DATA.books));
+  assert.equal(f.el('stage').dataset.foldState,'committed');assertVectorReading(f,page,expected);
+  f.el('zoom-out').onclick();assertVectorReading(f,page,expected);
+  f.el('zoom-in').onclick();assertVectorReading(f,page,expected);
+  assert.equal(f.el('zoom-value').textContent,'218%');
 });
 test('flat ink compositor isolation preserves screen pixels and leaves curl above ribbons',async()=>{
   for(const [z,s] of [[300,.833333333333],[320,.822222222222],[600,.666666666667]]){

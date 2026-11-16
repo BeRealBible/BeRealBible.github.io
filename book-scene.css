@@ -112,3 +112,7 @@ body[data-paper-scene='directory'] .scene-controls{
 body[data-paper-phase='fan-turn'] .scene-bottom{visibility:hidden}
 @media (max-width:720px){.scene-topbar span{display:none}}
 .book.has-curved-leaves:has(.book-solid[data-renderer='shared-depth']) .gutter{visibility:hidden}
+
+/* A settled vector page must re-rasterize at the reading zoom, not magnify a
+   pre-promoted book texture. Actual page turns keep their own 3D surfaces. */
+body[data-paper-scene='reading'] .book:not(.curl-active){will-change:auto}

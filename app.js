@@ -214,7 +214,7 @@
     x=clamp(x,bounds.minX,bounds.maxX);y=clamp(y,bounds.minY,bounds.maxY);
   }
   function transform(){
-    book.style.transform=`translate3d(${x}px,${y}px,0) scale(${scale})`;
+    book.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
     $('zoom-value').textContent=Math.round(scale/fitScale*100)+'%';
     $('zoom-in').disabled=scale>=3.2;$('zoom-out').disabled=scale<=fitScale;
     const map=$('viewport-map'),mw=map.clientWidth,mh=map.clientHeight;
