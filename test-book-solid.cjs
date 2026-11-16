@@ -92,7 +92,18 @@ for(const spread of [0,398,570,920,1232])for(const close of [0,.3,.7,1]){
   solid.update(M.compute(spread,actual.pages.length,actual.books),close,{fanLeft:1,fanRight:1,notches:actualNotches});
   maxActualFaces=Math.max(maxActualFaces,solid.getStats().activeFaces);
 }
-check(maxActualFaces<=800,'real dense NT rounded cuts remain within 800 active faces');
+// 39 individual cuts replace 22 coarse groups; their narrowed depth floor
+// retains every anchor without the initial 2760-face broad support.
+check(maxActualFaces<=1500,'39 semantic rounded cuts remain within 1500 active faces');
+const ruleEdition=require('./paper-layout.js').paginate(require('./data/bible-source.js'));
+const ruleNotches=Index.geometry(ruleEdition.books,ruleEdition.pages.length).groups.map(g=>g.notch);
+let maxRuleFaces=0;
+for(let spread=0;spread<ruleEdition.pages.length;spread+=2)for(const close of [0,.3,1]){
+  solid.update(M.compute(spread,ruleEdition.pages.length,ruleEdition.books),close,{fanLeft:1,fanRight:1,notches:ruleNotches});
+  maxRuleFaces=Math.max(maxRuleFaces,solid.getStats().activeFaces);
+}
+check(maxRuleFaces<=1500,'all current rule-edition spreads remain within the measured geometry budget');
+console.log(JSON.stringify({legacyMaxFaces:maxActualFaces,ruleEditionMaxFaces:maxRuleFaces}));
 
 // Compare the optimised renderer with the same tessellator forced through
 // the original public point APIs and without per-side skipping.

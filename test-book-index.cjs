@@ -8,28 +8,31 @@ let checks=0;const test=(name,fn)=>{fn();checks++;console.log('PASS '+name);};
 const near=(a,b,msg,eps=1e-6)=>assert.ok(Math.abs(a-b)<eps,`${msg}: ${a} != ${b}`);
 const parse=s=>s?.startsWith('matrix3d(')?s.slice(9,-1).split(',').map(Number):Index.translation(0,0,0);
 function point(m,x,y,z=0){return{x:m[0]*x+m[4]*y+m[8]*z+m[12],y:m[1]*x+m[5]*y+m[9]*z+m[13],z:m[2]*x+m[6]*y+m[10]*z+m[14]};}
-function fixture(){
+function fixture(options={}){
  const nodes=[],doc={createElement(tag){const n=new Element(tag);nodes.push(n);return n;}};
  class Element{
-  constructor(tag){this.tagName=tag;this.ownerDocument=doc;this.children=[];this.attrs={};this.dataset={};this.style={setProperty(k,v){this[k]=v;}};this.handlers={};this.listenerOptions={};this.scrollTop=0;this.classes=new Set();this.classList={add:n=>this.classes.add(n),remove:n=>this.classes.delete(n),toggle:(n,v)=>v?this.classes.add(n):this.classes.delete(n)};}
+  constructor(tag){this.tagName=tag;this.ownerDocument=doc;this.children=[];this.attrs={};this.dataset={};this.style={setProperty(k,v){this[k]=v;}};this.handlers={};this.listenerOptions={};this.scrollTop=0;this.classes=new Set();this.captured=new Set();this.classList={add:n=>this.classes.add(n),remove:n=>this.classes.delete(n),toggle:(n,v)=>v?this.classes.add(n):this.classes.delete(n)};}
   appendChild(n){if(n.parentElement)n.parentElement.children=n.parentElement.children.filter(k=>k!==n);this.children.push(n);n.parentElement=this;n.parent=this;return n;}
   setAttribute(k,v){this.attrs[k]=v;}removeAttribute(k){delete this.attrs[k];}
   addEventListener(k,fn,opts){this.handlers[k]=fn;this.listenerOptions[k]=opts;}removeEventListener(k,fn){if(this.handlers[k]===fn)delete this.handlers[k];}
-  getBoundingClientRect(){let x=parseFloat(this.style.left)||0,y=parseFloat(this.style.top)||0,m=parse(this.style.transform),corners=[[x,y],[x+(parseFloat(this.style.width)||0),y],[x,y+(parseFloat(this.style.height)||0)],[x+(parseFloat(this.style.width)||0),y+(parseFloat(this.style.height)||0)]].map(p=>point(m,...p));
-   for(let p=this.parentElement;p;p=p.parentElement){const tr=p.style.transform||'',t=tr.startsWith('translate3d(')?tr.slice(12,-1).split(',').map(v=>parseFloat(v)):null;corners=corners.map(c=>{c.y-=p.scrollTop||0;if(t){c.x+=t[0];c.y+=t[1];c.z+=t[2];}return c;});}
+  setPointerCapture(id){this.captured.add(id);}releasePointerCapture(id){this.captured.delete(id);}
+  getBoundingClientRect(){if(this.rect)return this.rect;let x=parseFloat(this.style.left)||0,y=parseFloat(this.style.top)||0,m=parse(this.style.transform),corners=[[x,y],[x+(parseFloat(this.style.width)||0),y],[x,y+(parseFloat(this.style.height)||0)],[x+(parseFloat(this.style.width)||0),y+(parseFloat(this.style.height)||0)]].map(p=>point(m,...p));
+   for(let p=this.parentElement;p;p=p.parentElement){const tr=p.style.transform||'',t=tr.startsWith('translate3d(')?tr.slice(12,-1).split(',').map(v=>parseFloat(v)):null,m=parse(tr);corners=corners.map(c=>{c.y-=p.scrollTop||0;if(t){c.x+=t[0];c.y+=t[1];c.z+=t[2];}else{c=point(m,c.x,c.y,c.z);c.x+=parseFloat(p.style.left)||0;c.y+=parseFloat(p.style.top)||0;}return c;});}
    const xs=corners.map(c=>27+c.x*.68),ys=corners.map(c=>83+c.y*.68),left=Math.min(...xs),top=Math.min(...ys),right=Math.max(...xs),bottom=Math.max(...ys);return{left,top,right,bottom,width:right-left,height:bottom-top};}
   remove(){if(this.parentElement)this.parentElement.children=this.parentElement.children.filter(n=>n!==this);}
  }
- const host=doc.createElement('div'),selections=[],views=[],pans=[];
- const index=Index.create({host,books,pageCount,onSelect:i=>selections.push(i),onViewChange:v=>views.push(v),onPan:p=>pans.push(p)});
+ const host=doc.createElement('div'),interactionHost=options.externalHost?doc.createElement('section'):host,selections=[],views=[],pans=[];
+ if(interactionHost!==host)interactionHost.appendChild(host);
+ const index=Index.create({host,interactionHost,books,pageCount,onSelect:i=>selections.push(i),onViewChange:v=>views.push(v),onPan:p=>pans.push(p)});
  const root=nodes.find(n=>n.className==='pbi-root'),buttons=nodes.filter(n=>n.tagName==='button'),scroll=nodes.find(n=>n.className==='pbi-scroll');
- function clickAt(target,x,y,detail=1){const e={target,clientX:x,clientY:y,detail,defaultPrevented:false,stopped:false,immediateStopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},stopImmediatePropagation(){this.stopped=true;this.immediateStopped=true;}};assert.equal(root.listenerOptions.click,true);root.handlers.click(e);if(!e.stopped)target.handlers.click?.(e);return e;}
- return{host,nodes,root,index,buttons,scroll,selections,views,pans,clickAt,sheet:nodes.find(n=>n.className==='pbi-sheet')};
+ function clickAt(target,x,y,detail=1){const e={target,clientX:x,clientY:y,detail,defaultPrevented:false,stopped:false,immediateStopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},stopImmediatePropagation(){this.stopped=true;this.immediateStopped=true;}};assert.equal(interactionHost.listenerOptions.click,true);interactionHost.handlers.click(e);if(!e.stopped)target.handlers.click?.(e);return e;}
+ function pointer(type,x,y,target=host,id=7){const e={target,pointerId:id,button:0,clientX:x,clientY:y,stopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;}};interactionHost.handlers[type]?.(e);return e;}
+ return{host,interactionHost,nodes,root,index,buttons,scroll,selections,views,pans,clickAt,pointer,sheet:nodes.find(n=>n.className==='pbi-sheet')};
 }
 function material(spread){return Material.compute(spread,pageCount,books);}
 function frame(m,close){return{leftMatrix:K.foreedgeMatrix('left',m,close),rightMatrix:K.foreedgeMatrix('right',m,close),splitDepth:m.leftDepth,totalDepth:m.totalDepth};}
-test('66 books occupy 22 groups and their exact absolute physical sheet depths',()=>{
- const model=Index.geometry(books,pageCount);assert.equal(model.groups.length,22);assert.equal(Index.WIDTH,36);assert.equal(model.totalSheets,627);
+test('66 books occupy 39 semantic groups and their exact absolute physical sheet depths',()=>{
+ const model=Index.geometry(books,pageCount);assert.equal(model.groups.length,39);assert.equal(Index.WIDTH,36);assert.equal(model.totalSheets,627);
  assert.deepEqual(model.groups.flatMap(g=>g.indices),Array.from({length:66},(_,i)=>i));
  model.slots.forEach((s,i)=>{const expected=Math.floor(books[i].first/2)/627*36;near(s.anchorDepth,expected,books[i].code+' depth');assert.ok(s.physical.x>=0&&s.physical.x+s.physical.width<=36);assert.ok(s.physical.y>=0&&s.physical.y+s.physical.height<=704);});
 });
@@ -51,7 +54,7 @@ test('deep digital scroll retracts continuously and preserves exact original nod
  assert.equal(f.index.setDigital(.5).scrollTop,410);assert.equal(f.index.setDigital(.8).scrollTop,656);assert.equal(f.index.setDigital(1).scrollTop,820);f.index.setDigital(.3);assert.equal(f.scroll.scrollTop,246);f.index.setDigital(0);assert.equal(f.scroll.scrollTop,0);f.index.setDigital(1);assert.equal(f.scroll.scrollTop,0);
 });
 test('focus reports the true selected sheet depth and a stable closed world position',()=>{
- const f=fixture(),a=f.index.focusBook(65);f.index.setDigital(1);const b=f.index.focusBook(65);assert.deepEqual(a,b);near(a.depth,Math.floor(books[65].first/2)/627*36,'exact focus depth');near(a.x,480+a.depth-18,'closed world x');assert.equal(a.width,18);assert.equal(a.height,8);assert.equal(f.buttons[65].attrs['aria-current'],'true');f.index.clearFocus();assert.equal(f.buttons[65].attrs['aria-current'],undefined);assert.equal(f.index.focusBook(-1),null);
+ const f=fixture(),a=f.index.focusBook(65);f.index.setDigital(1);const b=f.index.focusBook(65);assert.deepEqual(a,b);near(a.depth,Math.floor(books[65].first/2)/627*36,'exact focus depth');near(a.x,480+a.depth-18,'closed world x');assert.equal(a.width,18);assert.equal(a.height,18);assert.equal(f.buttons[65].attrs['aria-current'],'true');f.index.clearFocus();assert.equal(f.buttons[65].attrs['aria-current'],undefined);assert.equal(f.index.focusBook(-1),null);
 });
 test('reading ownership uses both physical halves without opacity replacement',()=>{
  const f=fixture(),m=material(1232);f.index.setReadingMaterial(m,0);f.index.setPhysicalFrame(frame(m,0));
@@ -69,29 +72,29 @@ test('closed split changes cannot move any label or replace its two continuous i
 test('continuous intermediate matrices are finite and invertible, with no physical fade',()=>{
  const f=fixture(),m=material(916);f.index.setReadingMaterial(m,0);for(let n=0;n<=100;n++){f.index.setPhysicalFrame(frame(m,n/100));for(const b of f.buttons){assert.equal(b.style.opacity,'1');parse(b.style.transform).forEach(v=>assert.ok(Number.isFinite(v)));for(const fragment of b.children)parse(fragment.style.transform).forEach(v=>assert.ok(Number.isFinite(v)));}}
 });
-test('projected capture chooses exact physical/digital labels rather than wrong native neighbours',()=>{
+test('projected capture fixes physical neighbours while digital buttons retain native activation',()=>{
  const f=fixture(),m=material(916);f.index.setReadingMaterial(m,1);f.index.setPhysicalFrame(frame(m,1));let r=f.buttons[42].getBoundingClientRect();let e=f.clickAt(f.sheet,r.left+r.width/2,r.top+r.height/2);assert.deepEqual(f.selections,[42]);assert.ok(e.immediateStopped);
- f.index.setDigital(1);f.scroll.scrollTop=1735;r=f.buttons[65].getBoundingClientRect();e=f.clickAt(f.buttons[64],r.left+r.width/2,r.top+r.height/2);assert.deepEqual(f.selections,[42,65]);assert.ok(e.immediateStopped);f.clickAt(f.buttons[64],r.left,r.top,0);assert.deepEqual(f.selections,[42,65,64]);f.clickAt(f.sheet,-100,-100);assert.equal(f.selections.length,3);
+ f.index.setDigital(1);f.scroll.scrollTop=1735;r=f.buttons[65].getBoundingClientRect();e=f.clickAt(f.buttons[65],r.left+r.width/2,r.top+r.height/2);assert.deepEqual(f.selections,[42,65]);assert.ok(!e.immediateStopped);f.clickAt(f.buttons[64],r.left,r.top,0);assert.deepEqual(f.selections,[42,65,64]);f.clickAt(f.sheet,-100,-100);assert.equal(f.selections.length,3);
 });
 test('physical wheel/drag pans the real edge while moved pointers cannot accidentally select a book',()=>{
- const f=fixture(),e=(type,y)=>({pointerId:7,button:0,clientY:y,stopPropagation(){},preventDefault(){}});
- f.root.handlers.wheel({deltaY:60,stopPropagation(){},preventDefault(){}});assert.deepEqual(f.pans,[60]);f.root.handlers.pointerdown(e('down',100));f.root.handlers.pointermove(e('move',120));f.root.handlers.pointerup(e('up',120));assert.deepEqual(f.pans,[60,-20]);let r=f.buttons[3].getBoundingClientRect();const click=f.clickAt(f.buttons[3],r.left+r.width/2,r.top+r.height/2);assert.ok(click.immediateStopped);assert.equal(f.selections.length,0);
- f.index.setDigital(1);f.root.handlers.wheel({deltaY:80,stopPropagation(){},preventDefault(){throw Error('digital scroll must stay native');}});assert.equal(f.pans.length,2);
+ const f=fixture();let r=f.buttons[3].getBoundingClientRect();const x=r.left+r.width/2,y=r.top+r.height/2;
+ f.interactionHost.handlers.wheel({deltaY:60,stopPropagation(){},preventDefault(){}});assert.deepEqual(f.pans,[60]);f.pointer('pointerdown',x,y);f.pointer('pointermove',x,y+20);f.pointer('pointerup',x,y+20);assert.deepEqual(f.pans,[60,-20]);const click=f.clickAt(f.buttons[3],x,y);assert.ok(click.immediateStopped);assert.equal(f.selections.length,0);
+ f.index.setDigital(1);f.interactionHost.handlers.wheel({deltaY:80,stopPropagation(){throw Error('digital wheel propagation must stay native');},preventDefault(){throw Error('digital scroll must stay native');}});assert.equal(f.pans.length,2);
 });
-test('22 thumb recesses retain fixed absolute paper-depth and three inset label rows',()=>{
- const f=fixture(),model=Index.geometry(books,pageCount),notches=f.index.getNotches();assert.equal(notches.length,22);
- model.groups.forEach((group,g)=>{const cut=notches[g];assert.equal(cut.y,34+g*30);assert.equal(cut.radius,13);assert.ok(cut.span>=4.5);
-  group.indices.forEach(i=>{const slot=model.slots[i];assert.ok(Math.abs(slot.anchorDepth-cut.depth)<cut.span);assert.ok(Math.abs(slot.physical.y+slot.physical.height/2-cut.y)<=8);});
+test('39 thumb recesses retain fixed sheet-depth and variable semantic rows',()=>{
+ const f=fixture(),model=Index.geometry(books,pageCount),notches=f.index.getNotches();assert.equal(notches.length,39);
+ model.groups.forEach((group,g)=>{const cut=notches[g];assert.equal(cut.y,group.y+group.height/2);assert.equal(cut.radius,Math.max(13,group.indices.length*4+1));assert.ok(cut.span>=.3);
+  group.indices.forEach(i=>{const slot=model.slots[i];assert.ok(Math.abs(slot.anchorDepth-cut.depth)<=cut.span*.7);assert.ok(Math.abs(slot.physical.y+slot.physical.height/2-cut.y)<cut.radius);});
  });
- notches[0].depth=900;assert.notEqual(f.index.getNotches()[0].depth,900);assert.equal(f.nodes.filter(n=>n.className==='pbi-recess-shadow').length,22);
+ notches[0].depth=900;assert.notEqual(f.index.getNotches()[0].depth,900);assert.equal(f.nodes.filter(n=>n.className==='pbi-recess-shadow').length,39);
 });
 test('curved ink stays at its own recessed material point with unit axes and natural glyph size',()=>{
  const f=fixture(),model=Index.geometry(books,pageCount),m=material(620),state={fanLeft:.35,fanRight:1,notches:f.index.getNotches()};
  for(const close of [0,.18,.5,.85,1]){f.index.setSurfaceFrame({material:m,close,...state});f.buttons.forEach((b,i)=>{
-  const slot=model.slots[i],side=slot.anchorDepth<m.leftDepth?'left':'right',matrix=parse(b.style.transform),center=point(matrix,9,4),p=K.foreedgePoint(side,slot.anchorDepth,slot.physical.y+4,m,close,state);
+  const slot=model.slots[i],side=slot.anchorDepth<m.leftDepth?'left':'right',matrix=parse(b.style.transform),center=point(matrix,slot.physical.width/2,slot.physical.height/2),p=K.foreedgePoint(side,slot.anchorDepth,slot.physical.y+slot.physical.height/2,m,close,state);
   assert.ok(matrix[0]>0,'ink must never mirror backwards on a curved notch lip');near(Math.hypot(matrix[0],matrix[1],matrix[2]),1,'unit width');near(Math.hypot(matrix[4],matrix[5],matrix[6]),1,'unit height');
   const expectedLift=.18+2.1*(side==='left'?state.fanLeft:state.fanRight)*(1-close)*(1-close);near(Math.hypot(center.x-p.x,center.y-p.y,center.z-p.z),expectedLift,'ink surface lift',1e-5);
-  assert.equal(b.dataset.paperSide,side);assert.equal(b.style.opacity,'1');b.children.forEach(part=>assert.equal(part.children[0].style.fontSize,'5.9px'));
+  assert.equal(b.dataset.paperSide,side);assert.equal(b.style.opacity,'1');b.children.forEach(part=>assert.equal(part.children[0].style.fontSize,slot.fontSize+'px'));
  });}
 });
 test('closed recessed index cannot jump when the selected opening layer changes',()=>{
@@ -125,11 +128,11 @@ test('closed ink is six persistent natural-glyph strips, with no triangles cutti
   const m=material(spread),state={fanLeft:0,fanRight:0,notches:f.index.getNotches()},sample=Index.facetSampler(m,1,state);
   f.index.setSurfaceFrame({material:m,close:1});
   for(const slot of model.slots){
-   const side=slot.anchorDepth<m.leftDepth?'left':'right',y=slot.physical.y+4;
+   const side=slot.anchorDepth<m.leftDepth?'left':'right',y=slot.physical.y+slot.physical.height/2;
    for(let j=0;j<Index.INK_STRIPS;j++){
-    const start=j*3-9,matrix=Index.inkStripMatrix(sample,side,slot.anchorDepth,y,1,start,3,8);
+    const start=j*3-9,matrix=Index.inkStripMatrix(sample,side,slot.anchorDepth,y,1,start,3,slot.physical.height);
     near(matrix[0],1,'closed ink keeps natural horizontal glyph spacing');near(matrix[5],1,'closed ink keeps natural vertical glyph spacing');
-    for(let x=0;x<=3;x+=.25)for(let yy=0;yy<=8;yy+=.5){const ink=K.transformPoint(matrix,x,yy),paper=sample(side,slot.anchorDepth+start+x,y-4+yy);assert.ok(ink.z>=paper.z+.299999,'solid triangle crosses printed ink');}
+    for(let x=0;x<=3;x+=.25)for(let yy=0;yy<=slot.physical.height;yy+=.5){const ink=K.transformPoint(matrix,x,yy),paper=sample(side,slot.anchorDepth+start+x,y-slot.physical.height/2+yy);assert.ok(ink.z>=paper.z+.299999,'solid triangle crosses printed ink');}
    }
   }
  }
@@ -137,7 +140,74 @@ test('closed ink is six persistent natural-glyph strips, with no triangles cutti
  f.index.setDigital(.2);assert.ok(f.nodes.filter(n=>n.className==='pbi-ink-strip').every(n=>n.hidden));
  f.index.setDigital(0);f.index.setSurfaceFrame({material:material(1232),close:0,fanLeft:1});assert.ok(f.nodes.filter(n=>n.className==='pbi-ink-strip').every(n=>n.hidden));
 });
+test('a visible fan label selects once even when native hit and captured click both land on the host',()=>{
+ const f=fixture(),m=material(0);f.index.setSurfaceFrame({material:m,close:0,fanRight:1});f.index.setInteractionSide('right');
+ const r=f.buttons[22].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+ assert.ok(f.pointer('pointerdown',x,y,f.host).stopped);assert.ok(f.host.captured.has(7));
+ f.pointer('pointerup',x,y,f.host);assert.deepEqual(f.selections,[22]);assert.equal(f.host.captured.size,0);
+ assert.ok(f.clickAt(f.host,x,y).immediateStopped);assert.deepEqual(f.selections,[22]);
+});
+test('external stage capture resolves visible wrapped strips outside their button plane',()=>{
+ const f=fixture({externalHost:true});f.index.setSurfaceFrame({material:material(620),close:1});
+ const rect=(left,top,width,height)=>({left,top,width,height,right:left+width,bottom:top+height});
+ f.buttons.forEach((b,i)=>{b.disabled=i!==42;});const b=f.buttons[42],strips=b.children.filter(n=>n.className==='pbi-ink-strip');
+ b.rect=rect(20,20,12,8);strips.forEach(n=>n.rect=rect(0,0,0,0));strips[0].rect=rect(210,310,4,12);
+ f.pointer('pointermove',212,316,f.interactionHost);assert.equal(f.interactionHost.style.cursor,'pointer');assert.ok(b.classes.has('pbi-hover'));
+ f.pointer('pointerdown',212,316,f.interactionHost);f.pointer('pointerup',212,316,f.interactionHost);f.clickAt(f.interactionHost,212,316);
+ assert.deepEqual(f.selections,[42]);assert.equal(f.interactionHost.style.cursor,'');assert.ok(!b.classes.has('pbi-hover'));
+});
+test('blank fan input passes through and disabled visible labels cannot intercept it',()=>{
+ const f=fixture(),m=material(1232);f.index.setSurfaceFrame({material:m,close:0,fanRight:1});f.index.setInteractionSide('right');
+ for(const [x,y] of [[-100,-100],(()=>{const r=f.buttons[20].getBoundingClientRect();return[r.left+r.width/2,r.top+r.height/2];})()]){
+  assert.equal(f.pointer('pointerdown',x,y).stopped,false);assert.equal(f.pointer('pointerup',x,y).stopped,false);assert.equal(f.clickAt(f.host,x,y).stopped,false);
+ }
+ assert.equal(f.host.captured.size,0);assert.deepEqual(f.selections,[]);
+});
+test('horizontal drag, cancellation and lost capture never activate a label',()=>{
+ for(const end of ['horizontal','pointercancel','lostpointercapture']){
+  const f=fixture(),r=f.buttons[12].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+  f.pointer('pointerdown',x,y);
+  if(end==='horizontal'){f.pointer('pointermove',x+20,y);f.pointer('pointerup',x+20,y);}
+  else{f.pointer(end,x,y);f.pointer('pointerup',x,y);}
+  f.clickAt(f.host,x,y);assert.deepEqual(f.selections,[],end);
+ }
+});
+test('release must still hit the pressed label and final pointer distance is checked without a move event',()=>{
+ const f=fixture(),r=f.buttons[12].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+ f.pointer('pointerdown',x,y);f.pointer('pointerup',x+20,y);f.clickAt(f.host,x+20,y);assert.deepEqual(f.selections,[]);
+});
+test('digital scrolling remains native after a physical drag, including keyboard button activation',()=>{
+ const f=fixture(),r=f.buttons[12].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+ f.pointer('pointerdown',x,y);f.pointer('pointermove',x,y+20);f.pointer('pointerup',x,y+20);
+ f.index.setDigital(1);const b=f.buttons[65],d=b.getBoundingClientRect(),dx=d.left+d.width/2,dy=d.top+d.height/2,pans=f.pans.length;
+ assert.equal(f.pointer('pointerdown',dx,dy,b).stopped,false);assert.equal(f.pointer('pointermove',dx,dy-30,b).stopped,false);assert.equal(f.pointer('pointerup',dx,dy-30,b).stopped,false);
+ assert.equal(f.pans.length,pans);assert.equal(f.host.captured.size,0);assert.deepEqual(f.selections,[]);
+ f.clickAt(b,dx,dy);f.clickAt(f.buttons[0],0,0,0);assert.deepEqual(f.selections,[65,0]);
+});
+test('a second pointer cancels a pending single-finger label tap in either release order',()=>{
+ for(const order of [[7,8],[8,7]]){
+  const f=fixture({externalHost:true}),r=f.buttons[12].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+  f.pointer('pointerdown',x,y,f.host,7);assert.ok(f.pointer('pointerdown',x+2,y+1,f.host,8).stopped);
+  f.pointer('pointermove',x,y+20,f.host,7);assert.deepEqual(f.pans,[],'cancelled multi-pointer input must not keep panning');
+  for(const id of order){f.pointer('pointerup',x,y,f.host,id);f.clickAt(f.host,x,y);}
+  assert.deepEqual(f.selections,[]);assert.equal(f.interactionHost.captured.size,0);
+  f.pointer('pointerdown',x,y,f.host,9);f.pointer('pointerup',x,y,f.host,9);f.clickAt(f.host,x,y);assert.deepEqual(f.selections,[12]);
+ }
+});
+test('ancestor wheel pans physical directory but passes reading and digital scrolling through',()=>{
+ const f=fixture({externalHost:true});let stopped=0,prevented=0;
+ const wheel=()=>f.interactionHost.handlers.wheel({target:f.host,deltaY:42,stopPropagation(){stopped++;},preventDefault(){prevented++;}});
+ assert.equal(f.interactionHost.listenerOptions.wheel.capture,true);assert.equal(f.interactionHost.listenerOptions.wheel.passive,false);
+ wheel();assert.deepEqual(f.pans,[42]);assert.equal(stopped,1);assert.equal(prevented,1);
+ f.index.setInteractionSide(null);wheel();f.index.setInteractionSide('right');f.index.setDigital(1);wheel();
+ assert.deepEqual(f.pans,[42]);assert.equal(stopped,1);assert.equal(prevented,1);
+});
+test('destroy clears ancestor capture and hover feedback without removing the host',()=>{
+ const f=fixture({externalHost:true}),r=f.buttons[12].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+ f.pointer('pointermove',x,y);assert.equal(f.interactionHost.style.cursor,'pointer');f.pointer('pointerdown',x,y);assert.equal(f.interactionHost.captured.size,1);
+ f.index.destroy();assert.equal(f.interactionHost.style.cursor,'');assert.equal(f.interactionHost.captured.size,0);assert.equal(Object.keys(f.interactionHost.handlers).length,0);assert.equal(f.host.parentElement,f.interactionHost);
+});
 test('destroy removes only the owned index surface and event listeners',()=>{
  const f=fixture();f.index.destroy();assert.equal(f.host.children.length,0);assert.equal(Object.keys(f.root.handlers).length,0);assert.equal(f.index.setDigital(.5).destroyed,true);
 });
-console.log(JSON.stringify({bookIndexScenarios:checks,books:66,groups:22,physicalDepth:36,persistentFragments:132,closedSplitInvariant:true,recessedGroups:22,sideSpecificInteraction:true}));
+console.log(JSON.stringify({bookIndexScenarios:checks,books:66,groups:39,physicalDepth:36,persistentFragments:132,closedSplitInvariant:true,recessedGroups:39,sideSpecificInteraction:true}));

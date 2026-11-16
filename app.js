@@ -236,7 +236,7 @@
   }
   const leaves=window.PaperBookLeaves.create({host:$('book-leaves'),paintPage,retainFlat:true});
   const solid=window.PaperBookSolid.create($('paper-solid'),{raster:true});
-  const index=window.PaperBookIndex.create({host:$('physical-index-host'),books:D.books,onSelect:i=>selectBook(i),onClose:()=>requestReading(),onPan:panEdge});
+  const index=window.PaperBookIndex.create({host:$('physical-index-host'),interactionHost:stage,books:D.books,pageCount:D.pages.length,onSelect:i=>selectBook(i),onClose:()=>requestReading(),onPan:panEdge});
   const notches=index.getNotches();
   function panEdge(delta){
     if(sceneState==='fan'&&lastSceneFrame){fanY=clamp(fanY+delta/lastSceneFrame.edgePixelsPerUnit,0,704);paintScene();fanY=lastSceneFrame.edgeCenterY;return;}

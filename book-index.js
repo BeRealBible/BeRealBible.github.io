@@ -1,7 +1,7 @@
 /* Persistent ink labels embedded in absolute-depth thumb recesses.
  * The same nodes follow fanned curved paper, closed fore-edge, and optional
  * digital directory; there is no replacement directory book or flat slab. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./book-kinematics.js'):root.PaperBookKinematics,typeof module==='object'&&module.exports?require('./book-solid.js'):root.PaperBookSolid);if(typeof module==='object'&&module.exports)module.exports=api;else root.PaperBookIndex=api;})(typeof window!=='undefined'?window:globalThis,function(K,Solid){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./book-kinematics.js'):root.PaperBookKinematics,typeof module==='object'&&module.exports?require('./book-solid.js'):root.PaperBookSolid,typeof module==='object'&&module.exports?require('./book-index-layout.js'):root.PaperBookIndexLayout);if(typeof module==='object'&&module.exports)module.exports=api;else root.PaperBookIndex=api;})(typeof window!=='undefined'?window:globalThis,function(K,Solid,Layout){
   'use strict';
   const WIDTH=36,HEIGHT=704,DIGITAL_WIDTH=480,ROW=70,INK_STRIPS=6;
   const clamp=(n,a=0,b=1)=>Math.max(a,Math.min(b,Number(n)||0));
@@ -21,15 +21,9 @@
   function matrix(value,fallback){const a=Array.isArray(value)?value:typeof value==='string'?value.replace(/^matrix3d\(|\)$/g,'').split(',').map(Number):null;return a?.length===16&&a.every(Number.isFinite)?a.slice():fallback.slice();}
   const css=m=>'matrix3d('+m.map(n=>Math.abs(n)<1e-11?'0':n.toFixed(8)).join(',')+')';
   const mixMatrix=(a,b,t)=>a.map((v,i)=>lerp(v,b[i],t));
-  function sourceCount(books){return Math.max(2,...books.map(b=>(Number(b.last)||Number(b.first)||0)+1));}
+  function sourceCount(books){return Layout.sourceCount(books);}
   function geometry(books,pageCount=sourceCount(books),totalDepth=WIDTH){
-    const sheets=Math.ceil(pageCount/2),depth=Math.max(.001,Number(totalDepth)||WIDTH),labelWidth=Math.min(18,depth);
-    const slots=books.map((book,i)=>{const sheet=Math.max(0,Math.min(sheets-1,Math.floor((Number(book.first)||0)/2))),anchorDepth=sheet/sheets*depth;
-      return {index:i,group:Math.floor(i/3),testament:i<39?'old':'new',sheet,anchorDepth,
-        physical:{x:clamp(anchorDepth-labelWidth/2,0,depth-labelWidth),y:22+Math.floor(i/3)*30+(i%3)*8,width:labelWidth,height:8},
-        digital:{x:23+(i%2)*221,y:91+Math.floor(i/2)*ROW,width:212,height:64}};});
-    const groups=[];for(let i=0;i<slots.length;i+=3){const first=slots[i],items=slots.slice(i,i+3),last=items[items.length-1],center=(first.anchorDepth+last.anchorDepth)/2;groups.push({index:i/3,first:i,indices:items.map(s=>s.index),testament:first.testament,x:first.physical.x,y:first.physical.y,width:labelWidth,height:26,anchorDepth:first.anchorDepth,fraction:first.anchorDepth/depth,notch:{depth:center,y:34+(i/3)*30,radius:13,span:Math.max(4.5,(last.anchorDepth-first.anchorDepth)/2+.65)}});}
-    return {groups,slots,totalDepth:depth,pageCount,totalSheets:sheets,digitalHeight:91+Math.ceil(books.length/2)*ROW+38};
+    return Layout.geometry(books,pageCount,totalDepth);
   }
   const groupBooks=(books,pageCount,totalDepth)=>geometry(books,pageCount,totalDepth).groups;
   function layoutAt(slot,amount){const d=clamp(amount),a=slot.physical,b=slot.digital;return {x:lerp(a.x,b.x,d),y:lerp(a.y,b.y,d),width:lerp(a.width,b.width,d),height:lerp(a.height,b.height,d)};}
@@ -63,6 +57,13 @@
     // vertex, not necessarily at the strip corners or its midpoint.
     sample.critical=(s0,s1,y0,y1)=>{
       const out=[[s0,y0],[s1,y0],[s1,y1],[s0,y1]];
+      // Ink can overhang the first/last sheet. sample() extends that sheet's
+      // edge, so its intermediate vertical vertices remain support extrema,
+      // even when the entire ink strip lies outside [0,totalDepth].
+      for(const [a,b,band] of [[s0,Math.min(s1,0),topology[0]],[Math.max(s0,total),s1,topology.at(-1)]]){
+        if(a>=b||!band)continue;
+        for(const yy of band.ys)if(yy>y0&&yy<y1)out.push([a,yy],[b,yy]);
+      }
       for(const band of topology){
         const a0=Math.max(s0,band.from),a1=Math.min(s1,band.to);if(a1<a0)continue;
         for(let j=0;j<band.ys.length-1;j++){
@@ -104,29 +105,75 @@
     panSurfaces.forEach(n=>n.setAttribute('aria-hidden','true'));
     const viewport=el('div','pbi-scroll',root),sheet=el('div','pbi-sheet',viewport);
     const buttons=books.map((book,i)=>{
-      const button=el('button','pbi-book pbi-'+(i<39?'old':'new'),root);button.type='button';button.dataset.bookIndex=String(i);button.dataset.notchRow=String(i%3);button.title=book.name;button.setAttribute('aria-label','打开'+book.name);
+      const slot=model.slots[i],button=el('button','pbi-book pbi-'+slot.testament,root);button.type='button';button.dataset.bookIndex=String(i);button.dataset.notchRow=String(slot.groupRow);button.dataset.notchGroup=String(slot.group);button.dataset.indexTrack=slot.track;button.title=book.name;button.setAttribute('aria-label','打开'+book.name);
       const fragments=[0,1].map(side=>{const fragment=el('span','pbi-fragment',button);fragment.setAttribute('aria-hidden','true');fragment.dataset.side=side?'right':'left';
-        const abbr=el('span','pbi-abbr',fragment,book.short||book.name.slice(0,2)),name=el('span','pbi-name',fragment,book.name),order=el('span','pbi-order',fragment,String(i+1).padStart(2,'0')),tick=el('span','pbi-depth-tick',fragment);return{fragment,abbr,name,order,tick};});
-      const ink=Array.from({length:INK_STRIPS},()=>{const strip=el('span','pbi-ink-strip',button);strip.hidden=true;strip.setAttribute('aria-hidden','true');const abbr=el('span','pbi-strip-abbr',strip,book.short||book.name.slice(0,2));return{strip,abbr};});
+        const abbr=el('span','pbi-abbr',fragment,slot.label),name=el('span','pbi-name',fragment,book.name),order=el('span','pbi-order',fragment,String(i+1).padStart(2,'0')),tick=el('span','pbi-depth-tick',fragment);return{fragment,abbr,name,order,tick};});
+      const ink=Array.from({length:INK_STRIPS},()=>{const strip=el('span','pbi-ink-strip',button);strip.hidden=true;strip.setAttribute('aria-hidden','true');const abbr=el('span','pbi-strip-abbr',strip,slot.label);return{strip,abbr};});
       listen(button,'click',e=>{e.stopPropagation();if(!button.disabled&&(!suppressClick||e.detail===0))onSelect?.(i);});return{button,fragments,ink};
     });
     const heading=el('div','pbi-heading',root);heading.setAttribute('aria-hidden','true');el('span','pbi-heading-kicker',heading,'同一纸层 · 展开索引');el('strong','pbi-heading-title',heading,'按书卷找到那一页');
     const note=el('div','pbi-digital-note',sheet,'旧约墨黑 · 新约朱红　／　上下滑动查看全部书卷');note.setAttribute('aria-hidden','true');note.style.top=(model.digitalHeight-32)+'px';
-    // Native hit testing of a 3D surface may choose its neighbour. Resolve the
-    // current projected button rectangles, not source order or guessed depth.
-    listen(root,'click',e=>{
-      if(e.detail!==0&&suppressClick){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation?.();return;}
-      if(e.detail===0||!Number.isFinite(e.clientX)||!Number.isFinite(e.clientY))return;
-      let nearest=null,distance=Infinity;buttons.forEach(({button},i)=>{if(button.disabled)return;const r=button.getBoundingClientRect();if(!r.width||!r.height)return;
-        if(e.clientX<r.left-2||e.clientX>r.right+2||e.clientY<r.top-2||e.clientY>r.bottom+2)return;
-        const delta=Math.hypot(e.clientX-r.left-r.width/2,e.clientY-r.top-r.height/2);if(delta<distance){distance=delta;nearest=i;}});
-      if(nearest!==null){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation?.();onSelect?.(nearest);}
+    const interactionHost=options.interactionHost||host;
+    const originalCursor=interactionHost.style.cursor||'';let hovered=null;
+    function hoverBook(index){if(index===hovered)return;if(hovered!==null)buttons[hovered].button.classList.remove('pbi-hover');hovered=index;if(index!==null)buttons[index].button.classList.add('pbi-hover');interactionHost.style.cursor=index===null?originalCursor:'pointer';}
+    // Chromium may hit the host instead of a visibly painted 3D child. Listen
+    // at that ancestor, and resolve the current ink, not the tangent button
+    // plane: wrapped ink strips can extend beyond that plane's screen bounds.
+    function hitBook(e){
+      if(!Number.isFinite(e.clientX)||!Number.isFinite(e.clientY))return null;
+      let nearest=null,distance=Infinity;
+      buttons.forEach((nodes,i)=>{
+        if(nodes.button.disabled)return;
+        const ink=nodes.ink.filter(({strip})=>!strip.hidden).map(({strip})=>strip);
+        const faces=ink.length?ink:nodes.fragments.filter(({fragment,abbr})=>fragment.style.visibility!=='hidden'&&abbr.style.visibility!=='hidden').map(({fragment})=>fragment);
+        const targets=digital===1?[nodes.button]:faces;
+        targets.forEach(node=>{
+          const r=node.getBoundingClientRect();if(!r.width||!r.height)return;
+          const dx=Math.max(r.left-e.clientX,0,e.clientX-r.right),dy=Math.max(r.top-e.clientY,0,e.clientY-r.bottom);
+          if(dx>2||dy>2)return;
+          const delta=Math.hypot(dx,dy)*1000+Math.hypot(e.clientX-r.left-r.width/2,e.clientY-r.top-r.height/2);
+          if(delta<distance){distance=delta;nearest=i;}
+        });
+      });
+      return nearest;
+    }
+    function stopClick(e){e.preventDefault?.();e.stopPropagation();e.stopImmediatePropagation?.();}
+    function stopPointer(e){e.stopPropagation();e.stopImmediatePropagation?.();}
+    listen(interactionHost,'click',e=>{
+      if(e.detail===0)return; // Native keyboard activation remains on the button.
+      if(digital===1)return; // A flat, scrollable list uses normal native button clicks.
+      if(suppressClick){stopClick(e);return;}
+      const nearest=hitBook(e);
+      if(nearest!==null){stopClick(e);hoverBook(null);onSelect?.(nearest);}
     },true);
-    listen(root,'pointerdown',e=>{e.stopPropagation();if(digital!==0||e.button>0)return;suppressClick=false;drag={id:e.pointerId,start:e.clientY,last:e.clientY,moved:false};try{root.setPointerCapture?.(e.pointerId);}catch{}});
-    listen(root,'pointermove',e=>{e.stopPropagation();if(digital!==0||!drag||e.pointerId!==drag.id)return;const dy=e.clientY-drag.last;drag.last=e.clientY;if(Math.abs(e.clientY-drag.start)>8)drag.moved=true;if(drag.moved){suppressClick=true;e.preventDefault?.();onPan?.(-dy);}});
-    function endDrag(e){e.stopPropagation();if(drag&&e.pointerId===drag.id){suppressClick=drag.moved;try{root.releasePointerCapture?.(e.pointerId);}catch{}drag=null;}}
-    listen(root,'pointerup',endDrag);listen(root,'pointercancel',endDrag);
-    listen(root,'wheel',e=>{e.stopPropagation();if(digital===0){e.preventDefault();onPan?.(Number(e.deltaY)||0);}},{passive:false});
+    listen(interactionHost,'pointerdown',e=>{
+      if(drag){if(e.pointerId!==drag.id){drag.cancelled=true;suppressClick=true;hoverBook(null);stopPointer(e);}return;}
+      suppressClick=false;
+      if(digital!==0||e.button>0)return;
+      const selected=hitBook(e);
+      if(selected===null&&!panSurfaces.includes(e.target))return; // Blank fan tap belongs to the reading controller.
+      stopPointer(e);drag={id:e.pointerId,startX:e.clientX,startY:e.clientY,last:e.clientY,moved:false,selected};
+      try{interactionHost.setPointerCapture?.(e.pointerId);}catch{}
+    },true);
+    listen(interactionHost,'pointermove',e=>{
+      if(!drag){hoverBook(digital===0?hitBook(e):null);return;}
+      if(e.pointerId!==drag.id)return;stopPointer(e);
+      if(digital!==0||drag.cancelled)return;
+      const dy=e.clientY-drag.last;drag.last=e.clientY;
+      if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>8)drag.moved=true;
+      if(drag.moved){suppressClick=true;hoverBook(null);e.preventDefault?.();onPan?.(-dy);}
+    },true);
+    function endDrag(e,cancelled=false){
+      if(!drag||e.pointerId!==drag.id)return;stopPointer(e);
+      const ended=drag;drag=null;suppressClick=true;hoverBook(null);
+      try{interactionHost.releasePointerCapture?.(e.pointerId);}catch{}
+      if(cancelled||ended.cancelled||digital!==0||ended.moved||Math.hypot(e.clientX-ended.startX,e.clientY-ended.startY)>8)return;
+      if(ended.selected!==null&&hitBook(e)===ended.selected)onSelect?.(ended.selected);
+    }
+    listen(interactionHost,'pointerup',e=>endDrag(e),true);listen(interactionHost,'pointercancel',e=>endDrag(e,true),true);
+    listen(interactionHost,'lostpointercapture',e=>{if(drag?.id===e.pointerId){drag=null;suppressClick=true;hoverBook(null);}},true);
+    listen(interactionHost,'pointerleave',()=>{if(!drag)hoverBook(null);});
+    listen(interactionHost,'wheel',e=>{if(digital!==0||interactionSide===null)return;stopClick(e);onPan?.(Number(e.deltaY)||0);},{passive:false,capture:true});
     for(const type of ['dblclick','contextmenu'])listen(root,type,e=>{e.stopPropagation();e.preventDefault();});
     listen(root,'keydown',e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();onClose?.();}});
     function notches(){return model.groups.map(group=>({...group.notch}));}
@@ -163,8 +210,8 @@
       root.classList.toggle('pbi-is-digital',d===1);root.classList.toggle('pbi-is-morphing',d>0&&d<1);
       panSurfaces.forEach((surface,i)=>{surface.style.width=w+'px';surface.style.height=HEIGHT+'px';surface.style.transform=css(multiply(i?frame.rightMatrix:frame.leftMatrix,translation(0,0,.06)));surface.style.clipPath=i?`inset(0 0 0 ${split}px)`:`inset(0 ${w-split}px 0 0)`;surface.style.pointerEvents=d===0&&interactionSide==='both'?'auto':'none';});
       recesses.forEach((node,i)=>{
-        const group=model.groups[i],side=group.notch.depth<split?'left':'right',geometry=surfaceMatrix(side,group.notch.depth,group.notch.y,20,26);
-        node.hidden=!geometry;node.style.opacity=String(1-d);node.style.width='20px';node.style.height='26px';
+        const group=model.groups[i],side=group.notch.depth<split?'left':'right',geometry=surfaceMatrix(side,group.notch.depth,group.notch.y,20,group.height);
+        node.hidden=!geometry;node.style.opacity=String(1-d);node.style.width='20px';node.style.height=group.height+'px';
         if(geometry)node.style.transform=css(geometry.matrix);
       });
       buttons.forEach((nodes,i)=>{
@@ -184,7 +231,7 @@
           const ps=part.fragment.style;ps.width=box.width+'px';ps.height=box.height+'px';ps.transformOrigin='0 0';ps.transform=d===1||surface?'none':css(multiply(inv,matrices[k]));
           ps.clipPath=k?`inset(0 0 0 ${ratio*100}%)`:`inset(0 ${(1-ratio)*100}% 0 0)`;
           ps.visibility=(k?ratio===1:ratio===0)?'hidden':'visible';
-          part.abbr.style.visibility=wrap>0?'hidden':'visible';part.abbr.style.width=lerp(a.width,38,d)+'px';part.abbr.style.height=lerp(a.height,35,d)+'px';part.abbr.style.left=lerp(0,7,d)+'px';part.abbr.style.fontSize=lerp(5.9,16,d)+'px';
+          part.abbr.style.visibility=wrap>0?'hidden':'visible';part.abbr.style.width=lerp(a.width,38,d)+'px';part.abbr.style.height=lerp(a.height,35,d)+'px';part.abbr.style.left=lerp(0,7,d)+'px';part.abbr.style.fontSize=lerp(slot.fontSize,16,d)+'px';
           part.name.style.opacity=String(labelProgress);part.order.style.opacity=String(labelProgress*.65);
           part.tick.style.left=(surface?.5:clamp((slot.anchorDepth-a.x)/a.width))*box.width+'px';part.tick.style.opacity=String(1-d);
         });
@@ -193,7 +240,7 @@
         nodes.ink.forEach(({strip,abbr},j)=>{
           strip.hidden=wrap===0;
           const sw=inkWidth/INK_STRIPS;
-          abbr.style.width=inkWidth+'px';abbr.style.height=inkHeight+'px';abbr.style.left=(-j*sw)+'px';abbr.style.fontSize=lerp(5.9,16,d)+'px';
+          abbr.style.width=inkWidth+'px';abbr.style.height=inkHeight+'px';abbr.style.left=(-j*sw)+'px';abbr.style.fontSize=lerp(slot.fontSize,16,d)+'px';
           if(!wrap)return;
           strip.style.width=(sw+.025)+'px';strip.style.height=inkHeight+'px';
           const actual=inkStripMatrix(facets,onSide,slot.anchorDepth,a.y+a.height/2,curved.depthScale,j*a.width/INK_STRIPS-a.width/2,a.width/INK_STRIPS,a.height);
@@ -213,7 +260,7 @@
       root.dataset.fanLeft=surface.fanLeft.toFixed(4);root.dataset.fanRight=surface.fanRight.toFixed(4);root.dataset.close=surface.close.toFixed(4);
       paint();
     }
-    function setInteractionSide(side){const next=['left','right','both'].includes(side)?side:null;if(next===interactionSide)return;interactionSide=next;paint();}
+    function setInteractionSide(side){const next=['left','right','both'].includes(side)?side:null;if(next===interactionSide)return;hoverBook(null);interactionSide=next;paint();}
     function setPhysicalFrame(next){
       if(destroyed)return;frame={leftMatrix:matrix(next?.leftMatrix,frame.leftMatrix),rightMatrix:matrix(next?.rightMatrix,frame.rightMatrix),splitDepth:Number.isFinite(next?.splitDepth)?next.splitDepth:frame.splitDepth,totalDepth:Number.isFinite(next?.totalDepth)?next.totalDepth:frame.totalDepth};
       if(frame.totalDepth!==model.totalDepth)model=geometry(books,model.pageCount,frame.totalDepth);paint();
@@ -227,7 +274,7 @@
     function setDigital(value){
       if(destroyed)return{amount:digital,view:lastView,destroyed:true};const next=clamp(value);
       if(digital===1&&next<1)scrollAnchor=viewport.scrollTop;if(digital===0&&next>0)scrollAnchor=0;
-      digital=next;paint();if(digital<1||scrollAnchor>0)viewport.scrollTop=scrollAnchor*digital;
+      if(next!==digital)hoverBook(null);digital=next;paint();if(digital<1||scrollAnchor>0)viewport.scrollTop=scrollAnchor*digital;
       const currentScroll=viewport.scrollTop;if(digital===0||digital===1)scrollAnchor=0;
       const view=digital===0?'physical':digital===1?'digital':'transition';if(view!==lastView){lastView=view;onViewChange?.(view);}
       return{amount:digital,view,scrollTop:currentScroll,height:lerp(HEIGHT,model.digitalHeight,digital)};
@@ -235,7 +282,7 @@
     function clearFocus(){if(focused>=0){buttons[focused].button.classList.remove('pbi-focused');buttons[focused].button.removeAttribute('aria-current');}focused=-1;}
     function focusBook(index){const i=Number(index);if(!Number.isInteger(i)||i<0||i>=books.length)return null;clearFocus();focused=i;buttons[i].button.classList.add('pbi-focused');buttons[i].button.setAttribute('aria-current','true');
       const slot=model.slots[i],a=slot.physical;return{index:i,group:slot.group,depth:slot.anchorDepth,anchorDepth:slot.anchorDepth,sheet:slot.sheet,x:480+slot.anchorDepth-model.totalDepth/2,y:a.y+a.height/2,width:a.width,height:a.height,left:a.x,top:a.y,name:books[i].name};}
-    function destroy(){if(destroyed)return;destroyed=true;disposers.forEach(fn=>fn());root.remove();}
+    function destroy(){if(destroyed)return;destroyed=true;hoverBook(null);if(drag){const id=drag.id;drag=null;try{interactionHost.releasePointerCapture?.(id);}catch{}}disposers.forEach(fn=>fn());root.remove();}
     setProgress(1);setDigital(0);
     return{setReadingMaterial,setPhysicalFrame,setSurfaceFrame,setInteractionSide,getNotches:notches,setProgress,setDigital,focusBook,clearFocus,resize:()=>paint(),destroy};
   }
