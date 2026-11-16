@@ -121,6 +121,7 @@
     // plane: wrapped ink strips can extend beyond that plane's screen bounds.
     function hitBook(e){
       if(!Number.isFinite(e.clientX)||!Number.isFinite(e.clientY))return null;
+      if(digital===0&&options.depthInk?.())return interactionSide===null?null:options.hitTest?.(e,interactionSide)??null;
       let nearest=null,distance=Infinity;
       buttons.forEach((nodes,i)=>{
         if(nodes.button.disabled)return;
@@ -181,6 +182,16 @@
     // The local x axis is the unit tangent through absolute paper depths:
     // fanning spreads these depths apart but cannot distort the letter shapes.
     let physicalState=null;
+    function milledMatrix(slot,side,state){
+      const n=state.notches[slot.group],{material,close}=surface;
+      const v=.5+(slot.groupRow-(n.indices.length-1)/2)*(.69/n.indices.length);
+      const dir=close>.9999||side==='right'?1:-1,s=n.depth+n.span*dir*.90*Math.sqrt(1-(v*2-1)**2);
+      const p=K.foreedgePoint(side,s,n.y+n.radius*(v*2-1),material,close,state);
+      const l=K.foreedgePoint(side,s-.12*n.span,n.y,material,close,state),r=K.foreedgePoint(side,s+.12*n.span,n.y,material,close,state);
+      const width=slot.physical.width,height=slot.physical.height;
+      const xx=Math.max(.075,Math.abs(r.x-l.x)/width*2),xz=(r.z-l.z)/width*2;
+      return {matrix:[xx,0,xz,0,0,1,0,0,0,0,1,0,p.x-xx*width/2,p.y-height/2,p.z-xz*width/2,1]};
+    }
     function surfaceMatrix(side,depth,y,width,height){
       if(!surface||!K)return null;
       const {material,close}=surface,state=physicalState||{fanLeft:surface.fanLeft,fanRight:surface.fanRight,notches:notches()};
@@ -202,8 +213,11 @@
     }
     function paint(){
       const d=digital,w=model.totalDepth,split=clamp(frame.splitDepth,0,w),labelProgress=smooth(.25,.9,d);
-      physicalState=surface?{fanLeft:surface.fanLeft,fanRight:surface.fanRight,notches:notches()}:null;
-      const wrap=surface?smooth(.62,.98,surface.close)*(1-smooth(0,.16,d)):0,facets=wrap>0?facetSampler(surface.material,surface.close,physicalState):null;
+      const baked=!!options.depthInk?.(),motion=baked?smooth(.18,1,d):d;
+      physicalState=surface?{fanLeft:surface.fanLeft,fanRight:surface.fanRight,notches:baked?options.inkNotches():notches()}:null;
+      root.dataset.inkLayer=baked?'depth':'dom';
+      root.style.setProperty('--pbi-ink-handoff',Math.min(1,d/.22).toFixed(4));
+      const wrap=surface&&!baked?smooth(.62,.98,surface.close)*(1-smooth(0,.16,d)):0,facets=wrap>0?facetSampler(surface.material,surface.close,physicalState):null;
       root.style.setProperty('--pbi-digital',d.toFixed(4));root.dataset.interactionSide=String(interactionSide);root.dataset.surface=surface?'recessed':'planar';root.dataset.splitDepth=split.toFixed(6);root.dataset.totalDepth=w.toFixed(6);
       viewport.style.transform='translate3d(240px,0px,482px)';viewport.style.overflowY=d===1?'auto':'hidden';viewport.style.pointerEvents=d===1?'auto':'none';viewport.style.opacity='1';
       sheet.style.height=lerp(HEIGHT,model.digitalHeight,d)+'px';heading.style.transform='translate3d(240px,0px,482.5px)';heading.style.opacity=String(labelProgress);note.style.opacity=String(labelProgress);
@@ -211,17 +225,17 @@
       panSurfaces.forEach((surface,i)=>{surface.style.width=w+'px';surface.style.height=HEIGHT+'px';surface.style.transform=css(multiply(i?frame.rightMatrix:frame.leftMatrix,translation(0,0,.06)));surface.style.clipPath=i?`inset(0 0 0 ${split}px)`:`inset(0 ${w-split}px 0 0)`;surface.style.pointerEvents=d===0&&interactionSide==='both'?'auto':'none';});
       recesses.forEach((node,i)=>{
         const group=model.groups[i],side=group.notch.depth<split?'left':'right',geometry=surfaceMatrix(side,group.notch.depth,group.notch.y,20,group.height);
-        node.hidden=!geometry;node.style.opacity=String(1-d);node.style.width='20px';node.style.height=group.height+'px';
+        node.hidden=baked||!geometry;node.style.opacity=String(1-d);node.style.width='20px';node.style.height=group.height+'px';
         if(geometry)node.style.transform=css(geometry.matrix);
       });
       buttons.forEach((nodes,i)=>{
-        const slot=model.slots[i],a=slot.physical,b=slot.digital,box=layoutAt(slot,d),side=slot.anchorDepth+1e-8<split?0:1;
+        const slot=model.slots[i],a=slot.physical,b=slot.digital,box=layoutAt(slot,motion),side=slot.anchorDepth+1e-8<split?0:1;
         const onSide=side?'right':'left',enabled=d>0||interactionSide==='both'||interactionSide===onSide;
-        nodes.button.disabled=!enabled;nodes.button.tabIndex=enabled?0:-1;nodes.button.style.pointerEvents=enabled?'auto':'none';
-        const curved=surfaceMatrix(onSide,slot.anchorDepth,a.y+a.height/2,a.width,a.height);
+        nodes.button.disabled=!enabled;nodes.button.tabIndex=enabled?0:-1;nodes.button.style.pointerEvents=enabled&&(!baked||d>0)?'auto':'none';
+        const curved=surface&&baked?milledMatrix(slot,onSide,physicalState):surfaceMatrix(onSide,slot.anchorDepth,a.y+a.height/2,a.width,a.height);
         const ratio=surface?(side?0:1):clamp((split-a.x)/a.width);
         const physical=curved?[curved.matrix,curved.matrix]:[frame.leftMatrix,frame.rightMatrix].map(m=>multiply(m,translation(a.x,a.y,.08)));
-        const target=translation(240+b.x,b.y-scrollAnchor,482.2),matrices=physical.map(m=>mixMatrix(m,target,d)),base=matrices[side];
+        const target=translation(240+b.x,b.y-scrollAnchor,482.2),matrices=physical.map(m=>mixMatrix(m,target,motion)),base=matrices[side];
         const style=nodes.button.style;style.width=box.width+'px';style.height=box.height+'px';style.transformOrigin='0 0';style.opacity='1';
         nodes.button.dataset.anchorDepth=slot.anchorDepth.toFixed(8);nodes.button.dataset.sheet=String(slot.sheet);nodes.button.dataset.paperSide=side?'right':'left';
         if(d===1){parent(nodes.button,sheet);style.left=b.x+'px';style.top=b.y+'px';style.transform='none';}
@@ -231,7 +245,7 @@
           const ps=part.fragment.style;ps.width=box.width+'px';ps.height=box.height+'px';ps.transformOrigin='0 0';ps.transform=d===1||surface?'none':css(multiply(inv,matrices[k]));
           ps.clipPath=k?`inset(0 0 0 ${ratio*100}%)`:`inset(0 ${(1-ratio)*100}% 0 0)`;
           ps.visibility=(k?ratio===1:ratio===0)?'hidden':'visible';
-          part.abbr.style.visibility=wrap>0?'hidden':'visible';part.abbr.style.width=lerp(a.width,38,d)+'px';part.abbr.style.height=lerp(a.height,35,d)+'px';part.abbr.style.left=lerp(0,7,d)+'px';part.abbr.style.fontSize=lerp(slot.fontSize,16,d)+'px';
+          part.abbr.style.visibility=wrap>0?'hidden':'visible';part.abbr.style.width=lerp(a.width,38,motion)+'px';part.abbr.style.height=lerp(a.height,35,motion)+'px';part.abbr.style.left=lerp(0,7,motion)+'px';part.abbr.style.fontSize=lerp(slot.fontSize,16,motion)+'px';
           part.name.style.opacity=String(labelProgress);part.order.style.opacity=String(labelProgress*.65);
           part.tick.style.left=(surface?.5:clamp((slot.anchorDepth-a.x)/a.width))*box.width+'px';part.tick.style.opacity=String(1-d);
         });

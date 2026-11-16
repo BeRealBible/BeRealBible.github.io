@@ -11,7 +11,7 @@
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
   const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const Physics=window.PaperPhysics, Material=window.PaperBookMaterial;
-  let material=null,ribbons=null,lastSceneFrame=null,edgeY=352,edgeDrag=null;
+  let material=null,ribbons=null,lastSceneFrame=null,edgeY=352,edgeDrag=null,depth=null,solid=null,notches=[];
   let fanSide=null,fanAmount=0,fanCamera=0,fanY=352,fanBackPose=null;
   const K=window.PaperBookKinematics;
   let spread=0,scale=1,x=0,y=0,fitScale=1,mode='open',focus='fit',gesture=null;
@@ -46,6 +46,14 @@
     if(target===spread){feedback(direction>0?'已经到全书最后了':'已经到全书最前了');return false;}
     const side=direction>0?1:0,front=spread+side,back=direction>0?target:target+1,under=direction>0?target+1:target;
     const f={from:spread,target,direction,count:Math.abs(target-spread)/2,side,source,radius:clamp(Math.abs(contact.x-480),12,476),grabY:clamp(contact.y,0,704),vertical:0,progress:0,velocity:0,samples:[],settling:false,original:papers[side].innerHTML,originSurface};
+    if(originSurface&&depth){
+      f.packet={from:originSurface.material,to:Material.compute(target,D.pages.length,D.books),state:originSurface.state,
+        pages:[spread,spread+1,target,target+1]};
+      fold=f;
+      depth.prepare(f.packet.pages,window.PaperBookPacket.sample(f.packet.from,f.packet.to,.5,f.packet.state));
+      stage.dataset.foldState='automatic';
+      updateFold(0,0);return true;
+    }
     fold=f;sheetRenderer.prepare(front,back,direction,f.count);
     // Decode both final faces while the packet moves, not on its last frame.
     leaves.prepare?.(target,target+1);
@@ -60,6 +68,18 @@
   function updateFold(progress,vertical,t){
     if(!fold)return;const f=fold;f.progress=clamp(progress,0,1);f.vertical=clamp(vertical,-210,210);
     if(t!==undefined){f.samples.push({p:f.progress,t});while(f.samples.length>2&&t-f.samples[0].t>140)f.samples.shift();const first=f.samples[0];f.velocity=(f.progress-first.p)/Math.max(1,t-first.t)*1000;}
+    if(f.packet){
+      const t=f.progress*f.progress*(3-2*f.progress);
+      fanAmount=fanCamera=1-t;
+      f.packet.frame=window.PaperBookPacket.sample(f.packet.from,f.packet.to,f.progress,f.packet.state);
+      stage.dataset.foldProgress=f.progress.toFixed(4);
+      paintScene(f.packet.from);
+      const metrics=depth.getStats();
+      f.packet.frames=(f.packet.frames||0)+1;f.packet.maxPaint=Math.max(f.packet.maxPaint||0,metrics.ms||0);
+      stage.dataset.packetDepth=f.packet.frame.span.toFixed(5);
+      stage.dataset.packetFrames=String(f.packet.frames);stage.dataset.packetMaxPaintMs=f.packet.maxPaint.toFixed(2);
+      return;
+    }
     sheetRenderer.draw({progress:f.progress,radius:f.radius,grabY:f.grabY,vertical:f.vertical,originSurface:f.originSurface});
     stage.dataset.foldProgress=f.progress.toFixed(4);
     const turningMaterial=Material.sampleTurn(f.from,f.direction,f.count,f.progress,D.pages.length,D.books);
@@ -70,7 +90,7 @@
     if(!fold)return;const f=fold;cancelAnimationFrame(foldFrame);foldFrame=0;
     sheetRenderer.hide();book.classList.remove('curl-active');papers[f.side].classList.remove('under-curl');fold=null;
     if(f.originSurface){fanAmount=fanCamera=commit?0:1;if(!commit)readPose=fanBackPose;}
-    if(commit){spread=f.target;render();if(f.originSurface){fanSide=null;completeReading();}save();feedback(`${f.direction>0?'向后':'向前'}翻 ${f.count} 页${f.source==='two'?' · 双指快翻':''}`);}
+    if(commit){spread=f.target;if(f.originSurface)fanSide=null;render();if(f.originSurface)completeReading();save();feedback(`${f.direction>0?'向后':'向前'}翻 ${f.count} 页${f.source==='two'?' · 双指快翻':''}`);}
     else{papers[f.side].innerHTML=f.original;leaves.setPages(spread,spread+1);if(f.originSurface){setSceneState('fan');paintScene();}else applyMaterial();feedback('轻轻放回 · 仍在原来这一页');}
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     $('touch-ring').style.display='none';$('touch-ring').classList.remove('holding');
@@ -90,7 +110,7 @@
       if(automatic){const t=clamp(elapsed/(f.originSurface?1450:f.count>1?360:460),0,1);p=start+(target-start)*(1-Math.cos(t*Math.PI))/2;done=t===1;}
       else{const next=Physics.spring(f.progress,velocity,target,dt);p=next.position;velocity=next.velocity;done=next.done||elapsed>1250;}
       updateFold(p,dy*Math.exp(-elapsed/130));
-      if(done){updateFold(target,0);finishFold(commit);}else foldFrame=requestAnimationFrame(frame);
+      if(done){if(f.progress!==target||f.vertical!==0)updateFold(target,0);finishFold(commit);}else foldFrame=requestAnimationFrame(frame);
     }
     foldFrame=requestAnimationFrame(frame);
   }
@@ -142,9 +162,19 @@
     $('left-reading-edge').style.width=lx+'px';
     const shape=surfaceState();
     const geometryStarted=performance.now();
-    solid.update(material,f.close,shape);
+    const packet=fold?.packet,drawPrinted=!!packet||f.close>0||fanAmount>0;
+    let curved;
+    if(depth){
+      depth.update({material,close:f.close,shape,packet:packet?.frame,
+        printed:drawPrinted&&f.close<1?(packet?.pages||[spread,spread+1]):null,
+        pick:['fan','edge'].includes(sceneState)&&digitalProgress===0,
+        digital:digitalProgress,hideInk});
+      curved={active:drawPrinted};
+    }else{
+      solid.update(material,f.close,shape);
+      curved=leaves.update(material,f.close,shape);
+    }
     const leavesStarted=performance.now();
-    const curved=leaves.update(material,f.close,shape);
     stage.dataset.solidRenderMs=(leavesStarted-geometryStarted).toFixed(2);
     stage.dataset.leafRenderMs=(performance.now()-leavesStarted).toFixed(2);
     book.classList.toggle('has-curved-leaves',curved.active);
@@ -235,9 +265,28 @@
     if(startFold(direction,{x:480+direction*392,y:380},count,source))settleFold(true,true);
   }
   const leaves=window.PaperBookLeaves.create({host:$('book-leaves'),paintPage,retainFlat:true});
-  const solid=window.PaperBookSolid.create($('paper-solid'),{raster:true});
-  const index=window.PaperBookIndex.create({host:$('physical-index-host'),interactionHost:stage,books:D.books,pageCount:D.pages.length,onSelect:i=>selectBook(i),onClose:()=>requestReading(),onPan:panEdge});
-  const notches=index.getNotches();
+  const hideInk=/(?:^|[?&])ink=off(?:&|$)/.test(window.location?.search||'');
+  const index=window.PaperBookIndex.create({host:$('physical-index-host'),interactionHost:stage,books:D.books,pageCount:D.pages.length,
+    onSelect:i=>selectBook(i),onClose:()=>requestReading(),onPan:panEdge,depthInk:()=>!!depth,inkNotches:()=>notches,
+    hitTest:(e,side)=>{
+      const bounds=book.getBoundingClientRect(),screenScale=bounds.width/960;
+      if(!screenScale)return null;
+      return depth?.hit((e.clientX-bounds.left)/screenScale,(e.clientY-bounds.top)/screenScale,
+        (e.pointerType==='touch'?13:6)/screenScale,side)??null;
+    }});
+  function fallbackSolid(){
+    depth?.hide();depth=null;notches=index.getNotches();
+    solid=window.PaperBookSolid.create($('paper-solid'),{raster:true});index.resize?.();
+  }
+  if(window.PaperBookDepth){
+    const indexModel=window.PaperBookIndex.geometry(D.books,D.pages.length);
+    notches=window.PaperBookDepth.milling(indexModel);
+    depth=window.PaperBookDepth.create({host:$('paper-solid'),model:indexModel,notches,paintPage,onContextLoss:()=>{
+      fallbackSolid();if(fold?.packet)finishFold(false);else paintScene();
+      feedback('已切换到兼容绘图');
+    }});
+  }
+  if(!depth)fallbackSolid();
   function panEdge(delta){
     if(sceneState==='fan'&&lastSceneFrame){fanY=clamp(fanY+delta/lastSceneFrame.edgePixelsPerUnit,0,704);paintScene();fanY=lastSceneFrame.edgeCenterY;return;}
     if(sceneState!=='edge'||digitalProgress!==0||!lastSceneFrame)return;
@@ -254,7 +303,7 @@
   });
   function capturePose(){return {zoom:scale/fitScale,cx:(view.w/2-x)/scale,cy:(view.h/2-y)/scale,focus};}
   function setSceneState(state){
-    sceneState=state;stage.dataset.scene=state;
+    sceneState=state;stage.dataset.scene=state;document.body.dataset.paperPhase=state;
     const reading=state==='reading';mode=reading?'open':'edge';
     document.body.dataset.paperScene=reading?'reading':'directory';
     if(window.PaperImmersion)window.PaperImmersion.setScene(reading?'reading':'directory');
@@ -268,7 +317,7 @@
     $('scene-chapters').disabled=!['edge','digital'].includes(state);
     const fanned=['fan','fanning','fan-turn'].includes(state);
     index.setInteractionSide(reading?null:fanned?(state==='fan'?fanSide:null):'both');
-    $('scene-back').textContent=fanned?'← 收回纸页':'← 回到阅读';
+    $('scene-back').textContent=state==='fan-turn'?'← 放回':'← '+(fanned?'收回纸页':'回到阅读');
     $('scene-digital').disabled=!['edge','digital','fan'].includes(state);
     $('scene-chapters').disabled=!['edge','digital','fan'].includes(state);
     const labels={reading:'',fan:'纸页已拨开 · 点切口直接翻到那一卷',fanning:'沿纸层轻轻拨开', 'fan-turn':'从选中的切口翻开',closing:'合上书，沿着纸边找一找',edge:'沿纸边上下拖动 · 从选中的纸层打开',digital:'同一组标签，展开来找',focusing:'找到切口，再打开这一卷',opening:'从这里，重新打开'};
@@ -276,16 +325,16 @@
   }
   function paintScene(nextMaterial){
     const paintStarted=performance.now();
-    const pose=readPose||capturePose(),f=window.PaperBookScene.sample(sceneProgress,pose,view,fitScale,focusRect,focusAmount,material||Material.compute(spread,D.pages.length,D.books),{digital:digitalProgress,edgeY});
+    const sceneMaterial=nextMaterial||Material.compute(spread,D.pages.length,D.books);
+    const pose=readPose||capturePose(),Scene=window.PaperBookScene;
+    let f=Scene.sample(sceneProgress,pose,view,fitScale,focusRect,focusAmount,sceneMaterial,{digital:digitalProgress,edgeY});
     if(fanSide&&fanCamera>0){
-      const side=fanSide,dir=side==='right'?1:-1,depth=side==='right'?material.totalDepth:0;
-      const top=K.pagePoint(side,material.leftDepth,1,352,material,0,{...surfaceState(),fanLeft:side==='left'?1:0,fanRight:side==='right'?1:0});
-      const base=K.pagePoint(side,depth,1,352,material,0,{...surfaceState(),fanLeft:side==='left'?1:0,fanRight:side==='right'?1:0});
-      const targetScale=view.w<600?2.15:1.65,halfHeight=Math.min(352,Math.max(80,view.h-190)/targetScale/2);
-      const cy=clamp(fanY,halfHeight,704-halfHeight),cx=(top.x+base.x)/2-dir*(view.w<600?12:110);
-      f.scale+=(targetScale-f.scale)*fanCamera;
-      f.x+=(view.w/2-cx*targetScale-f.x)*fanCamera;f.y+=(view.h/2-cy*targetScale-f.y)*fanCamera;
-      f.edgeCenterY=cy;f.edgePixelsPerUnit=targetScale;
+      const fanMaterial=fold?.originSurface?.material||sceneMaterial;
+      const side=fanSide,deep=side==='right'?fanMaterial.totalDepth:0;
+      const full={...surfaceState(),fanLeft:side==='left'?1:0,fanRight:side==='right'?1:0};
+      const top=K.pagePoint(side,fanMaterial.leftDepth,1,352,fanMaterial,0,full);
+      const base=K.pagePoint(side,deep,1,352,fanMaterial,0,full);
+      f=Scene.fanFrame(f,fanCamera,side,top,base,fanY,view);
     }
     lastSceneFrame=f;
     book.style.transform=`translate3d(${f.x}px,${f.y}px,0) scale(${f.scale})`;
@@ -297,7 +346,7 @@
     // rather than resizing them on the final reading frame only.
     ribbons?.update({scale:f.scale});
     stage.dataset.leftAngle=f.leftAngle.toFixed(3);stage.dataset.rightAngle=f.rightAngle.toFixed(3);
-    applyMaterial(nextMaterial||Material.compute(spread,D.pages.length,D.books),f);
+    applyMaterial(sceneMaterial,f);
     index.setProgress(.3+.7*f.orbit);
     stage.dataset.sceneProgress=sceneProgress.toFixed(4);stage.dataset.digitalProgress=digitalProgress.toFixed(4);
     stage.dataset.sceneRenderMs=(performance.now()-paintStarted).toFixed(2);
@@ -342,7 +391,7 @@
     fanAmount=fanCamera=0;setSceneState('fanning');
     await leaves.prepare?.();if(token!==navEpoch)return;
     if(!await animateScene({a:1,c:1},950,token))return;
-    setSceneState('fan');
+    setSceneState('fan');paintScene();
   }
   async function selectFannedBook(i,page){
     if(sceneState!=='fan'||fold)return;
@@ -365,7 +414,7 @@
     const token=navigationIntent();setSceneState('closing');
     await leaves.prepare?.();if(token!==navEpoch)return;
     if(!await animateScene({p:1,f:0},Math.max(450,(1-sceneProgress)*1850),token))return;
-    setSceneState(digitalProgress===1?'digital':'edge');
+    setSceneState(digitalProgress===1?'digital':'edge');paintScene();
   }
   async function requestReading(){
     if(mode==='open')return;
@@ -384,7 +433,7 @@
   }
   function completeReading(){
     $('scene-digital').textContent='展开为数字目录';$('scene-digital').setAttribute('aria-pressed','false');
-    const pose=readPose||capturePose();fanAmount=fanCamera=0;fanSide=null;fanBackPose=null;setSceneState('reading');focus=pose.focus;scale=clamp(fitScale*pose.zoom,fitScale,3.2);
+    const pose=readPose||capturePose();fanAmount=fanCamera=0;fanSide=null;fanBackPose=null;stage.dataset.fanSide='';setSceneState('reading');focus=pose.focus;scale=clamp(fitScale*pose.zoom,fitScale,3.2);
     x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;constrain();transform();save();index.clearFocus();focusRect=null;focusAmount=0;
     // Keep the same physical fore-edge at the outer edge of the open book.
     readPose=null;
@@ -400,7 +449,7 @@
     const target=digitalProgress<.5?1:0,token=navigationIntent();setSceneState('focusing');
     if(!await animateScene({d:target,f:0},850,token))return;
     $('scene-digital').textContent=target?'收回纸质索引':'展开为数字目录';$('scene-digital').setAttribute('aria-pressed',String(!!target));
-    setSceneState(target?'digital':'edge');
+    setSceneState(target?'digital':'edge');paintScene();
   }
   async function selectBook(i,page=D.books[i].first,restorePose=null){
     if(!D.books[i])return;
@@ -497,7 +546,7 @@
     }
   }
   function pointerMove(e){
-    if(edgeDrag?.id===e.pointerId){const dy=edgeDrag.y-e.clientY;edgeDrag.y=e.clientY;panEdge(dy);return;}
+    if(edgeDrag?.id===e.pointerId){if(!edgeDrag.moved&&Math.hypot(e.clientX-edgeDrag.startX,e.clientY-edgeDrag.startY)<8)return;edgeDrag.moved=true;const dy=edgeDrag.y-e.clientY;edgeDrag.y=e.clientY;panEdge(dy);return;}
     if(!pointers.has(e.pointerId)||!gesture||gesture.cancelled||gesture.lifted)return;
     pointers.set(e.pointerId,relative(e));const c=centroid(),g=gesture;
     g.end=c;g.samples.push(c);while(g.samples.length>2&&c.t-g.samples[0].t>140)g.samples.shift();
@@ -554,7 +603,7 @@
     stage.dataset.lastGesture=result.type;stage.dataset.lastFingers=String(g.fingers);
   }
   function pointerUp(e,cancelled=false){
-    if(edgeDrag?.id===e.pointerId){const tap=!cancelled&&Math.hypot(e.clientY-edgeDrag.startY,e.clientX-edgeDrag.startX)<8;edgeDrag=null;if(tap&&sceneState==='fan')requestReading();return;}
+    if(edgeDrag?.id===e.pointerId){const tap=!cancelled&&!edgeDrag.moved&&Math.hypot(e.clientY-edgeDrag.startY,e.clientX-edgeDrag.startX)<8;edgeDrag=null;if(tap&&sceneState==='fan')requestReading();return;}
     if(!pointers.has(e.pointerId))return;
     clearHold();
     const g=gesture;

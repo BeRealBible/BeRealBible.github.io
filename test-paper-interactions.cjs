@@ -36,13 +36,15 @@ function fixture(startSpread=2,options={}){
     hide(){delete el('book').dataset.curlProgress;}
   }
   const context={console,document:doc,PaperPhysics:Physics,PaperGestures:Gestures,PaperBookMaterial:Material,PaperSheetRenderer:Renderer,
-    PaperBookLeaves:{stripClip:()=>'none',create:()=>({setPages(){},update:(m,close,state)=>({active:close>0||state.fanLeft>0||state.fanRight>0})})},PaperBookSolid:{create:()=>({update(){}})},PaperRibbons:{create:args=>{ribbonOptions=args;return {update(){},setScene:(reading,close)=>ribbonCalls.push({reading,close}),open:slot=>ribbonCalls.push({open:slot})};}},PaperBookIndex:{create:args=>{indexOptions=args;return index;}},PaperImmersion:{setScene(){},showChrome(){},hideChrome(){}},
+    PaperBookLeaves:{stripClip:()=>'none',create:()=>({setPages(){},update:(m,close,state)=>({active:close>0||state.fanLeft>0||state.fanRight>0})})},PaperBookSolid:{create:()=>({update(){}})},PaperRibbons:{create:args=>{ribbonOptions=args;return {update(){},setScene:(reading,close)=>ribbonCalls.push({reading,close}),open:slot=>ribbonCalls.push({open:slot})};}},PaperBookIndex:{geometry:require('./book-index-layout.js').geometry,create:args=>{indexOptions=args;return index;}},PaperImmersion:{setScene(){},showChrome(){},hideChrome(){}},
     performance:{now:()=>now},navigator:{},matchMedia:()=>({matches:!!options.reducedMotion,addEventListener(){},removeEventListener(){}}),
     CustomEvent:class{constructor(type,init={}){this.type=type;this.detail=init.detail;}},Event:class{constructor(type){this.type=type;}},
     localStorage:{getItem:()=>JSON.stringify({spread:startSpread}),setItem:(key,value)=>saved.push({at:now,scene:el('stage').dataset.scene,key,value:JSON.parse(value)})},
     setTimeout:(fn,ms=0)=>{const id=nextId++;timers.set(id,{fn,at:now+ms});return id;},clearTimeout:id=>timers.delete(id),
     requestAnimationFrame:fn=>{const id=nextId++;timers.set(id,{fn:()=>fn(now),at:now+16});return id;},cancelAnimationFrame:id=>timers.delete(id),
     ResizeObserver:class{constructor(fn){observer=fn;}observe(){}},addEventListener:(name,fn)=>listen(events,name,fn),dispatchEvent:e=>events[e.type]?.(e)};
+  const depthFrames=[];
+  if(options.depth){context.PaperBookPacket=require('./book-packet.js');context.PaperBookDepth={milling:require('./book-depth.js').milling,create:()=>({prepare(){},update:frame=>depthFrames.push({frame,pose:el('book').style.transform}),getStats:()=>({ms:1})})};}
   context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync('bible-data.js','utf8'),context);vm.runInContext(fs.readFileSync('book-kinematics.js','utf8'),context);vm.runInContext(fs.readFileSync('book-scene.js','utf8'),context);vm.runInContext(fs.readFileSync('paper-typography.js','utf8'),context);vm.runInContext(fs.readFileSync('paper-page.js','utf8'),context);vm.runInContext(fs.readFileSync('app.js','utf8'),context);
   function advance(ms){const end=now+ms;let loops=0;while(true){const upcoming=[...timers].filter(([id,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!upcoming)break;if(++loops>10000)throw Error('timer loop');now=upcoming[1].at;timers.delete(upcoming[0]);upcoming[1].fn();}now=end;}
   // A synchronous fake clock skips Promise continuations between RAF callbacks.
@@ -56,7 +58,7 @@ function fixture(startSpread=2,options={}){
   function held(side='right',radius=350){const p=at(side,radius);emit('pointerdown',p.x,p.y);advance(380);return p;}
   function drag(p,progress,side='right',id=1){emit('pointermove',p.x-(side==='right'?1:-1)*progress*2*p.radius*p.scale,p.y,id);}
   function up(p,progress,side='right',cancel=false){emit(cancel?'pointercancel':'pointerup',p.x-(side==='right'?1:-1)*progress*2*p.radius*p.scale,p.y);advance(1500);}
-  return {el,advance,advanceAsync,untilScene,emit,at,held,drag,up,rendered,events,saved,sceneWrites,indexCalls,ribbonCalls,navigateRibbon:(page,pose)=>ribbonOptions.onNavigate(page,pose),selectBook:i=>indexOptions.onSelect(i),closeIndex:()=>indexOptions.onClose(),resize:()=>observer(),context};
+  return {el,advance,advanceAsync,untilScene,emit,at,held,drag,up,rendered,depthFrames,events,saved,sceneWrites,indexCalls,ribbonCalls,navigateRibbon:(page,pose)=>ribbonOptions.onNavigate(page,pose),selectBook:i=>indexOptions.onSelect(i),closeIndex:()=>indexOptions.onClose(),resize:()=>observer(),context};
 }
 const scenarios=[];
 function test(name,fn){scenarios.push({name,fn});}
@@ -415,6 +417,38 @@ test('returning during a direct cut turn rolls back the target and restores the 
   f.el('right-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');
   f.selectBook(18);await f.advanceAsync(550);const beforeReturn=Number(stage.dataset.fanAmount);f.el('scene-back').onclick();closeTo(Number(stage.dataset.fanAmount),beforeReturn,'return cannot jump to full fan');await f.advanceAsync(180);assert.ok(Number(stage.dataset.fanAmount)<1,'return jumped instead of reversing the held packet');await f.untilScene('reading');await f.advanceAsync(2000);
   assert.equal(stage.dataset.spread,'100');assert.deepEqual(['scale','x','y'].map(k=>stage.dataset[k]),before);
+});
+test('depth packet: first paint keeps the fan, no mid-turn storage and last pose equals flat reading',async()=>{
+  for(const [start,side,i]of [[0,'right',39],[970,'left',18]]){
+    const f=fixture(start,{depth:true}),stage=f.el('stage'),book=f.el('book');
+    f.el(side+'-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');
+    const initialPose=book.style.transform,saveCount=f.saved.length,k=f.context.PaperBookKinematics;
+    f.selectBook(i);await f.untilScene('fan-turn');
+    const cuts=f.depthFrames.filter(x=>x.frame.packet);
+    assert.equal(cuts[0].pose,initialPose);assert.equal(cuts[0].frame.packet.progress,0);
+    assert.equal(stage.dataset.spread,String(start));
+    await f.advanceAsync(700);
+    assert.equal(stage.dataset.spread,String(start));assert.equal(f.saved.length,saveCount);
+    const mid=f.depthFrames.at(-1).frame;
+    assert.ok(mid.packet.progress>0&&mid.packet.progress<1);
+    assert.equal(mid.packet.sections.reduce((t,s)=>t+s.hi-s.lo,0),36,'moving depth is not duplicated into stationary stacks');
+    assert.equal(f.rendered.length,0,'index packet must not use the legacy curl projection');
+    await f.untilScene('reading');
+    const page=f.context.BIBLE_DATA.books[i].first&~1;
+    assert.equal(stage.dataset.spread,String(page));
+    const last=f.depthFrames.filter(x=>x.frame.packet).at(-1);
+    assert.equal(last.frame.packet.progress,1);assert.equal(last.pose,book.style.transform);
+    assert.equal(last.frame.packet.s1,Material.compute(page,f.context.BIBLE_DATA.pages.length).leftDepth);
+  }
+});
+test('depth packet: reverse settles along the same path before any page commit',async()=>{
+  const f=fixture(570,{depth:true}),stage=f.el('stage'),book=f.el('book'),readPose=book.style.transform;
+  f.el('right-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');
+  const fanned=book.style.transform;f.selectBook(39);await f.advanceAsync(800);
+  const p=Number(stage.dataset.foldProgress),pose=book.style.transform;f.closeIndex();assert.equal(book.style.transform,pose);
+  await f.advanceAsync(180);assert.ok(Number(stage.dataset.foldProgress)<p&&Number(stage.dataset.foldProgress)>0);
+  await f.untilScene('reading');assert.equal(stage.dataset.spread,'570');assert.equal(book.style.transform,readPose);
+  const last=f.depthFrames.filter(x=>x.frame.packet).at(-1);assert.equal(last.frame.packet.progress,0);assert.equal(last.pose,fanned);
 });
 test('fan vertical browsing only moves camera and blank tap puts the same paper back',async()=>{
   const f=fixture(570,{width:390,height:844}),stage=f.el('stage');f.el('right-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');

@@ -44,5 +44,22 @@
       foreedgeZ,depthScale,edgeCenterX,edgeCenterY,edgePixelsPerUnit:scale/depthScale,
       physicalScale,digitalScale,digital,selectedDepth};
   }
-  return {sample,smooth,mix,WIDTH,HEIGHT,PERSPECTIVE};
+  function project(point){
+    const q=PERSPECTIVE/(PERSPECTIVE-point.z);
+    return {x:WIDTH+(point.x-WIDTH)*q,y:HEIGHT/2+(point.y-HEIGHT/2)*q};
+  }
+  function fanFrame(rest,amount,side,topPoint,basePoint,requestedY,view){
+    const p=clamp(amount);if(p===0)return rest;
+    const top=project(topPoint),base=project(basePoint),dir=side==='right'?1:-1;
+    const band=Math.abs(base.x-top.x),w=view.w,h=view.h;
+    const scale=Math.min(w<600?2.35:2.02,Math.max(.8,(w-32)/(band+22)));
+    const half=Math.min(HEIGHT/2,Math.max(72,h-116)/scale/2);
+    const offset=Math.max(0,Math.min(w*.17,(w-30-scale*band)/2));
+    const cy=Math.max(half,Math.min(HEIGHT-half,requestedY)),cx=(top.x+base.x)/2-dir*offset/scale;
+    const target={scale,x:w/2-cx*scale,y:h/2-cy*scale};
+    return {...rest,scale:p===1?target.scale:mix(rest.scale,target.scale,p),
+      x:p===1?target.x:mix(rest.x,target.x,p),y:p===1?target.y:mix(rest.y,target.y,p),
+      edgeCenterY:cy,edgePixelsPerUnit:scale};
+  }
+  return {sample,fanFrame,project,smooth,mix,WIDTH,HEIGHT,PERSPECTIVE};
 });

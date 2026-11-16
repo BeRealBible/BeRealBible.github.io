@@ -30,3 +30,7 @@
 .pbi-ink-strip{position:absolute;left:0;top:0;display:block;transform-origin:0 0;overflow:hidden;pointer-events:none;backface-visibility:visible}
 .pbi-ink-strip[hidden]{display:none}
 .pbi-strip-abbr{position:absolute;top:0;transform:none}
+
+/* Physical glyphs are printed into the paper raster. The semantic buttons
+   are still keyboard targets; their digital paint takes over once only. */
+.pbi-root[data-ink-layer='depth'] .pbi-abbr{opacity:var(--pbi-ink-handoff,0)}

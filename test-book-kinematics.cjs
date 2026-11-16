@@ -103,7 +103,8 @@ for(const material of materials){
     if((side==='left'?material.leftDepth:material.rightDepth)<1e-8)continue;
     const depth=material.leftDepth,outer=side==='left'?0:36,state={fanLeft:1,fanRight:1};
     const a=K.pagePoint(side,depth,1,0,material,0),b=K.pagePoint(side,depth,1,0,material,0,state);
-    near(Math.abs(a.x-b.x),100,'top leaf moves 100 units toward its binding');
+    const amount=side==='left'?material.leftDepth:material.rightDepth;
+    near(Math.abs(a.x-b.x),K.FAN_SWEEP*K.fanCapacity(amount,36),'top leaf motion is proportionate to the side’s remaining paper');
     pointNear(K.pagePoint(side,outer,1,0,material,0),K.pagePoint(side,outer,1,0,material,0,state),'bottom leaf stays put while upper sheets fan');
     const middle=K.pagePoint(side,depth,.5,0,material,.5),p0=K.pagePoint(side,depth,0,0,material,.5),p1=K.pagePoint(side,depth,1,0,material,.5);
     check(Math.hypot(middle.x-(p0.x+p1.x)/2,middle.z-(p0.z+p1.z)/2)>50,'closing page is visibly bowed, not a rigid board');

@@ -9,7 +9,7 @@
   else root.PaperBookKinematics=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const WIDTH=480,HEIGHT=704,DEFAULT_DEPTH=36;
+  const WIDTH=480,HEIGHT=704,DEFAULT_DEPTH=36,FAN_SWEEP=158;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const sign=side=>{if(side==='left')return -1;if(side==='right')return 1;throw new TypeError('Book side must be left or right');};
@@ -28,9 +28,13 @@
     return {_kinematicFrame:true,_state:state,close:progress,theta,sine,cosine,totalDepth,leftDepth,rightDepth,
       fanLeft:clamp(finite(state?.fanLeft),0,1)*(1-progress)*(1-progress),
       fanRight:clamp(finite(state?.fanRight),0,1)*(1-progress)*(1-progress),
+      leftCapacity:fanCapacity(leftDepth,totalDepth),rightCapacity:fanCapacity(rightDepth,totalDepth),
       notches:Array.isArray(state?.notches)?state.notches:[],
       hingeX:WIDTH+(leftDepth-totalDepth/2)*sine,
       A:sine+.55*cosine*cosine,B:.85*cosine,C:.55*cosine*sine-cosine};
+  }
+  function fanCapacity(amount,total){
+    return total>0?Math.min(1,Math.pow(Math.max(0,amount)/(total*.48),.57)):0;
   }
   function at(side,s,u,y,f){
     const direction=sign(side),layer=clamp(finite(s),0,f.totalDepth);
@@ -41,15 +45,23 @@
     const b=.85*f.cosine*t,c=.55*f.cosine*f.sine*t-f.cosine;
     const amount=direction<0?f.leftDepth:f.rightDepth;
     const upper=amount>1e-10?clamp(1-d/amount,0,1):0;
-    const fan=(direction<0?f.fanLeft:f.fanRight)*upper*upper*(3-2*upper);
+    const fan=(direction<0?f.fanLeft*f.leftCapacity:f.fanRight*f.rightCapacity)*upper*(.76+.24*upper*(3-2*upper));
     // A leaf bows between its sewn spine and free edge. Different paper
     // depths follow different arcs; there is no rigid two-board hinge.
     const closingBow=62*Math.sin(Math.PI*f.close)*(.48+.52*upper);
     const arch=Math.sin(Math.PI*across);
-    const bend=closingBow*arch+fan*(94*arch+13*across);
-    const drawIn=100*fan*across*across;
+    // A monotonically rising fanned leaf remains behind shallower sheets
+    // at the same horizontal position, even at the overhanging free edge.
+    const bend=closingBow*arch+fan*(52*t+10*across);
+    const drawIn=FAN_SWEEP*fan*across*across;
     return {x:f.hingeX+direction*(WIDTH*across-drawIn)*f.cosine+(layer-f.leftDepth)*a-direction*bend*f.sine,
       y:finite(y)+d*b,z:(WIDTH*across-drawIn)*f.sine+d*c+bend*f.cosine};
+  }
+  function shoulderFactor(notch,ds,vertical=1){
+    if(notch.milled)ds/=Math.max(.0001,vertical);
+    const flat=notch.milled?.42:.7;
+    const q=Math.max(0,(Math.abs(ds)-flat)/(1-flat));
+    return Math.sqrt(Math.max(0,1-q*q));
   }
   function pagePoint(side,s,u,y,material,close,state){return at(side,s,u,y,frame(material,close,state));}
   function edgeInset(side,s,y,material,state={}){
@@ -62,8 +74,8 @@
       if(Math.abs(dy)>=1||Math.abs(ds)>=1)continue;
       // A thumb recess is milled through a run of neighbouring sheets:
       // a flat depth floor with rounded shoulders, not a tiny spherical dent.
-      const shoulder=Math.max(0,(Math.abs(ds)-.7)/.3);
-      const value=Math.min(26,Math.max(0,finite(notch.inset,19)))*Math.sqrt(1-dy*dy)*Math.sqrt(Math.max(0,1-shoulder*shoulder));
+      const vertical=Math.sqrt(1-dy*dy);
+      const value=Math.min(26,Math.max(0,finite(notch.inset,19)))*vertical*shoulderFactor(notch,ds,vertical);
       inset=Math.max(inset,value);
     }
     return inset;
@@ -74,7 +86,7 @@
   function prepare(material,close,state={}){
     const f=frame(material,close,state),byY=new Map(),edgePoints={left:new Map(),right:new Map()};
     const notches=f.notches.map(n=>({depth:finite(n.depth),y:finite(n.y),radius:Math.max(.001,finite(n.radius,13)),
-      span:Math.max(.001,finite(n.span,1.2)),inset:Math.min(26,Math.max(0,finite(n.inset,19)))}));
+      span:Math.max(.001,finite(n.span,1.2)),inset:Math.min(26,Math.max(0,finite(n.inset,19))),milled:n.milled}));
     function inset(side,s,y){
       sign(side);const layer=clamp(finite(s),0,f.totalDepth),yy=finite(y);let rows=byY.get(yy),value=0;
       if(!rows){
@@ -83,8 +95,7 @@
       }
       for(const {n,vertical}of rows){
         const ds=(layer-n.depth)/n.span;if(Math.abs(ds)>=1)continue;
-        const shoulder=Math.max(0,(Math.abs(ds)-.7)/.3);
-        value=Math.max(value,n.inset*vertical*Math.sqrt(Math.max(0,1-shoulder*shoulder)));
+        value=Math.max(value,n.inset*vertical*shoulderFactor(n,ds,vertical));
       }
       return value;
     }
@@ -162,7 +173,7 @@
   }
   function bottomMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,HEIGHT,segments,state);}
   function headMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,0,segments,state);}
-  return {WIDTH,HEIGHT,DEFAULT_DEPTH,frame,prepare,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
+  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,fanCapacity,frame,prepare,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
     surfaceStripMatrix,surfaceStripMatrixValues,
     topMatrix,topMatrixValues,foreedgeMatrix,foreedgeMatrixValues,matrixCSS,transformPoint,
     triangleMatrixValues,edgeMesh,bottomMesh,headMesh};
