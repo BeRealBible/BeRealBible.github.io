@@ -412,6 +412,26 @@ test('fanned physical cut selection turns the chosen packet directly, never thro
     assert.equal(f.el('book').classList.contains('has-curved-leaves'),false);
   }
 });
+test('a later member on a left carrier retracts it and turns a real right-side packet',async()=>{
+  const source=fixture().context.BIBLE_DATA.books,groupStart=source.find(b=>b.code==='1JN'),i=source.findIndex(b=>b.code==='JUD');
+  const start=(groupStart.first&~1)+2,target=source[i].first&~1,f=fixture(start,{depth:true}),stage=f.el('stage');
+  assert.ok(target>start);f.el('left-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');
+  const saveCount=f.saved.length,before=f.sceneWrites.length;f.selectBook(i);
+  await f.advanceAsync(320);assert.equal(stage.dataset.fanSide,'left');assert.ok(Number(stage.dataset.fanAmount)<1);assert.equal(stage.dataset.spread,String(start));
+  assert.equal(f.depthFrames.filter(x=>x.frame.packet).length,0,'no packet starts on the wrong side');
+  await f.untilScene('fan-turn');assert.equal(stage.dataset.fanSide,'right');assert.equal(f.saved.length,saveCount);
+  const first=f.depthFrames.find(x=>x.frame.packet).frame.packet;assert.equal(first.source,'right');assert.equal(first.s0,Material.compute(start,1254).leftDepth);assert.equal(first.s1,Material.compute(target,1254).leftDepth);
+  await f.untilScene('reading');assert.equal(stage.dataset.spread,String(target));
+  assert.ok(f.sceneWrites.slice(before).filter(w=>w.key==='sceneProgress').every(w=>Number(w.value)===0));
+});
+test('cancelling while changing carrier sides cannot start or commit the later target',async()=>{
+  const source=fixture().context.BIBLE_DATA.books,start=(source.find(b=>b.code==='1JN').first&~1)+2,i=source.findIndex(b=>b.code==='JUD');
+  for(const elapsed of [250,900]){
+    const f=fixture(start,{depth:true}),stage=f.el('stage');f.el('left-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');
+    f.selectBook(i);await f.advanceAsync(elapsed);f.closeIndex();await f.untilScene('reading');await f.advanceAsync(3000);
+    assert.equal(stage.dataset.spread,String(start));assert.equal(f.depthFrames.filter(x=>x.frame.packet).length,0);
+  }
+});
 test('returning during a direct cut turn rolls back the target and restores the reading pose',async()=>{
   const f=fixture(100),stage=f.el('stage');f.el('focus-right').onclick();const before=['scale','x','y'].map(k=>stage.dataset[k]);
   f.el('right-edge-open').dispatchEvent({type:'click',detail:0,preventDefault(){}});await f.untilScene('fan');

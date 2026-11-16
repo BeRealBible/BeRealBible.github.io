@@ -270,7 +270,7 @@
   const leaves=window.PaperBookLeaves.create({host:$('book-leaves'),paintPage,retainFlat:true});
   const hideInk=/(?:^|[?&])ink=off(?:&|$)/.test(window.location?.search||'');
   const index=window.PaperBookIndex.create({host:$('physical-index-host'),interactionHost:stage,books:D.books,pageCount:D.pages.length,
-    onSelect:i=>selectBook(i),onClose:()=>requestReading(),onPan:panEdge,depthInk:()=>!!depth,inkNotches:()=>notches,
+    onSelect:i=>selectBook(i),onClose:()=>requestReading(),onPan:panEdge,depthInk:()=>!!depth,inkNotches:()=>notches,labelFrame:i=>depth?.getLabelFrame?.(i),
     hitTest:(e,side)=>{
       const bounds=book.getBoundingClientRect(),screenScale=bounds.width/960;
       if(!screenScale)return null;
@@ -400,8 +400,16 @@
     if(sceneState!=='fan'||fold)return;
     const target=clamp(page&~1,0,D.pages.length-2),direction=Math.sign(target-spread);
     if(!direction){requestReading();return;}
-    if((direction>0?'right':'left')!==fanSide)return;
+    const targetSide=direction>0?'right':'left';
     const token=navigationIntent();setSceneState('fanning');
+    if(targetSide!==fanSide){
+      // A single carrier can list later books that still open in the other
+      // stack. Put this fan back before lifting that real destination packet.
+      if(!await animateScene({a:0,c:0},650,token))return;
+      fanSide=targetSide;fanY=index.focusBook(i)?.y??fanY;index.clearFocus();
+      paintScene();
+      if(!await animateScene({a:1,c:1},850,token))return;
+    }
     await leaves.prepare?.(target,target+1);
     if(token!==navEpoch)return;
     const originSurface={side:fanSide,material:{...material},close:0,state:surfaceState()};

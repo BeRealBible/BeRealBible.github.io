@@ -37,6 +37,19 @@ test('true sheet depth derives only from each book opening and the actual page c
   const group=model.groups.find(g=>g.codes.includes('EZR'));
   assert.notEqual(model.slots[group.indices[0]].anchorDepth,model.slots[group.indices[1]].anchorDepth);
 });
+test('39 whole stamps each have one carrier leaf independent from all 66 navigation targets',()=>{
+  for(const group of model.groups){
+    const first=model.slots[group.first];
+    assert.equal(group.carrierSheet,first.sheet);near(group.carrierDepth,first.anchorDepth);
+    assert.equal(group.carrierSheet,Math.floor(books[group.first].first/2));
+    for(const i of group.indices)near(model.slots[i].anchorDepth,Math.floor(books[i].first/2)/model.totalSheets*model.totalDepth);
+  }
+  const group=model.groups.find(g=>g.codes.includes('1JN')),split=group.carrierDepth+model.totalDepth/model.totalSheets;
+  assert.ok(group.carrierDepth<split);
+  assert.ok(model.slots[group.indices.at(-1)].anchorDepth>split,'a later member can navigate across the carrier side');
+  assert.ok(model.groups.find(g=>g.codes.includes('REV')).carrierDepth>split,'Revelation remains on its own later carrier');
+});
+
 test('changing pagination or paper depth updates each anchor without regrouping books',()=>{
   const shifted=books.map(b=>({...b,first:b.first+4,last:b.last+4}));
   const next=Layout.geometry(shifted,count+8,48);
@@ -46,6 +59,7 @@ test('changing pagination or paper depth updates each anchor without regrouping 
     assert.deepEqual(slot.physical.y,model.slots[i].physical.y);
   });
   assert.deepEqual(next.groups.map(g=>g.codes),model.groups.map(g=>g.codes));
+  next.groups.forEach(g=>{assert.equal(g.carrierSheet,next.slots[g.first].sheet);near(g.carrierDepth,next.slots[g.first].anchorDepth);});
 });
 test('one/two/dense groups use 18/12/8px targets inside their own recess',()=>{
   for(const group of model.groups){

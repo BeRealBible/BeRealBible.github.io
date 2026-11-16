@@ -23,7 +23,9 @@ function fixture(options={}){
  }
  const host=doc.createElement('div'),interactionHost=options.externalHost?doc.createElement('section'):host,selections=[],views=[],pans=[];
  if(interactionHost!==host)interactionHost.appendChild(host);
- const index=Index.create({host,interactionHost,books,pageCount,onSelect:i=>selections.push(i),onViewChange:v=>views.push(v),onPan:p=>pans.push(p)});
+ const index=Index.create({host,interactionHost,books,pageCount,onSelect:i=>selections.push(i),onViewChange:v=>views.push(v),onPan:p=>pans.push(p),
+  depthInk:options.depthInk,hitTest:options.hitTest,labelFrame:options.labelFrame,
+  inkNotches:()=>Index.geometry(books,pageCount).groups.map(g=>({...g.notch,indices:g.indices}))});
  const root=nodes.find(n=>n.className==='pbi-root'),buttons=nodes.filter(n=>n.tagName==='button'),scroll=nodes.find(n=>n.className==='pbi-scroll');
  function clickAt(target,x,y,detail=1){const e={target,clientX:x,clientY:y,detail,defaultPrevented:false,stopped:false,immediateStopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},stopImmediatePropagation(){this.stopped=true;this.immediateStopped=true;}};assert.equal(interactionHost.listenerOptions.click,true);interactionHost.handlers.click(e);if(!e.stopped)target.handlers.click?.(e);return e;}
  function pointer(type,x,y,target=host,id=7){const e={target,pointerId:id,button:0,clientX:x,clientY:y,stopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;}};interactionHost.handlers[type]?.(e);return e;}
@@ -110,6 +112,28 @@ test('only the fanned side accepts physical clicks while digital retains all 66 
  f.index.setDigital(1);assert.ok(f.buttons.every(b=>!b.disabled));f.buttons[0].handlers.click({detail:0,stopPropagation(){}});assert.deepEqual(f.selections,[64,65,0]);
  f.index.setDigital(0);assert.ok(f.buttons.every(b=>b.disabled));f.index.setInteractionSide('left');assert.equal(f.buttons[0].disabled,false);assert.equal(f.buttons[65].disabled,true);
 });
+test('baked group controls share one carrier side, retain distinct targets and use the actual label plane',()=>{
+ const model=Index.geometry(books,pageCount),g=model.groups.find(g=>g.codes.includes('1JN'));
+ const start=(books[g.first].first&~1)+2,m=material(start),matrices=model.slots.map(s=>Index.translation(200+s.group,30+s.groupRow*12,400));
+ const hit={index:g.indices.at(-1),sides:[]};
+ const f=fixture({depthInk:()=>true,labelFrame:i=>({matrix:matrices[i]}),hitTest:(_e,side)=>{hit.sides.push(side);return hit.index;}});
+ f.index.setSurfaceFrame({material:m,close:0,fanLeft:1});f.index.setInteractionSide('left');
+ for(const i of g.indices){const b=f.buttons[i],slot=model.slots[i];
+  assert.equal(b.dataset.paperSide,'left');assert.equal(b.disabled,false);assert.equal(b.tabIndex,0);
+  assert.equal(Number(b.dataset.carrierSheet),g.carrierSheet);near(Number(b.dataset.carrierDepth),g.carrierDepth,'one carrier');
+  near(Number(b.dataset.anchorDepth),slot.anchorDepth,'true navigation depth');assert.equal(Number(b.dataset.sheet),slot.sheet);
+  assert.deepEqual(parse(b.style.transform),matrices[i]);b.handlers.click({detail:0,stopPropagation(){}});
+ }
+ assert.deepEqual(f.selections,g.indices);assert.ok(model.slots[g.indices.at(-1)].anchorDepth>m.leftDepth);
+ const rev=model.slots.find(s=>books[s.index].code==='REV');assert.equal(f.buttons[rev.index].dataset.paperSide,'right');assert.equal(f.buttons[rev.index].disabled,true);
+ f.pointer('pointermove',300,300);assert.equal(f.interactionHost.style.cursor,'pointer');
+ f.pointer('pointerdown',300,300);f.pointer('pointerup',300,300);assert.equal(f.selections.at(-1),g.indices.at(-1));
+ assert.ok(hit.sides.every(side=>side==='left'));
+ hit.index=rev.index;f.pointer('pointermove',300,300);assert.equal(f.interactionHost.style.cursor,'');f.clickAt(f.host,300,300);assert.ok(!f.selections.includes(rev.index));
+ const focus=f.index.focusBook(g.indices.at(-1));near(focus.depth,g.carrierDepth,'camera follows carrier');near(focus.anchorDepth,model.slots[g.indices.at(-1)].anchorDepth,'target remains distinct');
+ f.index.setDigital(1);assert.ok(f.buttons.every(b=>!b.disabled));
+});
+
 test('recessed fan and digital round trips retain all original ink nodes and finite invertible geometry',()=>{
  const f=fixture(),nodes=f.nodes.length,m=material(570),buttons=f.buttons.slice();
  for(let step=0;step<=40;step++){f.index.setSurfaceFrame({material:m,close:Math.sin(step/40*Math.PI),fanLeft:step/40,fanRight:1-step/40});f.index.setDigital(step/40);f.buttons.forEach(b=>{const a=parse(b.style.transform);a.forEach(v=>assert.ok(Number.isFinite(v)));Index.inverse(a);});}

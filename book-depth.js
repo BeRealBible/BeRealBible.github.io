@@ -10,24 +10,6 @@
   const R=Solid.RASTER, clamp=(n,a,b)=>Math.max(a,Math.min(b,n)), mix=(a,b,t)=>a+(b-a)*t;
   const COLUMNS=8,TILE_W=128,TILE_H=152,STRIDE=12;
   const labelRow=(n,v)=>clamp(Math.round((v-.5)*n.indices.length/.69+(n.indices.length-1)/2),0,n.indices.length-1);
-  function sectionInk(slot,section,close=0,packet=null){
-    const anchor=slot.anchorDepth+1e-8;
-    let owns=+(anchor>=section.lo&&anchor<section.hi);
-    if(packet){
-      // The milled stamp can span the artificial boundary between a moving
-      // packet and its resting neighbour. Do not instantly erase that part
-      // when the mesh changes from two sections to three. Blend the actual
-      // source/destination stack ownership along the reversible turn.
-      const inHalf=(side,split)=>+((anchor<split)===(side==='left'));
-      owns=mix(inHalf(section.side,packet.s0),
-        inHalf(section.moving?packet.destination:section.side,packet.s1),packet.t);
-    }
-    // A broad cut can reach into both stacks, but its printed book name
-    // belongs only to the stack containing that book's actual opening.
-    // Closing reunites the stacks, so the full-directory stamp is continuous
-    // and independent of where the book was previously open.
-    return mix(owns,1,K.inspectionAmount(close));
-  }
   // Size the source ink as well as the output buffer. A high-DPR framebuffer
   // cannot restore strokes from a twenty-pixel, four-book stamp.
   function atlasRaster(count,limit=4096){
@@ -35,15 +17,33 @@
     const scale=Math.min(2.25,limit/w,limit/h);
     return {width:Math.floor(w*scale),height:Math.floor(h*scale),scaleX:Math.floor(w*scale)/w,scaleY:Math.floor(h*scale)/h};
   }
-  function inspectionGlyph(n,label){
-    const count=n.indices.length,chars=Math.max(1,[...label].length);
-    const height=count===1?.37:count===2?.28:.62/count;
-    // Estimate the paper-tip tangent, then compensate the narrow substrate,
-    // not the finished screen. Keep a single character the same width as one
-    // character in a pair; never stretch '犹' to the width of '约三'.
-    const tangent=1+K.WIDTH*K.EDGE_SWEEP/36;
-    const width=Math.min(count>=4?.56:count===3?.62:.68,height*2*n.radius/(2.1*n.span*tangent)*chars);
-    return {height,width};
+  const labelInkEllipse=Object.freeze({rx:.46,ry:.48});
+  // Font units live on one paper leaf, never along the stack-depth axis.
+  function labelGlyph(n,label){
+    const chars=Math.max(1,[...label].length),pitch=n.labelHeight*.69/n.indices.length;
+    const size=Math.min(n.labelWidth*.78/n.maxChars,pitch*.82);
+    return {size,width:size*chars/n.labelWidth,height:size/n.labelHeight};
+  }
+  function labelFrame(n,section,inspection=0){
+    const c=n.carrierDepth,w=n.labelWidth,h=n.labelHeight;
+    const rootU=1-(w+1)/K.WIDTH,H=section.point(c,rootU,n.y-h/2);
+    const B=section.point(c,rootU+.001,n.y-h/2);
+    const angle=Math.atan2(B.z-H.z,B.x-H.x);
+    // The original page margin is flat while fanned. Only its unprinted root
+    // folds when inspecting the closed edge. This is a material hinge, not a
+    // camera-facing billboard: the fold direction is fixed for this sheet.
+    const target=n.foldSign>0?.35:Math.PI-.35;
+    let turn=target-angle;while(turn>Math.PI)turn-=2*Math.PI;while(turn< -Math.PI)turn+=2*Math.PI;
+    const a=angle+turn*inspection,e={x:Math.cos(a),y:0,z:Math.sin(a)};
+    const point=(u,v)=>({x:H.x+e.x*w*u,y:H.y+h*v,z:H.z+e.z*w*u});
+    return {carrierDepth:c,width:w,height:h,point,rootU,
+      basePoint:(u,v)=>section.point(c,rootU+u*w/K.WIDTH,n.y-h/2+h*v),
+      side:section.side,moving:!!section.moving,
+      matrix:[e.x,0,e.z,0,0,1,0,0,-e.z,0,e.x,0,H.x,H.y,H.z,1]};
+  }
+  function labelSection(n,sections){
+    const c=n.carrierDepth+1e-8;
+    return sections.find(s=>c>=s.lo&&c<s.hi);
   }
   const unique=xs=>[...new Set(xs.map(x=>+x.toFixed(9)))].sort((a,b)=>a-b);
   const tone=(n,s,y)=>{
@@ -55,14 +55,20 @@
   };
   function milling(model){
     return model.groups.map(g=>{
-      const n=g.notch,d=model.totalDepth;
-      const paired=g.indices.some(i=>[...model.slots[i].label].length>1);
-      const span=Math.min(d*.48,Math.max(paired?2.4:1.46,n.span*1.16));
-      // Dense names get room in the real cut, not an overlaid label. The
-      // vertical centre/order and each book's opening depth stay unchanged.
-      const radius=Math.max(n.radius,g.indices.length>=3?g.indices.length*5.2:13);
-      return {...n,depth:clamp(n.depth,span*1.02,d-span*1.02),span,radius,milled:true,
-        inset:Math.min(15,10.8+(n.radius-13)*.38),group:g.index,indices:g.indices,testament:g.testament};
+      const n=g.notch,d=model.totalDepth,carrier=model.slots[g.first];
+      const maxChars=Math.max(...g.indices.map(i=>[...model.slots[i].label].length));
+      const labelWidth=maxChars>1?20:13;
+      const labelRadius=Math.max(n.radius,g.indices.length>=3?g.indices.length*5.6:13);
+      const radius=labelRadius*1.2;
+      const foldSign=carrier.anchorDepth<d/2?1:-1;
+      // Centre the cavity around the actual sheet and its fixed folding space.
+      // Only the support interval is clipped by the book ends; never move the
+      // carrier to a decorative notch centre or split a label across sheets.
+      const span=Math.max(n.span*1.16,labelWidth/3.6*1.3);
+      return {...n,depth:carrier.anchorDepth+foldSign*span*.25,span,radius,milled:true,
+        inset:labelWidth+6,carrierDepth:carrier.anchorDepth,carrierSheet:carrier.sheet,
+        labelWidth,labelHeight:labelRadius*1.84,maxChars,foldSign,
+        group:g.index,indices:g.indices,testament:g.testament};
     });
   }
   function topology(total,notches){
@@ -73,8 +79,7 @@
       const lo=depths[i],active=notches.filter(n=>n.depth+n.span>lo+1e-8&&n.depth-n.span<hi-1e-8);
       const ys=unique([0,K.HEIGHT,...active.flatMap(n=>[
         ...Array.from({length:9},(_,j)=>clamp(n.y-n.radius*Math.cos(Math.PI*j/8),0,K.HEIGHT)),
-        // Split between printed rows: a triangle must never contain two
-        // names whose real openings belong to opposite stacks.
+        // Keep deterministic cuts near the clustered semantic rows.
         ...Array.from({length:Math.max(0,(n.indices?.length||1)-1)},(_,j)=>
           n.y+2*n.radius*(j+1-n.indices.length/2)*.69/n.indices.length)
       ])]);
@@ -88,14 +93,6 @@
       });
       return {lo,hi,ys,cuts};
     });
-  }
-  // The stamp is part of the far shoulder triangles: zero lift, zero
-  // duplicate coplanar card. The near shoulder remains opaque paper.
-  function stampUV(n,s,y,side){
-    const vertical=Math.sqrt(Math.max(.00001,1-((y-n.y)/n.radius)**2));
-    const q=(s-n.depth)/(n.span*vertical)*(side==='left'?-1:1);
-    const t=clamp((q-.42)/.58,0,1),u=.12*t+.88*(1-Math.sqrt(1-t*t));
-    return [side==='left'?1-u:u,clamp((y-(n.y-n.radius))/(2*n.radius),0,1)];
   }
   function atlasUV(n,u,v,rows,inspection=false){
     return [((n.group%COLUMNS)*TILE_W+2+u*(TILE_W-4))/(COLUMNS*TILE_W),
@@ -160,6 +157,12 @@
     varying vec2 uv;varying vec2 floorUV;varying vec4 paper;varying float visibleInk;
     uniform sampler2D u_tex;uniform float u_stamp;uniform float u_sheets;uniform float u_closed;uniform float u_inspect;
     void main(){
+      if(paper.w>5.5){gl_FragColor=vec4(vec3(.991,.955,.884)*paper.z,1.0);return;}
+      if(paper.w>4.5){
+        vec4 ink=texture2D(u_tex,gl_FrontFacing?floorUV:uv);
+        vec3 stock=vec3(.991,.955,.884)*paper.z;
+        gl_FragColor=vec4(mix(stock,ink.rgb,u_stamp*ink.a),1.0);return;
+      }
       if(paper.w>2.5){
         if((paper.w>3.5)!=gl_FrontFacing)discard;
         gl_FragColor=vec4(texture2D(u_tex,uv).rgb*paper.z,1.0);return;
@@ -179,24 +182,12 @@
       vec3 fibre=vec3(.991,.955,.884);
       vec3 stock=mix(tinted,fibre,smoothstep(.025,.80,paper.y));
       stock*=paper.z+irregular-line*.14-grain*.052;
-      vec4 ink=texture2D(u_tex,uv);
-      float stamp=paper.w>.05&&paper.w<.15?1.0:
-        paper.w>=.15&&paper.w<.25?u_closed:
-        paper.w>=.25&&paper.w<.35?1.0-u_closed:0.0;
-      vec4 inlay=texture2D(u_tex,floorUV);
-      // The inspected glyph follows the whole recessed floor. Keep the lip
-      // clean; neither of these atlas samples projects beyond the cut mesh.
-      float edge=smoothstep(.025,.32,paper.y);
-      float shoulderAlpha=ink.a*stamp*edge*visibleInk;
-      float floorAlpha=inlay.a*smoothstep(.09,.53,paper.y)*visibleInk;
-      vec3 shoulder=mix(stock,ink.rgb*(.91+.09*paper.z),u_stamp*shoulderAlpha);
-      // Bright sliced fibres surround the shade on the recessed floor,
-      // even when viewing the fore-edge straight on and hiding its ink.
+      // Stack walls contain fibres only. No label UV, floor stamp, or
+      // per-book opacity can turn this multi-sheet mesh into printed paper.
       float cavity=smoothstep(.0,.91,paper.y);
-      vec3 recess=mix(tinted,fibre*(1.0-.23*cavity),smoothstep(.035,.47,paper.y));
+      vec3 recess=mix(tinted,fibre*(1.0-.18*cavity),smoothstep(.035,.47,paper.y));
       recess*=.99+irregular-line*.14-grain*.052;
-      vec3 floorInk=mix(recess,inlay.rgb,u_stamp*floorAlpha);
-      gl_FragColor=vec4(mix(shoulder,floorInk,u_inspect),1.0);
+      gl_FragColor=vec4(mix(stock,recess,u_inspect),1.0);
     }`;
   function compile(gl,type,src){
     const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
@@ -255,50 +246,28 @@
     const rows=Math.ceil(notches.length/COLUMNS),atlas=doc.createElement('canvas');
     const inkRaster=atlasRaster(notches.length,gl.getParameter(gl.MAX_TEXTURE_SIZE));
     atlas.width=inkRaster.width;atlas.height=inkRaster.height;
-    let atlasTexture=null,dirty=true,pages=new Map(),last=null,lastKey='',lastGeometry='',lastLayers=null,projected=new Map(),targets=[],cost={};
+    let atlasTexture=null,dirty=true,pages=new Map(),last=null,lastKey='',lastGeometry='',lastLayers=null,projected=new Map(),targets=[],labelFrames=new Map(),cost={};
     const body=new Batch(4096),pageBatches=Array.from({length:4},()=>new Batch(4096)),meshes=new Map();
     const atlasPaint=atlas.getContext('2d');
     function printAtlas(){
       atlasPaint.clearRect(0,0,atlas.width,atlas.height);
       atlasPaint.save();atlasPaint.scale(inkRaster.scaleX,inkRaster.scaleY);
-      for(const inspection of [false,true])for(const n of notches){
-        const x=n.group%COLUMNS*TILE_W+2,y=(Math.floor(n.group/COLUMNS)+(inspection?rows:0))*TILE_H+2;
+      for(const n of notches){
+        const x=n.group%COLUMNS*TILE_W+2,y=Math.floor(n.group/COLUMNS)*TILE_H+2;
         const w=TILE_W-4,h=TILE_H-4;
         atlasPaint.save();atlasPaint.translate(x,y);
-        atlasPaint.beginPath();
-        if(inspection)atlasPaint.ellipse(w*.5,h*.5,w*.44,h*.46,0,0,2*Math.PI);
-        else {
-          atlasPaint.moveTo(w*.25,h*.50);
-          atlasPaint.bezierCurveTo(w*.24,h*.235,w*.52,h*.09,w*.94,h*.082);
-          atlasPaint.lineTo(w*.94,h*.935);
-          atlasPaint.bezierCurveTo(w*.52,h*.91,w*.24,h*.765,w*.25,h*.50);
-        }
-        atlasPaint.closePath();
-        // Both left/right shoulders sample this same registered ink. Keep
-        // natural glyphs in the atlas; only the projection can foreshorten.
-        atlasPaint.fillStyle=n.testament==='new'?'#932d31':'#282c27';atlasPaint.fill();
-        atlasPaint.clip();
-        const local=atlasPaint.createLinearGradient(0,0,w,0);
-        local.addColorStop(0,n.testament==='new'?'#661e26':'#181d18');
-        local.addColorStop(.61,n.testament==='new'?'#a93d3b':'#343932');
-        local.addColorStop(1,n.testament==='new'?'#882529':'#212721');
-        atlasPaint.fillStyle=local;atlasPaint.fillRect(0,0,w,h);
+        // Work in real leaf units: the source is supersampled, not stretched.
+        atlasPaint.scale(w/n.labelWidth,h/n.labelHeight);
+        const lw=n.labelWidth,lh=n.labelHeight;
+        atlasPaint.beginPath();atlasPaint.ellipse(lw*.5,lh*.5,lw*labelInkEllipse.rx,lh*labelInkEllipse.ry,0,0,2*Math.PI);
+        atlasPaint.fillStyle=n.testament==='new'?'#932d31':'#282c27';atlasPaint.fill();atlasPaint.clip();
         atlasPaint.textAlign='center';atlasPaint.textBaseline='middle';
         n.indices.forEach((i,j)=>{
-          const slot=model.slots[i],yy=h*(.5+(j-(n.indices.length-1)/2)*(.69/n.indices.length));
-          if(j){atlasPaint.fillStyle='#dabb755c';atlasPaint.fillRect(w*(inspection?.15:.33),yy-h*.345/n.indices.length,w*(inspection?.70:.51),1);}
-          atlasPaint.fillStyle=inspection?'#fff0bc':'#f9e6ac';
-          const glyph=inspectionGlyph(n,slot.label);
-          const size=Math.min(94,h*(inspection?glyph.height:(n.indices.length===1?.52:.61/n.indices.length)));
-          atlasPaint.font=inspection?`600 ${size}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`:`600 ${size}px PaperSerif,"Microsoft YaHei",serif`;
-          if(inspection){
-            // The floor is a tall, narrow surface. A wider ink master on
-            // the substrate counteracts its smaller horizontal projection.
-            const inkWidth=atlasPaint.measureText(slot.label).width||1;
-            atlasPaint.save();atlasPaint.translate(w*.5,yy);
-            atlasPaint.scale(w*glyph.width/inkWidth,1);
-            atlasPaint.fillText(slot.label,0,0);atlasPaint.restore();
-          }else atlasPaint.fillText(slot.label,w*.64,yy,w*.60);
+          const slot=model.slots[i],yy=lh*(.5+(j-(n.indices.length-1)/2)*.69/n.indices.length);
+          const glyph=labelGlyph(n,slot.label);
+          atlasPaint.fillStyle='#fff0bc';
+          atlasPaint.font=`600 ${glyph.size}px PaperSerif,"Microsoft YaHei",serif`;
+          atlasPaint.fillText(slot.label,lw*.5,yy);
         });
         atlasPaint.restore();
       }
@@ -330,17 +299,13 @@
       for(let j=0;j<band.cuts.length;j++){
         y0=band.ys[j];y1=band.ys[j+1];const n=band.cuts[j],mid=(a+b)/2;
         if(!n){while(j+1<band.cuts.length&&!band.cuts[j+1])y1=band.ys[++j+1];}
-        const q=n?(mid-n.depth)/n.span:0;
-        const stampSide=q<-.42?'left':q>.42?'right':null;
-        const far=side===stampSide;
         const verts=[[a,y0],[b,y0],[b,y1],[a,y1]];
         const meta=verts.map(([s,y])=>{
-          const [u,v]=n?stampUV(n,s,y,stampSide||side):[0,0];
           const cut=n?pointSource.edgeInset(side,s,y):0;
           const c=n?tone(n,s,y):0,tint=n?clamp(cut/(n.inset*.74),0,1):0;
-          const light=n?(far?1-.22*tint:1+.035*c-.025*tint):.995;
-          return [u,v,s,[tint,light]];
+          return [0,0,s,[tint,1-.12*tint+.025*c]];
         });
+        const stampSide=null;
         result.push({verts,meta,n,stampSide});
       }
       return result;
@@ -354,14 +319,14 @@
         const a=Math.max(lo,band.lo),b=Math.min(hi,band.hi);if(b-a<1e-8)continue;
         for(const cell of cells(band,a,b,side,pointSource)){
           const {verts,meta,n,stampSide}=cell;
-          const kind=stampSide==='right'?(side==='right'?.10:.20):stampSide==='left'&&side==='left'?.30:0;
+          const kind=0;
           const ids=verts.map(([s,y])=>{
             const k=s+','+y;if(lookup.has(k))return lookup.get(k);
             const i=samples.length;lookup.set(k,i);
             samples.push([s,1-pointSource.edgeInset(side,s,y)/K.WIDTH,y]);return i;
           });
-          const uv=meta.map(([x,y])=>kind?atlasUV(n,x,y,rows):[.0001,.0001]);
-          const floor=meta.map(([,v,s])=>n?atlasUV(n,.5+(s-n.depth)/(n.span*2.1),v,rows,true):[.0001,.0001]);
+          const uv=meta.map(()=>[.0001,.0001]);
+          const floor=meta.map(()=>[.0001,.0001]);
           for(const row of [[0,1,2],[0,2,3]]){
             for(const i of row){
               const [,,s,[tint,light]]=meta[i];
@@ -438,16 +403,11 @@
         const mesh=edgeMesh(lo,hi,side),world=mesh.samples.map(([s,u,y])=>point(s,u,y)),{data,indices}=mesh;
         for(let i=0,j=0;i<indices.length;i++,j+=STRIDE){
           const p=world[indices[i]];data[j]=p.x;data[j+1]=p.y;data[j+2]=p.z;
-          const label=mesh.labels[Math.floor(i/3)];
-          data[j+11]=label<0?0:sectionInk(model.slots[label],section,close,packet);
+          data[j+11]=0;
         }
         if(pick)for(let i=0;i<mesh.groups.length;i++){
-          const g=mesh.groups[i],base=i*3*STRIDE,kind=data[base+8],offset=i*3;
-          const floor=inspection>.5,stamp=g>=0&&data[base+11]>.5&&(floor||kind>.05&&(kind<.15||kind<.25&&close>.75||kind>.25&&close<1));
-          const row=Math.floor(g/COLUMNS)+(floor?rows:0),vertexV=floor?10:4;
-          const atlasV=j=>[0,(data[base+j*STRIDE+vertexV]*2*rows*TILE_H-row*TILE_H-2)/(TILE_H-4)];
-          hitTris.push(projectTriangle({points:[world[indices[offset]],world[indices[offset+1]],world[indices[offset+2]]],
-            meta:stamp?[atlasV(0),atlasV(1),atlasV(2)]:null,n:stamp?notches[g]:null,book:stamp?mesh.labels[i]:-1}));
+          const offset=i*3;
+          hitTris.push(projectTriangle({points:[world[indices[offset]],world[indices[offset+1]],world[indices[offset+2]]],n:null,book:-1}));
         }
         meshesToDraw.push(data);
         for(const y of [0,K.HEIGHT])for(let i=0;i<16;i++){
@@ -460,6 +420,52 @@
           const a=outer(section,cover,0),b=outer(section,cover,K.HEIGHT),dir=sideSign;
           const offset=p=>({...p,x:p.x+.85*dir,y:p.y+.55,z:p.z-.72});
           quad([a,b,offset(b),offset(a)],Array.from({length:4},()=>[0,0,0,[0,1]]),2);
+        }
+      }
+      labelFrames=new Map();
+      for(const n of notches){
+        const section=labelSection(n,sections);if(!section)continue;
+        const frame=labelFrame(n,section,inspection);labelFrames.set(n.group,frame);
+        const vs=unique([0,.3,.7,1,...Array.from({length:17},(_,j)=>j/16),
+          ...Array.from({length:n.indices.length-1},(_,j)=>.5+(j+1-n.indices.length/2)*.69/n.indices.length)]);
+        // An unprinted neck joins the retained page to the ellipse. Its
+        // inner edge follows the ACTUAL combined cut, not a fixed offset.
+        // Stop at the ellipse boundary: no coincident overlay can steal hits.
+        const paperQuad=coords=>{
+          for(const ids of [[0,1,2],[0,2,3]]){
+            const points=ids.map(i=>coords[i]);
+            for(const p of points)body.push(p.x,p.y,p.z,.0001,.0001,n.carrierDepth/T,0,1,6,.0001,.0001,0);
+            if(pick)hitTris.push(projectTriangle({points,n:null,book:-1}));
+          }
+        };
+        const leftEdge=v=>.5-.5*Math.sqrt(Math.max(0,1-(2*v-1)**2));
+        const neckRows=vs.filter(v=>v>=.3&&v<=.7);
+        for(let j=0;j<neckRows.length-1;j++){
+          const a=neckRows[j],b=neckRows[j+1];
+          const inner=v=>{
+            const y=n.y+(v-.5)*frame.height;
+            const u=Math.min(frame.rootU-2/K.WIDTH,1-(inset(n.carrierDepth,y)+1)/K.WIDTH);
+            return section.point(n.carrierDepth,u,y);
+          };
+          paperQuad([inner(a),frame.point(0,a),frame.point(0,b),inner(b)]);
+          paperQuad([frame.point(0,a),frame.point(leftEdge(a),a),frame.point(leftEdge(b),b),frame.point(0,b)]);
+        }
+        // Curved outline, planar substrate: all vertices below have the SAME
+        // material s. Subdivide at row boundaries only for unambiguous hits.
+        for(let j=0;j<vs.length-1;j++){
+          const v0=vs[j],v1=vs[j+1];
+          const half=v=>.5*Math.sqrt(Math.max(0,1-(2*v-1)**2));
+          const coords=[[.5-half(v0),v0],[.5+half(v0),v0],[.5+half(v1),v1],[.5-half(v1),v1]];
+          const book=n.indices[labelRow(n,(v0+v1)/2)];
+          for(const ids of [[0,1,2],[0,2,3]]){
+            const points=ids.map(i=>frame.point(...coords[i]));
+            for(let k=0;k<3;k++){
+              const [u,v]=coords[ids[k]],p=points[k],uv=atlasUV(n,u,v,rows);
+              const backUV=atlasUV(n,1-u,v,rows);
+              body.push(p.x,p.y,p.z,...uv,n.carrierDepth/T,0,1,5,...backUV,1);
+            }
+            if(pick)hitTris.push(projectTriangle({points,meta:ids.map(i=>coords[i]),n,book}));
+          }
         }
       }
       const leaf=(index,s,section,faceSide)=>{
@@ -506,16 +512,9 @@
         for(let y=first;y<=last;y++){if(!projected.has(y))projected.set(y,[]);projected.get(y).push(tri);}
       }
       targets=pick?model.slots.flatMap(slot=>{
-        const n=notches[slot.group],side=slot.anchorDepth+1e-8<m.leftDepth?'left':'right';
-        const section=sections.find(s=>s.side===side),stampSide=close>.9999?'right':side;
-        const dir=stampSide==='left'?-1:1,j=slot.groupRow,count=n.indices.length;
-        const v=.5+(j-(count-1)/2)*(.69/count),y=n.y+n.radius*(2*v-1);
-        if(!section||section.hi-section.lo<1e-8)return [];
-        return (inspection>.5?[0,.27,-.27]:[.92,.96,.86]).map(q=>{
-          const sectionWidth=Math.sqrt(1-(2*v-1)**2);
-          const s=clamp(n.depth+n.span*dir*q*sectionWidth,section.lo+1e-8,section.hi-1e-8);
-          return {...Solid.project(outer(section,s,y)),n:n.group,index:slot.index,side};
-        });
+        const n=notches[slot.group],f=labelFrames.get(slot.group);if(!f)return [];
+        const v=.5+(slot.groupRow-(n.indices.length-1)/2)*.69/n.indices.length;
+        return [.5,.35,.65].map(u=>({...Solid.project(f.point(u,v)),n:n.group,index:slot.index,side:f.side}));
       }):[];
       const triangleCount=(body.length+meshesToDraw.reduce((t,b)=>t+b.length,0)+[...sheets.values()].reduce((s,b)=>s+b.length,0))/(3*STRIDE);
       cost={ms:performance.now()-started,triangles:triangleCount,packetDepth:packet?.span||0};
@@ -538,7 +537,16 @@
       for(const i of indices)page(i);
       for(const s of packet?.sections||[])if(s.hi-s.lo>1e-8)edgeMesh(s.lo,s.hi,s.side);
     }
-    return {update,hit,prepare,getStats:()=>cost,hide:()=>{canvas.hidden=true;},show:()=>{canvas.hidden=false;}};
+    function getLabelFrame(index){
+      const slot=model.slots[index];if(!slot)return null;
+      const n=notches[slot.group],f=labelFrames.get(slot.group);if(!f)return null;
+      const a=slot.physical,v=.5+(slot.groupRow-(n.indices.length-1)/2)*.69/n.indices.length;
+      const p=f.point(0,v-a.height/(2*f.height)),matrix=f.matrix.slice();
+      matrix[0]*=f.width/a.width;matrix[2]*=f.width/a.width;
+      matrix[12]=p.x;matrix[13]=p.y;matrix[14]=p.z;
+      return {...f,matrix};
+    }
+    return {update,hit,prepare,getLabelFrame,getStats:()=>cost,hide:()=>{canvas.hidden=true;},show:()=>{canvas.hidden=false;}};
   }
-  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,inspectionGlyph,labelRow,sectionInk};
+  return {create,milling,topology,projectTriangle,atPixel,frontAt,rasterRegion,atlasRaster,labelInkEllipse,labelGlyph,labelFrame,labelSection,labelRow};
 });

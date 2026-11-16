@@ -31,28 +31,54 @@ const knots=topology.flatMap(v=>[v.lo,v.hi]);
 for(const n of notches)for(const q of [-1,-.42,0,.42,1]){
   assert.ok(knots.some(s=>Math.abs(s-Math.max(0,Math.min(36,n.depth+n.span*q)))<1e-8),'true lip and plateau boundaries are sampled');
 }
-// On one cut, overlap exists between the near opaque band and far inked
-// slope. The shader and the hit resolver must agree on which wall is in front.
-let shadowed=0,visible=0;
-{
-  for(const fanRight of [.42,.68,1]){
-  const n={depth:16,span:1.46,y:260,radius:13,inset:11,milled:true},local={notches:[n],fanRight};
-  const m=mat(0),p=K.prepare(m,0,local),tris=[];
-  for(const band of Depth.topology(36,[n]))for(let j=0;j<band.ys.length-1;j++){
-    const y0=band.ys[j],y1=band.ys[j+1],a=band.lo,b=band.hi;
-    const points=[[a,y0],[b,y0],[b,y1],[a,y1]].map(([s,y])=>p.foreedgePoint('right',s,y));
-    const ink=(a+b)/2>n.depth+n.span*.42&&(a+b)/2<n.depth+n.span&&y0>=n.y-n.radius&&y1<=n.y+n.radius;
-    tris.push(...[[0,1,2],[0,2,3]].map(ids=>Depth.projectTriangle({points:ids.map(i=>points[i]),n:ink?n:null})));
+// A printed label is a rigid local patch of one material leaf. No sample
+// used to construct its basis is allowed to come from another paper depth.
+let planarChecks=0,closedLabelChecks=0;
+for(const n of notches){
+  for(const close of [0,.5,.8,1])for(const split of [0,1216,1244]){
+    const m=mat(split),p=K.prepare(m,close,{notches,fanLeft:1,fanRight:1,edgeInspection:true});
+    const side=n.carrierDepth+1e-8<m.leftDepth?'left':'right',samples=[];
+    const section={side,point:(s,u,y)=>{samples.push(s);return p.pagePoint(side,s,u,y);}};
+    const frame=Depth.labelFrame(n,section,K.inspectionAmount(close));
+    assert.ok(samples.length>0&&samples.every(s=>s===n.carrierDepth),'the label basis never crosses material sheets');
+    const o=frame.point(0,0),x=frame.point(1,0),y=frame.point(0,1);
+    assert.ok(Math.abs(dist(o,x)-n.labelWidth)<1e-8,'inspection folds the leaf, never stretches ink width');
+    assert.ok(Math.abs(dist(o,y)-n.labelHeight)<1e-8,'inspection preserves ink height');
+    for(const [u,v]of [[.2,.3],[.8,.9],[.5,.5],[1,1]]){
+      const q=frame.point(u,v),expected={x:o.x+u*(x.x-o.x)+v*(y.x-o.x),y:o.y+u*(x.y-o.y)+v*(y.y-o.y),z:o.z+u*(x.z-o.z)+v*(y.z-o.z)};
+      assert.ok(dist(q,expected)<1e-8,'all ink is on one plane, never a paper-stack curve');planarChecks++;
+    }
   }
-  for(const tri of tris.filter(t=>t.n))for(const weights of [[.2,.2,.6],[.35,.35,.3],[.65,.15,.2]]){
+  const a=K.prepare(mat(0),1,{notches,edgeInspection:true}),b=K.prepare(mat(1244),1,{notches,edgeInspection:true});
+  const left=Depth.labelFrame(n,{side:'left',point:(s,u,y)=>b.pagePoint('left',s,u,y)},1);
+  const right=Depth.labelFrame(n,{side:'right',point:(s,u,y)=>a.pagePoint('right',s,u,y)},1);
+  for(const [u,v]of [[0,0],[1,0],[0,1],[1,1],[.5,.5]]){
+    assert.ok(dist(left.point(u,v),right.point(u,v))<1e-8,'a closed label cannot move with reading split');closedLabelChecks++;
+  }
+}
+// Real white paper lips still occlude the single-leaf patch perimeter. The
+// label does not bypass the shared depth test or sit on a floating top layer.
+let shadowed=0,visible=0;
+for(const index of [8,13,25,37])for(const fanRight of [.42,.68,1]){
+  const n=notches[index],local={notches:[n],fanRight},m=mat(0),p=K.prepare(m,0,local),tris=[];
+  for(const band of Depth.topology(36,[n]))for(let j=0;j<band.ys.length-1;j++){
+    const points=[[band.lo,band.ys[j]],[band.hi,band.ys[j]],[band.hi,band.ys[j+1]],[band.lo,band.ys[j+1]]]
+      .map(([s,y])=>p.foreedgePoint('right',s,y));
+    tris.push(...[[0,1,2],[0,2,3]].map(ids=>Depth.projectTriangle({points:ids.map(i=>points[i]),n:null})));
+  }
+  const f=Depth.labelFrame(n,{side:'right',lo:0,hi:36,point:(s,u,y)=>p.pagePoint('right',s,u,y)},0),leaf=[];
+  for(let i=0;i<32;i++){
+    const t=i/32*2*Math.PI,next=(i+1)/32*2*Math.PI;
+    const tri=Depth.projectTriangle({points:[f.point(.5,.5),f.point(.5+.5*Math.cos(t),.5+.5*Math.sin(t)),f.point(.5+.5*Math.cos(next),.5+.5*Math.sin(next))],n});
+    leaf.push(tri);tris.push(tri);
+  }
+  for(const tri of leaf)for(const weights of [[.05,.45,.5],[.2,.2,.6],[.35,.35,.3],[.65,.15,.2]]){
     const x=tri.p.reduce((a,p,i)=>a+p.x*weights[i],0),y=tri.p.reduce((a,p,i)=>a+p.y*weights[i],0);
-    if(Math.abs(y-273)>24)continue;
     const hit=Depth.frontAt(tris,x,y);assert.ok(hit);
     if(hit.tri.n)visible++;else shadowed++;
   }
-  }
-  assert.ok(shadowed>0&&visible>0,'a real paper lip occludes some, but not all, of its own stamp');
 }
+assert.ok(shadowed>0&&visible>0,'paper lips hide the patch perimeter without hiding the entire label');
 const V={w:390,h:844},pose={zoom:1,cx:480,cy:352},fit=(390-66)/990;
 let maxFrame=0,maxAccel=0,packets=0;
 for(const [start,end] of [[0,books[18].first],[990,books[18].first],[622,books[40].first],[1200,books[65].first],[0,2],[1244,1242]]){
@@ -101,4 +127,4 @@ for(const [start,end] of [[0,books[18].first],[990,books[18].first],[622,books[4
 const last=mat(1244),full=mat(0),state={notches,fanRight:1};
 function bandWidth(m){const a=K.pagePoint('right',m.leftDepth,1,355,m,0,state),b=K.pagePoint('right',36,1,355,m,0,state);return dist(a,b);}
 assert.ok(bandWidth(last)<bandWidth(full)*.065,'last remaining recto cannot fan like a full stack');
-console.log(JSON.stringify({outlineChecks,shadowed,visible,packets,maxFrame,maxAccel,maxLastSideWorldWidth:bandWidth(last),paperFaces:pages.length,slots:model.slots.length}));
+console.log(JSON.stringify({outlineChecks,planarChecks,closedLabelChecks,shadowed,visible,packets,maxFrame,maxAccel,maxLastSideWorldWidth:bandWidth(last),paperFaces:pages.length,slots:model.slots.length}));

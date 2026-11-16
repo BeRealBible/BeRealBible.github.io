@@ -121,7 +121,10 @@
     // plane: wrapped ink strips can extend beyond that plane's screen bounds.
     function hitBook(e){
       if(!Number.isFinite(e.clientX)||!Number.isFinite(e.clientY))return null;
-      if(digital===0&&options.depthInk?.())return interactionSide===null?null:options.hitTest?.(e,interactionSide)??null;
+      if(digital===0&&options.depthInk?.()){
+        const found=interactionSide===null?null:options.hitTest?.(e,interactionSide)??null;
+        return Number.isInteger(found)&&buttons[found]&&!buttons[found].button.disabled?found:null;
+      }
       let nearest=null,distance=Infinity;
       buttons.forEach((nodes,i)=>{
         if(nodes.button.disabled)return;
@@ -232,15 +235,19 @@
         if(geometry)node.style.transform=css(geometry.matrix);
       });
       buttons.forEach((nodes,i)=>{
-        const slot=model.slots[i],a=slot.physical,b=slot.digital,box=layoutAt(slot,motion),side=slot.anchorDepth+1e-8<split?0:1;
+        const slot=model.slots[i],group=model.groups[slot.group],a=slot.physical,b=slot.digital,box=layoutAt(slot,motion);
+        // One printed group remains on one carrier leaf even when its member
+        // books open on different sides. Their navigation anchors stay intact.
+        const carrier=baked?group.carrierDepth:slot.anchorDepth,side=carrier+1e-8<split?0:1;
         const onSide=side?'right':'left',enabled=d>0||interactionSide==='both'||interactionSide===onSide;
         nodes.button.disabled=!enabled;nodes.button.tabIndex=enabled?0:-1;nodes.button.style.pointerEvents=enabled&&(!baked||d>0)?'auto':'none';
-        const curved=surface&&baked?milledMatrix(slot,onSide,physicalState):surfaceMatrix(onSide,slot.anchorDepth,a.y+a.height/2,a.width,a.height);
+        const curved=surface&&baked?(options.labelFrame?.(i)||milledMatrix(slot,onSide,physicalState)):surfaceMatrix(onSide,slot.anchorDepth,a.y+a.height/2,a.width,a.height);
         const ratio=surface?(side?0:1):clamp((split-a.x)/a.width);
         const physical=curved?[curved.matrix,curved.matrix]:[frame.leftMatrix,frame.rightMatrix].map(m=>multiply(m,translation(a.x,a.y,.08)));
         const target=translation(240+b.x,b.y-scrollAnchor,482.2),matrices=physical.map(m=>mixMatrix(m,target,motion)),base=matrices[side];
         const style=nodes.button.style;style.width=box.width+'px';style.height=box.height+'px';style.transformOrigin='0 0';style.opacity='1';
         nodes.button.dataset.anchorDepth=slot.anchorDepth.toFixed(8);nodes.button.dataset.sheet=String(slot.sheet);nodes.button.dataset.paperSide=side?'right':'left';
+        nodes.button.dataset.carrierDepth=group.carrierDepth.toFixed(8);nodes.button.dataset.carrierSheet=String(group.carrierSheet);
         if(d===1){parent(nodes.button,sheet);style.left=b.x+'px';style.top=b.y+'px';style.transform='none';}
         else{parent(nodes.button,root);style.left='0px';style.top='0px';style.transform=css(base);}
         const inv=d===1||surface?null:inverse(base);
@@ -298,7 +305,8 @@
     }
     function clearFocus(){if(focused>=0){buttons[focused].button.classList.remove('pbi-focused');buttons[focused].button.removeAttribute('aria-current');}focused=-1;}
     function focusBook(index){const i=Number(index);if(!Number.isInteger(i)||i<0||i>=books.length)return null;clearFocus();focused=i;buttons[i].button.classList.add('pbi-focused');buttons[i].button.setAttribute('aria-current','true');
-      const slot=model.slots[i],a=slot.physical;return{index:i,group:slot.group,depth:slot.anchorDepth,anchorDepth:slot.anchorDepth,sheet:slot.sheet,x:480+slot.anchorDepth-model.totalDepth/2,y:a.y+a.height/2,width:a.width,height:a.height,left:a.x,top:a.y,name:books[i].name};}
+      const slot=model.slots[i],a=slot.physical,group=model.groups[slot.group],carrier=options.depthInk?.()?group.carrierDepth:slot.anchorDepth;
+      return{index:i,group:slot.group,depth:carrier,carrierDepth:group.carrierDepth,carrierSheet:group.carrierSheet,anchorDepth:slot.anchorDepth,sheet:slot.sheet,x:480+carrier-model.totalDepth/2,y:a.y+a.height/2,width:a.width,height:a.height,left:a.x,top:a.y,name:books[i].name};}
     function destroy(){if(destroyed)return;destroyed=true;hoverBook(null);if(drag){const id=drag.id;drag=null;try{interactionHost.releasePointerCapture?.(id);}catch{}}disposers.forEach(fn=>fn());root.remove();}
     setProgress(1);setDigital(0);
     return{setReadingMaterial,setPhysicalFrame,setSurfaceFrame,setInteractionSide,getNotches:notches,setProgress,setDigital,focusBook,clearFocus,resize:()=>paint(),destroy};

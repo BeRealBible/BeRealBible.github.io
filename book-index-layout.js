@@ -1,6 +1,7 @@
 /* Semantic thumb-index groups and pure physical/digital target layout.
  * Groups describe book names, never page numbers or photographed coordinates.
- * Every label keeps its own actual sheet depth as pagination changes. */
+ * Each group has one physical carrier leaf; its members keep independent
+ * navigation depths as pagination changes. */
 (function(root,factory){
   const api=factory();
   if(typeof module==='object'&&module.exports)module.exports=api;
@@ -77,7 +78,8 @@
       groups.push({index,first:indices[0],indices:indices.slice(),codes:definition.codes.slice(),
         track:definition.track,trackRow:definition.trackRow,testament:definition.testament,
         x:first.physical.x,y:centerY-radius,width:labelWidth,height:radius*2,
-        anchorDepth:first.anchorDepth,fraction:first.anchorDepth/depth,
+        anchorDepth:first.anchorDepth,carrierSheet:first.sheet,carrierDepth:first.anchorDepth,
+        fraction:first.anchorDepth/depth,
         notch:{depth:(lo+hi)/2,y:centerY,radius,span:Math.max(.3,(hi-lo)/2/.7+.1)}});
     }
     return {groups,slots,totalDepth:depth,pageCount:count,totalSheets:sheets,mode:plan.mode,
