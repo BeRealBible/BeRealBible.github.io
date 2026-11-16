@@ -71,7 +71,7 @@
     m[12]+=m[0]*depth;m[13]+=m[1]*depth;m[14]+=m[2]*depth;
     return K.matrixCSS(m);
   }
-  const RASTER={WIDTH:1080,HEIGHT:1080,LEFT:60,TOP:180,PERSPECTIVE:1800,CX:480,CY:352,BACK:-700};
+  const RASTER={WIDTH:1200,HEIGHT:1080,LEFT:120,TOP:180,PERSPECTIVE:1800,CX:480,CY:352,BACK:-700};
   function project(point){
     const scale=RASTER.PERSPECTIVE/(RASTER.PERSPECTIVE-point.z);
     return {x:RASTER.CX+(point.x-RASTER.CX)*scale,y:RASTER.CY+(point.y-RASTER.CY)*scale,z:point.z};

@@ -94,8 +94,10 @@ for(const spread of [0,398,570,920,1232])for(const close of [0,.3,.7,1]){
 }
 // 39 individual cuts replace 22 coarse groups; their narrowed depth floor
 // retains every anchor without the initial 2760-face broad support.
-// One-sided stop faces add topology; keep five-point curves, a bounded 1800 pool, and all reuse gates.
-check(maxActualFaces<=1800,'39 semantic rounded cuts remain within 1800 active faces');
+// Both approaches to one double-printed carrier add end-cap topology. Keep
+// the same five-point curves and all immutable texture / reuse gates; the
+// measured budget is now 2304 faces, not fewer samples hiding the new cost.
+check(maxActualFaces<=2304,'39 double-sided rounded cuts remain within 2304 active faces');
 const ruleEdition=require('./paper-layout.js').paginate(require('./data/bible-source.js'));
 const ruleNotches=Index.geometry(ruleEdition.books,ruleEdition.pages.length).groups.map(g=>g.notch);
 let maxRuleFaces=0;
@@ -103,7 +105,7 @@ for(let spread=0;spread<ruleEdition.pages.length;spread+=2)for(const close of [0
   solid.update(M.compute(spread,ruleEdition.pages.length,ruleEdition.books),close,{fanLeft:1,fanRight:1,notches:ruleNotches});
   maxRuleFaces=Math.max(maxRuleFaces,solid.getStats().activeFaces);
 }
-check(maxRuleFaces<=1800,'all current rule-edition spreads remain within the measured geometry budget');
+check(maxRuleFaces<=2304,'all current rule-edition spreads remain within the measured geometry budget');
 console.log(JSON.stringify({legacyMaxFaces:maxActualFaces,ruleEditionMaxFaces:maxRuleFaces}));
 
 // Compare the optimised renderer with the same tessellator forced through

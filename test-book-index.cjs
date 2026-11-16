@@ -85,7 +85,7 @@ test('physical wheel/drag pans the real edge while moved pointers cannot acciden
 });
 test('39 thumb recesses retain fixed sheet-depth and variable semantic rows',()=>{
  const f=fixture(),model=Index.geometry(books,pageCount),notches=f.index.getNotches();assert.equal(notches.length,39);
- model.groups.forEach((group,g)=>{const cut=notches[g];assert.equal(cut.y,group.y+group.height/2);assert.equal(cut.radius,Math.max(13,group.indices.length*4+1));assert.ok(cut.span>0);assert.equal(cut.carrierDepth,group.carrierDepth);assert.ok(cut.cutEnd>group.carrierDepth&&cut.cutEnd<=group.carrierDepth+model.totalDepth/model.totalSheets);
+ model.groups.forEach((group,g)=>{const cut=notches[g];assert.equal(cut.y,group.y+group.height/2);assert.equal(cut.radius,Math.max(13,group.indices.length*4+1));assert.ok(cut.span>0);assert.equal(cut.carrierDepth,group.carrierDepth);assert.ok(cut.cutEnd>group.carrierDepth&&cut.cutEnd<=group.carrierDepth+160*model.totalDepth/model.totalSheets+1e-8);assert.equal(cut.cutStart,group.notch.cutStart);assert.equal(cut.cutEnd,group.notch.cutEnd);
   group.indices.forEach(i=>{const slot=model.slots[i];assert.equal(slot.anchorDepth,slot.sheet/model.totalSheets*model.totalDepth);/* Group members navigate independently; only the first carries the ink. */assert.ok(Math.abs(slot.physical.y+slot.physical.height/2-cut.y)<cut.radius);});
  });
  notches[0].depth=900;assert.notEqual(f.index.getNotches()[0].depth,900);assert.equal(f.nodes.filter(n=>n.className==='pbi-recess-shadow').length,39);
@@ -163,6 +163,26 @@ test('closed ink is six persistent natural-glyph strips, with no triangles cutti
  assert.equal(f.nodes.length,initialNodes);assert.ok(f.nodes.filter(n=>n.className==='pbi-ink-strip').every(n=>!n.hidden));
  f.index.setDigital(.2);assert.ok(f.nodes.filter(n=>n.className==='pbi-ink-strip').every(n=>n.hidden));
  f.index.setDigital(0);f.index.setSurfaceFrame({material:material(1232),close:0,fanLeft:1});assert.ok(f.nodes.filter(n=>n.className==='pbi-ink-strip').every(n=>n.hidden));
+});
+test('scoped fallback ink clears every local-cell boundary, including the higher neighbouring chord',()=>{
+ const model=Index.geometry(books,pageCount),notches=model.groups.map(g=>({...g.notch}));let supports=0,higherChords=0;
+ for(const spread of [0,570,1232]){
+  const m=material(spread),sample=Index.facetSampler(m,1,{notches});
+  for(const slot of model.slots){
+   const side=slot.anchorDepth<m.leftDepth?'left':'right',y=slot.physical.y+slot.physical.height/2,height=slot.physical.height;
+   for(let j=0;j<Index.INK_STRIPS;j++){
+    const start=j*3-9,transform=Index.inkStripMatrix(sample,side,slot.anchorDepth,y,1,start,3,height);
+    for(const [s,yy,triangle]of sample.critical(slot.anchorDepth+start,slot.anchorDepth+start+3,y-height/2,y+height/2,side)){
+     if(!triangle)continue;
+     const at=K.transformPoint(transform,s-slot.anchorDepth-start,yy-y+height/2);
+     assert.ok(at.z>=triangle.z+.299999,'ink clears every actual triangle, not only the chosen point-lookup cell');supports++;
+     if(triangle.z>sample(side,s,yy).z+1e-5)higherChords++;
+    }
+   }
+  }
+ }
+ assert.ok(supports>1000,'scoped local mesh supplies explicit per-triangle support points');
+ assert.ok(higherChords>0,'regression includes a shared boundary whose other actual chord is higher');
 });
 test('a visible fan label selects once even when native hit and captured click both land on the host',()=>{
  const f=fixture(),m=material(0);f.index.setSurfaceFrame({material:m,close:0,fanRight:1});f.index.setInteractionSide('right');

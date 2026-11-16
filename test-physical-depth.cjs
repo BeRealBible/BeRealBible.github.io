@@ -6,15 +6,26 @@ const model=Layout.geometry(books,pages.length),notches=Depth.milling(model),mat
 const shape={notches},dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,(a.z||0)-(b.z||0));
 assert.equal(notches.length,39);assert.equal(model.slots.length,66);
 let outlineChecks=0;
+const pitch=model.totalDepth/model.totalSheets,trackOrder=[...new Set(model.groups.map(g=>g.track))];
 for(const n of notches){
   const local={notches:[n]},m=mat(202),p=K.prepare(m,0,local);
   assert.ok(n.span>0&&n.radius>=13&&n.inset>=10);
   for(const y of [n.y-n.radius,n.y+n.radius])assert.ok(p.edgeInset('right',n.depth,y)<1e-5,'rounded vertical extrema');
   assert.ok(n.cutStart>=0 && n.cutStart<=n.carrierDepth);
-  assert.ok(n.cutEnd>n.carrierDepth && n.cutEnd<=n.carrierDepth+36/model.totalSheets);
+  assert.ok(Layout.CUT_SHEETS<=160,'material shoulder has an audited finite-sheet budget');
+  assert.ok(n.cutEnd>n.carrierDepth && n.cutEnd<=Math.min(model.totalDepth,n.carrierDepth+160*pitch)+1e-9,
+    'two-sided material approach remains bounded to at most 160 real sheets');
+  const group=model.groups[n.group],nextTrack=trackOrder[trackOrder.indexOf(group.track)+1];
+  const nextColumnGroups=model.groups.filter(g=>g.track===nextTrack);
+  const nextColumn=nextColumnGroups.find(g=>g.trackRow>=group.trackRow)||nextColumnGroups.at(-1);
+  const nextCarrier=model.groups.find(g=>g.track===group.track&&g.carrierDepth>n.carrierDepth);
+  const cap=nextColumn?nextColumn.carrierDepth:nextCarrier?nextCarrier.carrierDepth:n.carrierDepth+pitch*.5;
+  assert.ok(n.cutEnd<=Math.min(model.totalDepth,Math.max(n.carrierDepth+pitch*.5,cap))+1e-9,
+    'back approach cannot leak past the next column or final-column carrier');
+  assert.ok(Math.abs(n.sheetPitch-pitch)<1e-12,'front and back are boundaries of exactly one material sheet');
   if(n.cutStart<n.carrierDepth)assert.ok(p.edgeInset('left',n.cutStart,n.y)<1e-5,'continuous opening shoulder');
-  assert.equal(p.edgeInset('right',n.cutEnd,n.y),0,'half-open stop stays inside the carrier leaf');
-  assert.equal(p.edgeInset('right',n.carrierDepth,n.y),n.inset,'the index is printed on the stop leaf');
+  assert.equal(p.edgeInset('right',n.cutEnd,n.y),0,'fixed half-open material stop has no hole in the later sheet');
+  assert.equal(p.edgeInset('right',n.carrierDepth,n.y),n.inset,'the index carrier has the full local recess');
   assert.ok(p.edgeInset('right',n.carrierDepth,n.y+n.radius*.78)>n.inset*.59,'semicircular cross section');
   const tail=(n.carrierDepth+n.cutEnd)/2;
   assert.ok(p.edgeInset('right',tail,n.y)>n.inset*.8,'the thin terminal shoulder closes continuously');
@@ -36,18 +47,21 @@ for(const n of notches)for(const q of [-1,-.42,0,.42,1]){
 // leaf's rigid folded margin while inspecting. Neither basis may cross sheets.
 let planarChecks=0,originalLeafChecks=0,transitionChecks=0,closedLabelChecks=0,cutContinuityChecks=0;
 for(const n of notches){
-  for(const close of [0,.5,.8,1])for(const split of [0,1216,1244]){
+  for(const close of [0,.5,.8,1])for(const split of [0,1216,1244])for(const face of [0,1]){
     const m=mat(split),p=K.prepare(m,close,{notches,fanLeft:1,fanRight:1,edgeInspection:true});
     const side=n.carrierDepth+1e-8<m.leftDepth?'left':'right',samples=[];
     const section={side,point:(s,u,y)=>{samples.push(s);return p.pagePoint(side,s,u,y);}};
-    const inspection=K.inspectionAmount(close),frame=Depth.labelFrame(n,section,inspection);
+    const inspection=K.inspectionAmount(close),frame=Depth.labelFrame(n,section,inspection,face);
+    assert.equal(frame.carrierDepth,n.carrierDepth,'both printed faces retain one original carrier identity');
+    assert.equal(frame.face,face,'surface is explicitly front or back, never another sheet');
+    assert.ok(Math.abs(frame.surfaceDepth-(n.carrierDepth+face*pitch))<1e-12,'surface coordinate is the corresponding boundary of the same leaf');
     const o=frame.point(0,0),x=frame.point(1,0),y=frame.point(0,1);
     if(inspection===1){
       assert.ok(Math.abs(dist(o,x)-n.labelWidth)<1e-8,'inspection folds the leaf, never stretches ink width');
       assert.ok(Math.abs(dist(o,y)-n.labelHeight)<1e-8,'inspection preserves ink height');
     }
     for(const [u,v]of [[.2,.3],[.8,.9],[.5,.5],[1,1]]){
-      const q=frame.point(u,v),base=section.point(n.carrierDepth,frame.rootU+u*frame.width/K.WIDTH,n.y+(v-.5)*frame.height);
+      const q=frame.point(u,v),base=section.point(n.carrierDepth+face*pitch,frame.rootU+u*frame.width/K.WIDTH,n.y+(v-.5)*frame.height);
       if(inspection===0){
         assert.ok(dist(q,base)<1e-8,'ordinary reading ink is exactly on the existing curved carrier, not a floating tangent plane');originalLeafChecks++;
       }else if(inspection===1){
@@ -60,8 +74,9 @@ for(const n of notches){
         assert.ok(dist(q,expected)<1e-8,'folding continuously interpolates the same carrier and its ink');transitionChecks++;
       }
     }
-    assert.ok(samples.length>0&&samples.every(s=>s===n.carrierDepth),'the label basis never crosses material sheets');
-    const patch=Depth.carrierPatch(n,section,inspection,notches);
+    assert.ok(samples.length>0&&samples.every(s=>Math.abs(s-n.carrierDepth)<1e-12||Math.abs(s-(n.carrierDepth+pitch))<1e-12),
+      'the finite-thickness label basis never leaves its one carrier interval');
+    const patch=Depth.carrierPatch(n,section,inspection,notches,face);
     for(const v of [patch.rows[0],patch.rows.at(-1)]){
       const b=patch.bounds(v);assert.ok(Math.abs(b.end-b.start)<1e-7,'carrier repair tapers to the true cut extremum, not a rectangular card');cutContinuityChecks++;
     }
@@ -84,10 +99,20 @@ for(const n of notches){
     }
   }
   const a=K.prepare(mat(0),1,{notches,edgeInspection:true}),b=K.prepare(mat(1244),1,{notches,edgeInspection:true});
-  const left=Depth.labelFrame(n,{side:'left',point:(s,u,y)=>b.pagePoint('left',s,u,y)},1);
-  const right=Depth.labelFrame(n,{side:'right',point:(s,u,y)=>a.pagePoint('right',s,u,y)},1);
+  for(const face of [0,1]){
+    const left=Depth.labelFrame(n,{side:'left',point:(s,u,y)=>b.pagePoint('left',s,u,y)},1,face);
+    const right=Depth.labelFrame(n,{side:'right',point:(s,u,y)=>a.pagePoint('right',s,u,y)},1,face);
+    for(const [u,v]of [[0,0],[1,0],[0,1],[1,1],[.5,.5]]){
+      assert.ok(dist(left.point(u,v),right.point(u,v))<1e-8,'each closed material face is independent of reading split');closedLabelChecks++;
+    }
+  }
+  const front=Depth.labelFrame(n,{side:'right',point:(s,u,y)=>a.pagePoint('right',s,u,y)},1,0);
+  const back=Depth.labelFrame(n,{side:'right',point:(s,u,y)=>a.pagePoint('right',s,u,y)},1,1);
   for(const [u,v]of [[0,0],[1,0],[0,1],[1,1],[.5,.5]]){
-    assert.ok(dist(left.point(u,v),right.point(u,v))<1e-8,'a closed label cannot move with reading split');closedLabelChecks++;
+    const f=front.point(u,v),b=back.point(u,v),delta={x:b.x-f.x,y:b.y-f.y,z:b.z-f.z};
+    assert.ok(Math.abs(dist(f,b)-pitch)<1e-8,'the two folded faces retain exactly one sheet thickness');
+    assert.ok(Math.abs(delta.x*front.matrix[0]+delta.z*front.matrix[2])<1e-8,'opposite face displacement is normal to ink, not a shifted duplicate');
+    closedLabelChecks++;
   }
 }
 // Real white paper lips still occlude the single-leaf patch perimeter. The

@@ -79,7 +79,7 @@
     const caf=cancelFrame||(view?.cancelAnimationFrame?view.cancelAnimationFrame.bind(view):id=>clearTimeout(id));
     const objectURLs=view?.URL?.createObjectURL&&view?.URL?.revokeObjectURL&&view?.Blob&&view?.atob;
     let indices=[null,null],last=null,active=false,destroyed=false,paintCount=0,fontRevision=0,clipPaths=[];
-    let clipDepth=NaN,clipTotal=NaN,clipNotches=null,clipRevision=null,clipBuilds=0;
+    let clipDepth=NaN,clipTotal=NaN,clipPitch=NaN,clipNotches=null,clipRevision=null,clipBuilds=0;
     let retaining=false,hideEpoch=0,hideFrame=null;
     let activated=false,lastRenderKey=null,renderPasses=0,cacheHits=0;
     host.classList.add('book-leaves');host.setAttribute('aria-hidden','true');host.hidden=true;
@@ -168,6 +168,7 @@
     function update(material,close,state={}){
       if(destroyed)return {active:false,destroyed:true};
       const amount=clamp(close),m=K.frame(material,amount),depth=m.leftDepth;
+      const sheetDepth=Math.max(0,Number(material?.sheetDepth)||(Number(material?.totalSheets)>0?m.totalDepth/Number(material.totalSheets):0));
       const wasActive=active;
       const validPages=indices.every(Number.isInteger),curved=isActive(amount,state);
       if(validPages&&curved)activated=true;
@@ -188,7 +189,7 @@
       // book must not rebuild 64 matrices, gradients, or their style strings.
       // Pages and font revision are explicit so content updates cannot hit a
       // stale geometry-only cache. Notch arrays are immutable model data.
-      const renderKey=[depth,m.rightDepth,m.totalDepth,amount,clamp(state.fanLeft),clamp(state.fanRight),
+      const renderKey=[depth,m.rightDepth,m.totalDepth,sheetDepth,amount,clamp(state.fanLeft),clamp(state.fanRight),
         state.notches,state.notchesRevision,indices[0],indices[1],fontRevision];
       if(lastRenderKey&&renderKey.every((value,i)=>value===lastRenderKey[i])){
         cacheHits++;if(retaining)retireAfterPaint();return {active,retaining,strips:owned.length,cached:true};
@@ -197,14 +198,19 @@
       // Notch descriptors are immutable model data. Replacing that array (or
       // bumping notchesRevision) invalidates it; bending/fan time alone does
       // not rebuild clip polygons, stringify the model, or rasterize a page.
-      if(depth!==clipDepth||m.totalDepth!==clipTotal||state.notches!==clipNotches||state.notchesRevision!==clipRevision){
-        clipDepth=depth;clipTotal=m.totalDepth;clipNotches=state.notches;clipRevision=state.notchesRevision;clipPaths=[];clipBuilds++;
+      if(depth!==clipDepth||m.totalDepth!==clipTotal||sheetDepth!==clipPitch||state.notches!==clipNotches||state.notchesRevision!==clipRevision){
+        clipDepth=depth;clipTotal=m.totalDepth;clipPitch=sheetDepth;clipNotches=state.notches;clipRevision=state.notchesRevision;clipPaths=[];clipBuilds++;
         for(const side of ['left','right']){
-          const profile=edgeProfile(side,depth,m,state);
+          // Both reading faces sit at the open split, but the left face is
+          // the reverse of the preceding sheet, not the next recto sheet.
+          // Only its MATERIAL cut lookup moves back one sheet; the surface
+          // matrix and all printed text remain at the same split interface.
+          const cutDepth=side==='left'?Math.max(0,depth-sheetDepth):depth;
+          const profile=edgeProfile(side,cutDepth,m,state);
           for(let i=0;i<STRIPS;i++){
             const width=WIDTH/STRIPS,sourceX=side==='left'?WIDTH-(i+1)*width:i*width;
             const overlap=sourceX+width<WIDTH?SEAM_OVERLAP:0;
-            clipPaths.push(stripClip(side,depth,sourceX,width+overlap,m,state,profile));
+            clipPaths.push(stripClip(side,cutDepth,sourceX,width+overlap,m,state,profile));
           }
         }
       }

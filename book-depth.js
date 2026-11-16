@@ -25,8 +25,9 @@
     const size=Math.min(n.labelWidth*.78/n.maxChars,pitch*.82);
     return {size,width:size*chars/n.labelWidth,height:size/n.labelHeight};
   }
-  function labelFrame(n,section,inspection=0){
+  function labelFrame(n,section,inspection=0,face=0){
     const c=n.carrierDepth,w=n.labelWidth,h=n.labelHeight;
+    const thickness=(n.sheetPitch||0)*face,surfaceDepth=c+thickness;
     const rootU=1-(w+1)/K.WIDTH,H=section.point(c,rootU,n.y-h/2);
     const foldRoot=-16/w;
     const B=section.point(c,rootU+.001,n.y-h/2);
@@ -37,8 +38,8 @@
     const target=n.foldSign>0?.35:Math.PI-.35;
     let turn=target-angle;while(turn>Math.PI)turn-=2*Math.PI;while(turn< -Math.PI)turn+=2*Math.PI;
     const a=angle+turn*inspection,e={x:Math.cos(a),y:0,z:Math.sin(a)};
-    const basePoint=(u,v)=>section.point(c,rootU+u*w/K.WIDTH,n.y-h/2+h*v);
-    const origin={x:H.x,y:H.y,z:H.z+18*inspection};
+    const basePoint=(u,v)=>section.point(surfaceDepth,rootU+u*w/K.WIDTH,n.y-h/2+h*v);
+    const origin={x:H.x+Math.sin(a)*thickness,y:H.y,z:H.z+18*inspection-Math.cos(a)*thickness};
     const rigidPoint=(u,v)=>({x:origin.x+e.x*w*u,y:origin.y+h*v,z:origin.z+e.z*w*u});
     // In an open/fanned book this is the original leaf, including its slight
     // page curvature. The closed inspection pose has a rigid printed margin.
@@ -47,12 +48,12 @@
       const r=rigidPoint(u,v);if(inspection===1)return r;
       return {x:mix(b.x,r.x,inspection),y:mix(b.y,r.y,inspection),z:mix(b.z,r.z,inspection)};
     };
-    return {carrierDepth:c,width:w,height:h,point,rootU,foldRoot,basePoint,
+    return {carrierDepth:c,surfaceDepth,face,width:w,height:h,point,rootU,foldRoot,basePoint,
       side:section.side,moving:!!section.moving,
       matrix:[e.x,0,e.z,0,0,1,0,0,-e.z,0,e.x,0,origin.x,origin.y,origin.z,1]};
   }
-  function carrierPatch(n,section,inspection,notches){
-    const frame=labelFrame(n,section,inspection),w=frame.width,h=frame.height,c=n.carrierDepth;
+  function carrierPatch(n,section,inspection,notches,face=0){
+    const frame=labelFrame(n,section,inspection,face),w=frame.width,h=frame.height,c=n.carrierDepth;
     const material={totalDepth:Math.max(36,section.hi,c)},all=K.prepare(material,0,{notches});
     const other=K.prepare(material,0,{notches:notches.filter(x=>x.group!==n.group)});
     const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
@@ -151,7 +152,7 @@
       // Physical support comes from semantic layout, never label dimensions.
       return {...n,radius,milled:true,
         inset:labelWidth+4,carrierDepth:carrier.anchorDepth,carrierSheet:carrier.sheet,
-        labelWidth,labelHeight:labelRadius*1.84,maxChars,foldSign:-1,
+        labelWidth,labelHeight:labelRadius*1.84,maxChars,foldSign:-1,sheetPitch:model.totalDepth/model.totalSheets,
         group:g.index,indices:g.indices,testament:g.testament};
     });
   }
@@ -243,6 +244,9 @@
     uniform sampler2D u_tex;uniform float u_stamp;uniform float u_sheets;uniform float u_closed;uniform float u_inspect;
     void main(){
       if(paper.w>4.5){
+        // Two opposing ink faces of ONE finite-thickness carrier sheet.
+        // Cull each face's reverse; never paint two coincident billboards.
+        if((visibleInk>.5&&gl_FrontFacing)||(visibleInk<-.5&&!gl_FrontFacing))discard;
         // The restored margin is the same leaf as paper-page.js, not a
         // differently coloured backing card. paper.y is its outward u.
         vec3 stock=mix(vec3(1.0,.9960784,.9607843),vec3(.9764706,.9647059,.9215686),clamp((paper.y-.9)*10.0,0.0,1.0))*paper.z;
@@ -265,7 +269,9 @@
       #ifdef GL_OES_standard_derivatives
       grain*=1.0-smoothstep(.32,.94,fwidth(layer)/3.0);
       #endif
-      vec3 tinted=mix(vec3(.913,.705,.721),vec3(.943,.867,.830),step(.5,paper.w));
+      // Natural opened shoulders show cream paper fibres, not a pink solid
+      // slab. The dark/red identity belongs to ink, never to the whole stack.
+      vec3 tinted=mix(vec3(.951,.929,.871),vec3(.973,.957,.914),step(.5,paper.w));
       vec3 fibre=vec3(.991,.955,.884);
       vec3 stock=mix(tinted,fibre,smoothstep(.025,.80,paper.y));
       stock*=paper.z+irregular-line*.14-grain*.052;
@@ -520,9 +526,14 @@
       labelFrames=new Map();
       for(const n of notches){
         const section=labelSection(n,sections);if(!section)continue;
-        const patch=carrierPatch(n,section,inspection,notches),frame=patch.frame;
-        labelFrames.set(n.group,frame);
+        const faces=[];
+        for(const face of [0,1]){
+        const patch=carrierPatch(n,section,inspection,notches,face),frame=patch.frame;
+        faces.push(patch);
         const pa=frame.point(.49,.5),pb=frame.point(.51,.5);
+        const facing=Solid.project(pb).x-Solid.project(pa).x;
+        const facesReader=face===0?facing>=0:facing<0;
+        if(facesReader)labelFrames.set(n.group,frame);
         const colourVertices=new Map();
         const leafLight=.89+.11*Math.abs(pb.x-pa.x)/(Math.hypot(pb.x-pa.x,pb.z-pa.z)||1);
         // Restore the actual carrier leaf at its cut, not an oval piece of
@@ -541,14 +552,38 @@
               const colourKey=[p.x,p.y,p.z].map(Math.fround).join(',');
               if(colourVertices.has(colourKey))[outwardU,light]=colourVertices.get(colourKey);
               else colourVertices.set(colourKey,[outwardU,light]);
-              body.push(p.x,p.y,p.z,...uv,n.carrierDepth/T,outwardU,light,kind,...backUV,kind===5?1:0);
+              body.push(p.x,p.y,p.z,...uv,n.carrierDepth/T,outwardU,light,kind,...backUV,face===0?1:-1);
             }
-            if(pick)hitTris.push(projectTriangle({points,meta:kind===5?local:null,n:kind===5?n:null,book}));
+            if(pick){
+              const tri=projectTriangle({points,meta:kind===5?local:null,n:kind===5?n:null,book});
+              const [a,b,c]=tri.p,area=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+              if(face===0?area>0:area<0)hitTris.push(tri);
+            }
           }
         }
+        }
+        // Join the two actual faces along the free paper edge. The root is
+        // inside the original leaf and must not become an artificial wall.
+        // Only fibre is drawn on this thin rim, never any atlas lettering.
+        const edges=new Map(),key=p=>p.map(v=>v.toFixed(9)).join(',');
+        for(const {coords}of faces[0].polygons)for(let i=0;i<coords.length;i++){
+          const a=coords[i],b=coords[(i+1)%coords.length],id=[key(a),key(b)].sort().join('|');
+          const found=edges.get(id);if(found)found.count++;else edges.set(id,{a,b,count:1});
+        }
+        for(const {a,b,count}of edges.values()){
+          if(count!==1)continue;
+          if([a,b].every(([u,v])=>Math.abs(u-faces[0].bounds(v).start)<1e-8))continue;
+          const points=[faces[0].point(...a),faces[0].point(...b),faces[1].point(...b),faces[1].point(...a)];
+          const meta=[0,0,1,1].map(face=>[0,0,n.carrierDepth+face*n.sheetPitch,[1,.97]]);
+          quad(points,meta,1);
+        }
       }
-      const leaf=(index,s,section,faceSide)=>{
-        const point=section.point,relevant=notches.filter(n=>{const [a,b]=K.cutRange(n);return s>=a&&s<b;});
+      const leaf=(index,s,section,faceSide,hitOnly=false)=>{
+        // split is an interface: the right face is the next sheet's front,
+        // the left face is the previous sheet's BACK, not another next sheet.
+        const materialDepth=faceSide==='left'&&m.totalSheets?
+          Math.max(0,s-T/m.totalSheets):s;
+        const point=section.point,relevant=notches.filter(n=>{const [a,b]=K.cutRange(n);return materialDepth>=a&&materialDepth<b;});
         const lastYs=unique([0,K.HEIGHT,...relevant.flatMap(n=>Array.from({length:17},(_,j)=>n.y-n.radius*Math.cos(j*Math.PI/16)))]);
         const uv=(u,y,light)=>[faceSide==='left'?1-u:u,y/K.HEIGHT,0,light];
         for(let i=0;i<32;i++){
@@ -558,8 +593,11 @@
           const ys=hi>.96?lastYs:[0,K.HEIGHT];
           for(let j=0;j<ys.length-1;j++){
             const y0=ys[j],y1=ys[j+1];
-            const coords=[[lo,y0],[hi,y0],[hi,y1],[lo,y1]].map(([u,y])=>[Math.min(u,1-inset(s,y)/K.WIDTH),y]);
-            quad(coords.map(([u,y])=>point(s,u,y)),coords.map(([u,y])=>uv(u,y,light)),faceSide==='left'?4:3,null,index);
+            const coords=[[lo,y0],[hi,y0],[hi,y1],[lo,y1]].map(([u,y])=>[Math.min(u,1-inset(materialDepth,y)/K.WIDTH),y]);
+            const points=coords.map(([u,y])=>point(s,u,y));
+            if(hitOnly){
+              for(const ids of [[0,1,2],[0,2,3]])hitTris.push(projectTriangle({points:ids.map(i=>points[i]),n:null,book:-1}));
+            }else quad(points,coords.map(([u,y])=>uv(u,y,light)),faceSide==='left'?4:3,null,index);
           }
         }
       };
@@ -582,6 +620,12 @@
           leaf(printed[final?2:0],depth,sections[0],'left');
           leaf(printed[final?3:1],depth,sections[1],'right');
         }
+      }else if(pick&&close===0&&!packet){
+        // Reading keeps vector SVG scripture. Its actual cut silhouette must
+        // nevertheless occlude picking, just like the GPU page during a turn.
+        // These triangles are hit-only; do not rasterize or blur the text.
+        leaf(null,m.leftDepth,sections[0],'left',true);
+        leaf(null,m.leftDepth,sections[1],'right',true);
       }
       const fade=1-clamp(digital/.19,0,1);
       lastLayers={meshesToDraw,sheets,fade:hideInk?0:fade,totalSheets:m.totalSheets,closure:clamp((close-.75)/.25,0,1),inspection};

@@ -28,7 +28,10 @@
   const Page=window.PaperPage;
   function svgPage(p,index){
     const svg=Page.svg(p,index,D.books),m=Material.compute(index&~1,D.pages.length,D.books);
-    const clip=window.PaperBookLeaves.stripClip(index%2?'right':'left',m.leftDepth,0,480,m,{notches});
+    // The left face visible here is the back of the preceding physical leaf;
+    // sample its cuts at that carrier, while leaving the flat surface in place.
+    const cutDepth=index%2?m.leftDepth:Math.max(0,m.leftDepth-m.totalDepth/m.totalSheets);
+    const clip=window.PaperBookLeaves.stripClip(index%2?'right':'left',cutDepth,0,480,m,{notches});
     if(clip==='none')return svg;
     // Clip the vector paint internally. A CSS clip-path on a whole 3D article
     // creates an extra flattened compositor surface that can retain stale
@@ -170,7 +173,7 @@
     if(depth){
       depthState={material,close:f.close,shape,packet:packet?.frame,
         printed:drawPrinted&&f.close<1?(packet?.pages||[spread,spread+1]):null,
-        pick:['fan','edge'].includes(sceneState)&&digitalProgress===0,
+        pick:['reading','fan','edge'].includes(sceneState)&&digitalProgress===0&&!packet,
         digital:digitalProgress,hideInk,fineView:['reading','fan','edge'].includes(sceneState)?{...view,camera:f}:null};
       depth.update(depthState);
       curved={active:drawPrinted};
@@ -203,14 +206,36 @@
     $('left-reading-edge').dataset.books=material.leftBooks.map(b=>b.code).join(',');
     $('physical-index-host').dataset.readingBooks=material.rightBooks.map(b=>b.code).join(',');
   }
-  function constrain(){
-    const bounds=G.bounds(view,scale);
-    // The physical object extends beyond the printed 960 x 704 spread.
-    // Let readers bring the actual paper edge and both ribbon tails on screen.
-    if(960*scale>=view.w){
-      bounds.minX-=(2.5+(material?.rightDepth||0)*.55)*scale;
-      bounds.maxX+=(2.5+(material?.leftDepth||0)*.55)*scale;
+  function readingEnvelope(){
+    if(!material)return {left:0,right:960,top:0,bottom:704,width:960};
+    // Fit the real, naturally splayed shoulders, not the old .55-depth slab.
+    // The split leaves stay flat; the base sheets are the widest paper edges.
+    const projected=[];
+    for(const [side,s]of [['left',0],['right',material.totalDepth]])
+      for(const y of [0,352,704])projected.push(window.PaperBookScene.project(K.pagePoint(side,s,1,y,material,0)));
+    const left=Math.min(0,...projected.map(p=>p.x)),right=Math.max(960,...projected.map(p=>p.x));
+    return {left,right,top:Math.min(0,...projected.map(p=>p.y)),bottom:Math.max(704,...projected.map(p=>p.y)),width:right-left};
+  }
+  function readingFitScale(){
+    let shoulder=0,height=750;
+    // Use the book's widest possible base, not the current split's width, so
+    // finishing a page turn cannot suddenly resize or recenter the scripture.
+    if(material)for(const side of ['left','right']){
+      const all={...material,leftDepth:side==='left'?material.totalDepth:0};
+      for(const y of [0,352,704]){
+        const p=window.PaperBookScene.project(K.pagePoint(side,side==='left'?0:material.totalDepth,1,y,all,0));
+        shoulder=Math.max(shoulder,side==='left'?-p.x:p.x-960);height=Math.max(height,p.y+40);
+      }
     }
+    return Math.max(.18,Math.min((view.w-66)/(966+2*shoulder),(view.h-65)/height,1.5));
+  }
+  function constrain(){
+    const bounds=G.bounds(view,scale),paper=readingEnvelope();
+    // Include both real shoulders even when the printed spread itself fits.
+    if(paper.width*scale>=view.w){
+      bounds.minX=view.w-(paper.right+2.5)*scale-22;
+      bounds.maxX=22-(paper.left-2.5)*scale;
+    }else bounds.minX=bounds.maxX=view.w/2-480*scale;
     if(704*scale>=view.h)bounds.minY-=Math.max(72,3+Math.max(material?.leftDepth||0,material?.rightDepth||0)*.85)*scale;
     x=clamp(x,bounds.minX,bounds.maxX);y=clamp(y,bounds.minY,bounds.maxY);
   }
@@ -239,15 +264,15 @@
     if(mode!=='open')return;
     try{positionStorage?.setItem('paper-bible-position-v1',JSON.stringify({spread,zoom:scale/fitScale,centerX:(view.w/2-x)/scale,centerY:(view.h/2-y)/scale,focus,bookName:currentBook().name,ref:readingPage().start||'',edition:D.edition}));}catch{}
   }
-  function fit(){if(mode!=='open')return;abortFold();focus='fit';scale=fitScale;x=(view.w-960*scale)/2;y=(view.h-704*scale)/2-6;constrain();transform();save();}
+  function fit(){if(mode!=='open')return;abortFold();focus='fit';fitScale=readingFitScale();scale=fitScale;const bounds=readingEnvelope();x=view.w/2-(bounds.left+bounds.right)*scale/2;y=(view.h-704*scale)/2-6;constrain();transform();save();}
   function focusPage(side){
     if(mode!=='open')return;
     abortFold();
-    const outer=(side==='left'?material?.leftDepth:material?.rightDepth)||0;
-    focus=side;scale=clamp((view.w-50)/(480+outer*.55),fitScale,3.2);
+    const bounds=readingEnvelope(),outer=side==='left'?-bounds.left:bounds.right-960;
+    focus=side;scale=clamp((view.w-50)/(480+outer),fitScale,3.2);
     // On a phone, reading view is intentionally closer than whole-page view.
     if(view.w<560)scale=Math.max(scale,fitScale*3.2);
-    x=22+(side==='left'?outer*.55:-480)*scale;y=16;constrain();transform();save();
+    x=22+(side==='left'?outer:-480)*scale;y=16;constrain();transform();save();
   }
   function zoom(next,at={x:view.w/2,y:view.h/2}){
     if(mode!=='open')return;
@@ -261,7 +286,7 @@
     if(fold)abortFold();
     const oldFit=fitScale,cx=view.w?(view.w/2-x)/scale:480,cy=view.h?(view.h/2-y)/scale:352;
     view={w:stage.clientWidth,h:stage.clientHeight};if(!view.w||!view.h)return;
-    fitScale=Math.min((view.w-66)/990,(view.h-65)/750,1.5);fitScale=Math.max(.18,fitScale);
+    fitScale=readingFitScale();
     if(mode!=='open'){paintScene();return;}
     if(focus==='fit')fit();else{scale=clamp(scale/oldFit*fitScale,fitScale,3.2);x=view.w/2-cx*scale;y=view.h/2-cy*scale;constrain();transform();}
   }
@@ -326,6 +351,7 @@
   });
   function capturePose(){return {zoom:scale/fitScale,cx:(view.w/2-x)/scale,cy:(view.h/2-y)/scale,focus};}
   function setSceneState(state){
+    clearReadingHover();
     sceneState=state;stage.dataset.scene=state;document.body.dataset.paperPhase=state;
     const reading=state==='reading';mode=reading?'open':'edge';
     document.body.dataset.paperScene=reading?'reading':'directory';
@@ -464,7 +490,10 @@
   }
   function completeReading(){
     $('scene-digital').textContent='展开为数字目录';$('scene-digital').setAttribute('aria-pressed','false');
-    const pose=readPose||capturePose();fanAmount=fanCamera=0;fanSide=null;fanBackPose=null;stage.dataset.fanSide='';setSceneState('reading');focus=pose.focus;scale=clamp(fitScale*pose.zoom,fitScale,3.2);
+    const pose=readPose||capturePose();fanAmount=fanCamera=0;fanSide=null;fanBackPose=null;stage.dataset.fanSide='';setSceneState('reading');focus=pose.focus;fitScale=readingFitScale();scale=clamp(fitScale*pose.zoom,fitScale,3.2);
+    // The last opening frame was intentionally non-interactive. Refresh only
+    // its physical hit mesh when returning to the SVG reading presentation.
+    if(depthState)depthState={...depthState,pick:true};
     x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;constrain();transform();save();index.clearFocus();focusRect=null;focusAmount=0;
     // Keep the same physical fore-edge at the outer edge of the open book.
     readPose=null;
@@ -540,11 +569,28 @@
   },{passive:false});
 
   function relative(e){const r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top,t:e.timeStamp};}
+  function readingIndexAt(point,pointerType,camera={x,y,scale}){
+    if(sceneState!=='reading'||!depth||fold||demoBusy||hideInk)return null;
+    const localX=(point.x-camera.x)/camera.scale,localY=(point.y-camera.y)/camera.scale;
+    const selected=depth.hit?.(localX,localY,(pointerType==='touch'?13:4)/camera.scale,localX<480?'left':'right');
+    return Number.isInteger(selected)&&D.books[selected]?selected:null;
+  }
+  function clearReadingHover(){
+    if(stage.dataset.indexHover!==undefined){delete stage.dataset.indexHover;stage.style.cursor='';}
+  }
+  function readingHover(e){
+    if(sceneState!=='reading'||pointers.size||e.pointerType==='touch'){clearReadingHover();return;}
+    const selected=readingIndexAt(relative(e),e.pointerType);
+    if(selected===null){clearReadingHover();return;}
+    stage.dataset.indexHover=D.books[selected].code;stage.style.cursor='pointer';
+  }
   function centroid(){const a=[...pointers.values()];return {x:a.reduce((s,p)=>s+p.x,0)/a.length,y:a.reduce((s,p)=>s+p.y,0)/a.length,t:Math.max(...a.map(p=>p.t))};}
   function distance(){const a=[...pointers.values()];return a.length>1?Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y):0;}
   function begin(gCenter,n){
     const localX=(gCenter.x-x)/scale,localY=(gCenter.y-y)/scale;
-    const edge=localY>=0&&localY<=704&&(Math.abs(localX)<18/scale+(material?.leftDepth||0)*.55||Math.abs(localX-960)<18/scale+(material?.rightDepth||0)*.55);
+    const envelope=readingEnvelope(),margin=18/scale;
+    const edge=localY>=envelope.top&&localY<=envelope.bottom&&
+      ((localX>=envelope.left-margin&&localX<margin)||(localX>960-margin&&localX<=envelope.right+margin));
     return {edge,edgeSide:localX<480?'left':'right',start:gCenter,end:gCenter,fingers:n,side:localX>=0&&localX<=960&&localY>=0&&localY<=704?(localX<480?'left':'right'):'outside',baseX:x,baseY:y,baseScale:scale,baseDistance:distance(),pinched:false,slowLocked:false,cancelled:false,samples:[gCenter],vx:0,lifted:false};
   }
   function pointerDown(e){
@@ -560,9 +606,11 @@
     // Adding a second finger restarts only the motion baseline, not a page turn.
     const priorPinch=gesture?.pinched,priorSlow=gesture?.slowLocked;
     gesture=begin(centroid(),pointers.size);
+    gesture.pointerType=e.pointerType;gesture.indexBook=pointers.size===1?readingIndexAt(gesture.start,e.pointerType):null;
+    clearReadingHover();
     if(priorPinch)gesture.pinched=true;if(priorSlow&&pointers.size===1)gesture.slowLocked=true;
     stage.classList.add('dragging');
-    if(pointers.size===1&&gesture.side!=='outside'&&!gesture.edge){
+    if(pointers.size===1&&gesture.side!=='outside'&&!gesture.edge&&gesture.indexBook===null){
       const g=gesture;
       holdTimer=setTimeout(()=>{
         if(gesture!==g||pointers.size!==1||g.cancelled||g.slowLocked)return;
@@ -577,6 +625,7 @@
     }
   }
   function pointerMove(e){
+    readingHover(e);
     if(edgeDrag?.id===e.pointerId){if(!edgeDrag.moved&&Math.hypot(e.clientX-edgeDrag.startX,e.clientY-edgeDrag.startY)<8)return;edgeDrag.moved=true;const dy=edgeDrag.y-e.clientY;edgeDrag.y=e.clientY;panEdge(dy);return;}
     if(!pointers.has(e.pointerId)||!gesture||gesture.cancelled||gesture.lifted)return;
     pointers.set(e.pointerId,relative(e));const c=centroid(),g=gesture;
@@ -622,6 +671,11 @@
     }else{
       const travel=Math.hypot(g.end.x-g.start.x,g.end.y-g.start.y);
       if(!g.cancelled&&!g.pinched&&g.fingers===1&&travel<9&&g.end.t-g.start.t<320){
+        const selected=g.indexBook??null;
+        if(selected!==null&&readingIndexAt(g.end,g.pointerType,{x:g.baseX,y:g.baseY,scale:g.baseScale})===selected){
+          x=g.baseX;y=g.baseY;scale=g.baseScale;transform();lastTap=null;
+          stage.dataset.lastGesture='index-tap';selectBook(selected);return;
+        }
         if(g.edge){x=g.baseX;y=g.baseY;scale=g.baseScale;transform();lastTap=null;requestFan(g.edgeSide);stage.dataset.lastGesture='edge-tap';return;}
         if(lastTap&&g.end.t-lastTap.t<330&&Math.hypot(g.end.x-lastTap.x,g.end.y-lastTap.y)<30){
           if(scale>fitScale*1.3)fit();else zoom(fitScale*3.2,g.end);
@@ -654,9 +708,10 @@
   stage.addEventListener('pointermove',pointerMove);
   stage.addEventListener('pointerup',e=>pointerUp(e));
   stage.addEventListener('pointercancel',e=>pointerUp(e,true));
+  stage.addEventListener('pointerleave',clearReadingHover);
   stage.addEventListener('lostpointercapture',e=>{if(pointers.has(e.pointerId))pointerUp(e,true);});
   stage.addEventListener('contextmenu',e=>e.preventDefault());
-  function interrupt(){edgeDrag=null;clearHold();pointers.clear();gesture=null;stage.classList.remove('dragging');abortFold();}
+  function interrupt(){edgeDrag=null;clearHold();clearReadingHover();pointers.clear();gesture=null;stage.classList.remove('dragging');abortFold();}
   window.addEventListener('blur',cancelDemo);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelDemo();});
 

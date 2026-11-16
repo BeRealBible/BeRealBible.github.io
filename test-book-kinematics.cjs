@@ -1,6 +1,6 @@
 /* Physical continuity, rather than an opacity/scale imitation of closure. */
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const K=require('./book-kinematics.js'),M=require('./book-material.js');
+const K=require('./book-kinematics.js'),M=require('./book-material.js'),Packet=require('./book-packet.js');
 let checks=0;
 const check=(v,message)=>{assert.ok(v,message);checks++;};
 const near=(a,b,message,epsilon=1e-8)=>check(Math.abs(a-b)<=epsilon,`${message}: ${a} != ${b}`);
@@ -35,8 +35,11 @@ for(const material of materials){
       const u=side==='left'?1-x/480:x/480;
       if(close===0||close===1)pointNear(K.transformPoint(top,x,y),K.pagePoint(side,material.leftDepth,u,y,material,close),'rigid endpoints and paper model coincide');
     }
-    for(const s of [interval[0],(interval[0]+interval[1])/2,interval[1]])for(const y of [0,352,704])
-      pointNear(K.transformPoint(edge,s,y),K.foreedgePoint(side,s,y,material,close),'DOM edge and absolute sheet model coincide');
+    // This legacy affine matrix is only an envelope. The natural shoulder
+    // and fan are non-affine in depth; visible paper samples pagePoint.
+    // At full closure the real edge becomes affine and must coincide exactly.
+    if(close===1)for(const s of [interval[0],(interval[0]+interval[1])/2,interval[1]])for(const y of [0,352,704])
+      pointNear(K.transformPoint(edge,s,y),K.foreedgePoint(side,s,y,material,close),'closed envelope and absolute sheet model coincide');
     const mesh=K.bottomMesh(side,material,close,24);
     if(interval[0]===interval[1])check(mesh.length===0,'zero paper depth has no foot face');
     else{
@@ -54,6 +57,71 @@ for(const material of materials){
       }
       pointNear(mesh.at(-1).vertices[1],K.foreedgePoint(side,interval[0],704,material,close),'foot joins fore-edge first corner');
       pointNear(mesh.at(-1).vertices[2],K.foreedgePoint(side,interval[1],704,material,close),'foot joins fore-edge second corner');
+    }
+  }
+}
+
+// Natural opening exposes the actual paper margins on both sides without
+// moving, scaling, or bowing the split text sheet. The maximum shoulder is
+// reached at the base; the camera can safely frame those two physical edges.
+let naturalChecks=0;
+check(K.NATURAL_SHOULDER===82,'natural shoulder has an explicit world-space design width');
+for(const material of materials)for(const side of ['left','right']){
+  const direction=side==='left'?-1:1;
+  const amount=side==='left'?material.leftDepth:material.rightDepth;
+  const outer=side==='left'?0:material.totalDepth;
+  for(const u of [0,.25,.5,.72,.85,1])for(const y of [0,352,704]){
+    pointNear(K.pagePoint(side,material.leftDepth,u,y,material,0),
+      {x:K.WIDTH+direction*K.WIDTH*u,y,z:0},'natural split text stays exactly flat');
+    naturalChecks++;
+  }
+  for(const u of [.73,.85,1]){
+    let lastX=-1e-9,lastZ=1e-9;
+    for(let i=0;i<=1000;i++){
+      const d=amount*i/1000,s=material.leftDepth+direction*d;
+      const p=K.pagePoint(side,s,u,352,material,0);
+      const outward=direction*(p.x-(K.WIDTH+direction*K.WIDTH*u));
+      check(outward>=lastX-1e-9,'natural shoulder is monotone outward toward base');
+      check(p.z<=lastZ+1e-9,'deeper natural sheets cannot cross shallower paper');
+      check(p.z<=1e-9,'natural shoulder cannot pierce the reading text sheet');
+      lastX=outward;lastZ=p.z;naturalChecks++;
+    }
+  }
+  const base=K.pagePoint(side,outer,1,352,material,0);
+  const capacity=Math.min(1,amount/(material.totalDepth*.16));
+  near(direction*(base.x-(K.WIDTH+direction*K.WIDTH)),
+    .55*amount+K.NATURAL_SHOULDER*capacity,'base shoulder is the measured outer envelope');
+  near(base.z,-amount,'natural base retains physical paper depth');
+  for(const fan of [0,.25,.7,1])pointNear(K.pagePoint(side,outer,1,352,material,0,{fanLeft:fan,fanRight:fan}),
+    base,'fan keeps the bottom of the natural shoulder fixed');
+}
+// Tiny tails stay tiny: shoulder width is linear in physical paper amount,
+// not a constant open-book band applied even to one remaining sheet.
+for(const total of [.1,1,36,72])for(const fraction of [0,.001,.01,.04,.08,.16,.5,1]){
+  const amount=total*fraction;
+  for(const side of ['left','right']){
+    const material={totalDepth:total,leftDepth:side==='left'?amount:total-amount};
+    const outer=side==='left'?0:total,direction=side==='left'?-1:1;
+    const p=K.pagePoint(side,outer,1,352,material,0);
+    const shoulder=direction*(p.x-(K.WIDTH+direction*K.WIDTH))-.55*amount;
+    near(shoulder,K.NATURAL_SHOULDER*Math.min(1,fraction/.16),'thin natural shoulder uses linear capacity');
+    naturalChecks++;
+  }
+}
+// A packet uses this same baseline at both ends. Changing spread must not
+// replace the natural stack with the former flat stack at the last frame.
+for(const [a,b]of [[materials[1],materials[4]],[materials[6],materials[2]]]){
+  const shape={fanLeft:.6,fanRight:.4,notches:[]};
+  for(const progress of [0,1]){
+    const packet=Packet.sample(a,b,progress,shape),target=progress?b:a,state=progress?{notches:[]}:shape;
+    for(const side of ['left','right'])for(const s of [0,9,18,27,36])for(const u of [0,.5,.72,.9,1]){
+      pointNear(packet.resting(side,s,u,352),K.pagePoint(side,s,u,352,target,0,state),'natural packet resting endpoint');
+      naturalChecks++;
+    }
+    for(const s of [packet.sections[2].lo,packet.sections[2].hi])for(const u of [.5,.85,1]){
+      const side=progress?packet.destination:packet.source;
+      pointNear(packet.moving(s,u,352),K.pagePoint(side,s,u,352,target,0,state),'natural packet moving endpoint');
+      naturalChecks++;
     }
   }
 }
@@ -161,4 +229,4 @@ assert.throws(()=>K.topMatrix('front',materials[0],0),TypeError);checks++;
 assert.throws(()=>K.matrixCSS([1,2]),TypeError);checks++;
 const browser={window:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/book-kinematics.js','utf8'),browser);
 for(const side of ['left','right'])near(browser.window.PaperBookKinematics.foreedgePoint(side,12,140,materials[3],.46).x,K.foreedgePoint(side,12,140,materials[3],.46).x,'browser and Node exports agree');
-console.log(JSON.stringify({bookKinematicsChecks:checks,largestStep,thinTailChecks,max32SheetPull,closedDepth:36,closedSplitInvariant:true,closureDegrees:90,geometry:'curved depth-dependent leaves, inward fanning, absolute milled recesses'}));
+console.log(JSON.stringify({bookKinematicsChecks:checks,naturalChecks,largestStep,thinTailChecks,max32SheetPull,closedDepth:36,closedSplitInvariant:true,closureDegrees:90,geometry:'bilateral natural paper shoulders, curved depth-dependent leaves, inward fanning, absolute milled recesses'}));

@@ -10,9 +10,10 @@
     const K=root.PaperBookKinematics;if(!surface||!K)return null;
     const side=surface.side==='left'?'left':'right',direction=side==='left'?-1:1;
     const material=surface.material||{},state=surface.state||{},depth=K.frame(material,0).leftDepth;
+    const cutDepth=side==='left'&&material.totalSheets?Math.max(0,depth-material.totalDepth/material.totalSheets):depth;
     const vertices=[];
     for(let j=0;j<=rows;j++)for(let i=0;i<=cols;i++){
-      const row=j/rows*704,u=i/cols,inset=K.edgeInset(side,depth,row,material,state);
+      const row=j/rows*704,u=i/cols,inset=K.edgeInset(side,cutDepth,row,material,state);
       const s=Math.min(u*480,480-inset),flatX=480+direction*s;
       const point=K.pagePoint(side,depth,s/480,row,material,surface.close||0,state),projected=projectBoundPoint(point);
       vertices.push({s,cut:s<u*480-1e-8,dx:projected.x-flatX,

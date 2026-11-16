@@ -67,7 +67,13 @@ test('one/two/dense groups use 18/12/8px targets inside their own recess',()=>{
     assert.equal(group.notch.radius,Math.max(13,n*height/2+1));
     assert.ok(group.notch.span>0,'even a boundary carrier retains its real half-leaf stop');
     assert.ok(group.notch.cutStart>=0&&group.notch.cutStart<=group.carrierDepth);
-    near(group.notch.cutEnd,group.carrierDepth+model.totalDepth/model.totalSheets*.5);
+    const pitch=model.totalDepth/model.totalSheets,track=Layout.tracks.findIndex(t=>t.id===group.track);
+    const definition=Layout.tracks[track],row=definition.groups.findIndex(codes=>codes[0]===books[group.first].code);
+    const nextCode=Layout.tracks[track+1]?.groups[Math.min(row,Layout.tracks[track+1].groups.length-1)][0]||definition.groups[row+1]?.[0];
+    const nextBook=books.find(b=>b.code===nextCode),cap=nextBook?Math.floor(nextBook.first/2)*pitch:group.carrierDepth+pitch*.5;
+    near(group.notch.cutEnd,Math.min(model.totalDepth,Math.max(group.carrierDepth+pitch*.5,Math.min(cap,group.carrierDepth+160*pitch))));
+    assert.ok(group.notch.cutEnd>group.carrierDepth,'the physical interval exposes the reverse of the same carrier');
+    assert.ok(group.notch.cutEnd-group.carrierDepth<=160*pitch+1e-8,'reverse support is counted in actual sheets, not font units');
     near(group.notch.depth,(group.notch.cutStart+group.notch.cutEnd)/2);
     near(group.notch.span,(group.notch.cutEnd-group.notch.cutStart)/2);
     members.forEach((slot,i)=>{

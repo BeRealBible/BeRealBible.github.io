@@ -31,25 +31,55 @@
   // visible surface, not on the analytic recess below a chord approximation.
   function facetSampler(material,close,state){
     const total=material.totalDepth,bands=Solid?.DEPTH_BANDS||5,depths=Array.from({length:bands+1},(_,i)=>total*i/bands),points=K.prepare(material,close,state);
-    for(const n of state.notches){
-      const scoped=Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd);
-      for(const d of scoped?[...K.cutRange(n),n.depth,n.carrierDepth]:n.span<total/bands*.4?[n.depth]:[])
+    const sortedUnique=values=>[...new Set(values)].sort((a,b)=>a-b),topology=[];
+    const scoped=state.notches.some(n=>Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd));
+    if(scoped){
+      // Use the SAME local material grid as BookSolid. Its scoped recesses
+      // use five shared height knots and locally split depth bands; the old
+      // seven-knot/global-depth proxy could have a different diagonal (and
+      // even a discontinuous interpolation) exactly under a printed strip.
+      const ys=sortedUnique([0,HEIGHT,...state.notches.flatMap(n=>[-1,-Math.SQRT1_2,0,Math.SQRT1_2,1]
+        .map(q=>clamp(n.y+n.radius*q,0,HEIGHT)))]);
+      const shape=K.prepare({totalDepth:total},0,state),blankRuns=new Map();
+      for(let j=1;j<ys.length;j++){
+        const y0=ys[j-1],y1=ys[j],active=state.notches.filter(n=>n.y+n.radius>y0&&n.y-n.radius<y1);
+        const local=sortedUnique([...depths,...active.flatMap(n=>[...K.cutRange(n),n.carrierDepth])]
+          .filter(Number.isFinite).map(s=>clamp(s,0,total)));
+        const blank=(a,b)=>[a,(a+b)/2,b].every(s=>[y0,(y0+y1)/2,y1].every(y=>shape.edgeInset('right',s,y)===0));
+        for(let i=1;i<local.length;i++){
+          const from=local[i-1];let to=local[i];const regular=Math.floor((from+to)/2/(total/bands));
+          if(blank(from,to)){
+            while(i+1<local.length&&Math.floor((local[i]+local[i+1])/2/(total/bands))===regular&&blank(local[i],local[i+1]))to=local[++i];
+            const key=from+','+to,prior=blankRuns.get(key);
+            if(prior&&prior.ys[1]===y0){prior.ys[1]=y1;continue;}
+            const band={from,to,ys:[y0,y1]};topology.push(band);blankRuns.set(key,band);
+          }else topology.push({from,to,ys:[y0,y1]});
+        }
+      }
+    }else{
+      for(const n of state.notches)for(const d of n.span<total/bands*.4?[n.depth]:[])
         if(Number.isFinite(d))depths.push(clamp(d,0,total));
+      const sorted=sortedUnique(depths);
+      for(let i=0;i<sorted.length-1;i++){
+        const from=sorted[i],to=sorted[i+1],ys=[0,HEIGHT];
+        for(const n of state.notches)if(K.cutRange(n)[1]>=from&&K.cutRange(n)[0]<=to)for(const q of [-1,-.8660254038,-.5,0,.5,.8660254038,1])ys.push(clamp(n.y+n.radius*q,0,HEIGHT));
+        topology.push({from,to,ys:sortedUnique(ys)});
+      }
     }
-    const sorted=[...new Set(depths)].sort((a,b)=>a-b),topology=[];
-    for(let i=0;i<sorted.length-1;i++){
-      const from=sorted[i],to=sorted[i+1],ys=[0,HEIGHT];
-      for(const n of state.notches)if(K.cutRange(n)[1]>=from&&K.cutRange(n)[0]<=to)for(const q of [-1,-.8660254038,-.5,0,.5,.8660254038,1])ys.push(clamp(n.y+n.radius*q,0,HEIGHT));
-      const sortedYs=[...new Set(ys)].sort((a,b)=>a-b),split=material.leftDepth;
-      if(split>from+1e-8&&split<to-1e-8){topology.push({from,to:split,ys:sortedYs},{from:split,to,ys:sortedYs});}
-      else topology.push({from,to,ys:sortedYs});
+    const split=material.leftDepth,cells=[];
+    for(const band of topology){
+      const depths=split>band.from+1e-8&&split<band.to-1e-8?[band.from,split,band.to]:[band.from,band.to];
+      for(let i=1;i<depths.length;i++)for(let j=1;j<band.ys.length;j++)
+        cells.push({from:depths[i-1],to:depths[i],y0:band.ys[j-1],y1:band.ys[j]});
     }
-    const sample=(side,depth,y)=>{
+    const rowYs=sortedUnique(cells.flatMap(c=>[c.y0,c.y1]));
+    const rowCells=rowYs.slice(1).map((y1,j)=>{
+      const mid=(rowYs[j]+y1)/2;return cells.filter(c=>mid>=c.y0&&mid<=c.y1).sort((a,b)=>a.from-b.from);
+    });
+    const interval=(values,value)=>{let lo=0,hi=values.length-2;while(lo<hi){const mid=(lo+hi)>>1;if(value>values[mid+1])lo=mid+1;else hi=mid;}return lo;};
+    const cellPoint=(side,depth,y,cell)=>{
       const s=clamp(depth,0,total),yy=clamp(y,0,HEIGHT);
-      const band=topology.find(b=>s>=b.from-1e-8&&s<=b.to+1e-8)||topology[topology.length-1];
-      const from=band.from,to=band.to;
-      let k=0;while(k<band.ys.length-2&&yy>band.ys[k+1])k++;
-      const y0=band.ys[k],y1=band.ys[k+1],a=clamp((s-from)/(to-from)),b=clamp((yy-y0)/(y1-y0));
+      const {from,to,y0,y1}=cell,a=clamp((s-from)/(to-from)),b=clamp((yy-y0)/(y1-y0));
       const p00=points.foreedgePoint(side,from,y0),p01=points.foreedgePoint(side,from,y1),p11=points.foreedgePoint(side,to,y1),p10=points.foreedgePoint(side,to,y0);
       const vertices=b>=a?[p00,p01,p11]:[p00,p11,p10],weights=b>=a?[1-b,b-a,a]:[1-a,b,a-b];
       const p={x:0,y:0,z:0};for(let j=0;j<3;j++)for(const key of ['x','y','z'])p[key]+=vertices[j][key]*weights[j];
@@ -57,25 +87,35 @@
       if(y!==yy)p.y+=y-yy;
       return p;
     };
+    const sample=(side,depth,y)=>{
+      const s=clamp(depth,0,total),yy=clamp(y,0,HEIGHT),candidates=rowCells[interval(rowYs,yy)];
+      let lo=0,hi=candidates.length-1;while(lo<hi){const mid=(lo+hi)>>1;if(s>candidates[mid].to)lo=mid+1;else hi=mid;}
+      return cellPoint(side,depth,y,candidates[lo]);
+    };
     // The support-plane maximum lies at a triangle/rectangle intersection
     // vertex, not necessarily at the strip corners or its midpoint.
-    sample.critical=(s0,s1,y0,y1)=>{
+    sample.critical=(s0,s1,y0,y1,side='right')=>{
       const out=[[s0,y0],[s1,y0],[s1,y1],[s0,y1]];
       // Ink can overhang the first/last sheet. sample() extends that sheet's
       // edge, so its intermediate vertical vertices remain support extrema,
       // even when the entire ink strip lies outside [0,totalDepth].
-      for(const [a,b,band] of [[s0,Math.min(s1,0),topology[0]],[Math.max(s0,total),s1,topology.at(-1)]]){
-        if(a>=b||!band)continue;
-        for(const yy of band.ys)if(yy>y0&&yy<y1)out.push([a,yy],[b,yy]);
-      }
-      for(const band of topology){
-        const a0=Math.max(s0,band.from),a1=Math.min(s1,band.to);if(a1<a0)continue;
-        for(let j=0;j<band.ys.length-1;j++){
-          const by0=band.ys[j],by1=band.ys[j+1],b0=Math.max(y0,by0),b1=Math.min(y1,by1);if(b1<b0)continue;
-          out.push([a0,b0],[a1,b0],[a1,b1],[a0,b1]);
-          for(const yy of [b0,b1]){const ss=band.from+(band.to-band.from)*(yy-by0)/(by1-by0);if(ss>a0&&ss<a1)out.push([ss,yy]);}
-          for(const ss of [a0,a1]){const yy=by0+(by1-by0)*(ss-band.from)/(band.to-band.from);if(yy>b0&&yy<b1)out.push([ss,yy]);}
+      for(const [a,b,depth] of [[s0,Math.min(s1,0),0],[Math.max(s0,total),s1,total]]){
+        if(a>=b)continue;
+        for(const cell of cells)if(cell.from===depth||cell.to===depth){
+          const lo=Math.max(y0,cell.y0),hi=Math.min(y1,cell.y1);if(lo>hi)continue;
+          for(const yy of [lo,hi])for(const ss of [a,b])out.push([ss,yy,cellPoint(side,ss,yy,cell)]);
         }
+      }
+      for(const band of cells){
+        const a0=Math.max(s0,band.from),a1=Math.min(s1,band.to);if(a1<a0)continue;
+          const by0=band.y0,by1=band.y1,b0=Math.max(y0,by0),b1=Math.min(y1,by1);if(b1<b0)continue;
+          // At a locally tessellated shared boundary, preserve EACH actual
+          // triangle's support value. Looking it up again through sample()
+          // picks just one neighbouring cell and can miss the higher chord.
+          const add=(ss,yy)=>out.push([ss,yy,cellPoint(side,ss,yy,band)]);
+          add(a0,b0);add(a1,b0);add(a1,b1);add(a0,b1);
+          for(const yy of [b0,b1]){const ss=band.from+(band.to-band.from)*(yy-by0)/(by1-by0);if(ss>a0&&ss<a1)add(ss,yy);}
+          for(const ss of [a0,a1]){const yy=by0+(by1-by0)*(ss-band.from)/(band.to-band.from);if(yy>b0&&yy<b1)add(ss,yy);}
       }
       return out;
     };
@@ -87,9 +127,9 @@
     let n={x:ax.y*ay.z-ax.z*ay.y,y:ax.z*ay.x-ax.x*ay.z,z:ax.x*ay.y-ax.y*ay.x};
     const length=Math.hypot(n.x,n.y,n.z)||1;if(n.z<0){n.x=-n.x;n.y=-n.y;n.z=-n.z;}for(const key of ['x','y','z'])n[key]/=length;
     let lift=.3;
-    const critical=sample.critical?sample.critical(depth+start/scale,depth+(start+width)/scale,y-height/2,y+height/2):[];
-    for(const [ss,yy]of critical){
-      const dx=(ss-depth)*scale-start,dy=yy-y+height/2,exact=sample(side,ss,yy),planeZ=p.z+ax.z*dx+ay.z*dy;
+    const critical=sample.critical?sample.critical(depth+start/scale,depth+(start+width)/scale,y-height/2,y+height/2,side):[];
+    for(const [ss,yy,trianglePoint]of critical){
+      const dx=(ss-depth)*scale-start,dy=yy-y+height/2,exact=trianglePoint||sample(side,ss,yy),planeZ=p.z+ax.z*dx+ay.z*dy;
       lift=Math.max(lift,exact.z-planeZ+.3);
     }
     return [ax.x,ax.y,ax.z,0,ay.x,ay.y,ay.z,0,n.x,n.y,n.z,0,p.x,p.y,p.z+lift,1];

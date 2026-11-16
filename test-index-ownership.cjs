@@ -31,7 +31,9 @@ function fixture(){
   const fragment=shaders.find(s=>s.type==='FRAGMENT_SHADER').source;
   assert.ok(fragment.indexOf('paper.w>4.5')<fragment.indexOf('paper.w>2.5'),'single-leaf print uses its own material');
   assert.doesNotMatch(fragment,/shoulderAlpha|floorAlpha/,'no text can remain on a cross-sheet shoulder or floor');
-  assert.match(fragment,/gl_FrontFacing\?floorUV:uv/,'one leaf reads correctly on each face, without duplicating a label');
+  assert.match(fragment,/gl_FrontFacing\?floorUV:uv/,'one finite-thickness leaf reads correctly on each physical face');
+  assert.match(fragment,/visibleInk>\.5&&gl_FrontFacing/,'front material face rejects its inward-facing side');
+  assert.match(fragment,/visibleInk<-.5&&!gl_FrontFacing/,'back material face rejects its inward-facing side');
   const stock=fragment.match(/vec3 stock=mix\(vec3\(([^)]+)\),vec3\(([^)]+)\),clamp\(\(paper.y-\.9\)\*10.0,0.0,1.0\)\)\*paper.z/);
   assert.ok(stock,'plain and printed carrier stock use the same material-space outer-page gradient');
   for(const [bank,rgb]of [[1,[255,254,245]],[2,[249,246,235]]])
@@ -58,38 +60,65 @@ function decode(data,base){
   const local=[];
   for(let j=0;j<3;j++)local.push([(data[base+j*stride+3]*8*128-col*128-2)/124,
     (data[base+j*stride+4]*rows*152-row*152-2)/148]);
-  return {n:notches[group],local,points:[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}))};
+  assert.ok(data[base+11]===1||data[base+11]===-1,'carrier face has an explicit front/back sign');
+  return {n:notches[group],face:data[base+11]===1?0:1,local,points:[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}))};
 }
+const faceKey=(n,face)=>n.group+':'+face;
 let carrierVertexChecks=0,plainEdgeChecks=0,plainCarrierVertexChecks=0,sharedEdgeChecks=0,originalLeafJoins=0,materialColourChecks=0,colourSeamChecks=0;
+let rimEdgeChecks=0,rimVertexChecks=0;
 const referenceCounts=new Map();
 function checkUpload(state){
   const counts=new Map(),unique=new Map(),plainEdges=new Map(),labelEdges=new Map(),patches=new Map(),expectedPlain=new Map(),lights=new Map(),colours=new Map();
+  const faceEdges=new Map(),faceVertexUV=new Map(),fibreTriangles=new Map();
   const inspection=state.close?K.inspectionAmount(state.close):0;
   const edgeKey=(a,b)=>[a,b].map(p=>[p.x,p.y,p.z].join(',')).sort().join('|');
   const pointKey=p=>[p.x,p.y,p.z].map(Math.fround).join(',');
-  for(const n of notches){
-    const section=Depth.labelSection(n,state.sections),patch=Depth.carrierPatch(n,section,inspection,notches);
-    patches.set(n.group,patch);
+  const triangleKey=points=>points.map(pointKey).sort().join('|');
+  const recordFaceEdges=(id,vertices)=>{
+    if(!faceEdges.has(id))faceEdges.set(id,new Map());
+    const edges=faceEdges.get(id);
+    for(const [a,b]of [[0,1],[1,2],[2,0]]){
+      if(pointKey(vertices[a])===pointKey(vertices[b]))continue;
+      const key=edgeKey(vertices[a],vertices[b]),prior=edges.get(key);
+      if(prior)prior.count++;else edges.set(key,{count:1,points:[vertices[a],vertices[b]]});
+    }
+  };
+  const recordUV=(id,point,uv)=>{
+    if(!faceVertexUV.has(id))faceVertexUV.set(id,new Map());
+    faceVertexUV.get(id).set(pointKey(point),uv);
+  };
+  for(const n of notches)for(const face of [0,1]){
+    const id=faceKey(n,face),section=Depth.labelSection(n,state.sections),patch=Depth.carrierPatch(n,section,inspection,notches,face);
+    patches.set(id,patch);
+    near(patch.frame.carrierDepth,n.carrierDepth,'both faces retain one immutable sheet identity');
+    near(patch.frame.surfaceDepth,n.carrierDepth+face*n.sheetPitch,'front/back surface is the boundary of that same sheet',1e-9);
     const a=patch.frame.point(.49,.5),b=patch.frame.point(.51,.5);
-    lights.set(n.group,.89+.11*Math.abs(b.x-a.x)/(Math.hypot(b.x-a.x,b.z-a.z)||1));
+    lights.set(id,.89+.11*Math.abs(b.x-a.x)/(Math.hypot(b.x-a.x,b.z-a.z)||1));
     const expected=new Map();
     for(const poly of patch.polygons.filter(p=>p.kind===6))for(const uv of poly.coords){
       const key=pointKey(patch.point(...uv));if(!expected.has(key))expected.set(key,[]);expected.get(key).push(uv);
     }
-    expectedPlain.set(n.group,expected);
+    expectedPlain.set(id,expected);
   }
-  function checkColour(n,point,u,v,outward,light){
-    const patch=patches.get(n.group),leafLight=lights.get(n.group),protect=patch.bounds(v).protect;
+  function checkColour(n,face,point,u,v,outward,light){
+    const id=faceKey(n,face),patch=patches.get(id),leafLight=lights.get(id),protect=patch.bounds(v).protect;
     near(outward,patch.frame.rootU+u*patch.frame.width/K.WIDTH,'stock gradient follows the carrier material coordinate',1e-6);
     assert.ok(light>=leafLight*.9-1e-6&&light<=leafLight+1e-6,'the unprinted return fold receives at most 10 percent extra shade');
     near(light,leafLight*(1-.1*inspection*(1-protect)),'fold lighting follows the continuous return margin',1e-6);
     if(v>=0&&v<=1)near(light,leafLight,'printed domain has no extra return-fold darkening',1e-6);
-    const key=n.group+'|'+pointKey(point),previous=colours.get(key);
+    const key=id+'|'+pointKey(point),previous=colours.get(key);
     if(previous){assert.deepEqual([outward,light],previous,'identical carrier vertices share identical colour attributes across ink/plain seams');colourSeamChecks++;}
     else colours.set(key,[outward,light]);materialColourChecks++;
   }
   for(const data of state.draws)for(let base=0;base<data.length;base+=stride*3){
     const kind=data[base+8];
+    if(kind===1){
+      const vertices=[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}));
+      const key=triangleKey(vertices);
+      if(!fibreTriangles.has(key))fibreTriangles.set(key,[]);
+      fibreTriangles.get(key).push([0,1,2].map(j=>Array.from(data.subarray(base+j*stride,base+(j+1)*stride))));
+      continue;
+    }
     if(kind===0){
       for(let j=0;j<3;j++){
         near(data[base+j*stride+3],.0001);near(data[base+j*stride+4],.0001);
@@ -101,39 +130,44 @@ function checkUpload(state){
     if(kind===6){
       const c=data[base+5]*T,n=notches.find(n=>Math.abs(n.carrierDepth-c)<8e-5);
       assert.ok(n,'unprinted continuous margin belongs to an actual label carrier');
-      if(!plainEdges.has(n.group))plainEdges.set(n.group,new Set());
+      assert.ok(data[base+11]===1||data[base+11]===-1,'plain carrier also has a physical front/back side');
+      const face=data[base+11]===1?0:1,id=faceKey(n,face);
+      if(!plainEdges.has(id))plainEdges.set(id,new Set());
       const vertices=[0,1,2].map(j=>({x:data[base+j*stride],y:data[base+j*stride+1],z:data[base+j*stride+2]}));
-      for(const [a,b]of [[0,1],[1,2],[2,0]])plainEdges.get(n.group).add(edgeKey(vertices[a],vertices[b]));
+      recordFaceEdges(id,vertices);
+      for(const [a,b]of [[0,1],[1,2],[2,0]])plainEdges.get(id).add(edgeKey(vertices[a],vertices[b]));
       for(let j=0;j<3;j++){
         near(data[base+j*stride+5]*T,n.carrierDepth,'plain margin cannot connect unrelated sheets');
         near(data[base+j*stride+3],.0001);near(data[base+j*stride+4],.0001);
-        assert.equal(data[base+j*stride+11],0,'only the printed UV domain carries ink');
-        const uv=expectedPlain.get(n.group).get(pointKey(vertices[j]));
+        assert.equal(data[base+j*stride+11],face===0?1:-1,'all vertices preserve the same material face orientation');
+        const uv=expectedPlain.get(id).get(pointKey(vertices[j]));
         assert.ok(uv,'plain carrier geometry follows its actual page cut, not a decorative backing card');
         const outward=data[base+j*stride+6],light=data[base+j*stride+7];
-        const match=uv.find(([u])=>Math.abs(outward-(patches.get(n.group).frame.rootU+u*patches.get(n.group).frame.width/K.WIDTH))<1e-6);
-        assert.ok(match,'plain colour attributes belong to the same material vertex');checkColour(n,vertices[j],...match,outward,light);
+        const match=uv.find(([u])=>Math.abs(outward-(patches.get(id).frame.rootU+u*patches.get(id).frame.width/K.WIDTH))<1e-6);
+        assert.ok(match,'plain colour attributes belong to the same material vertex');checkColour(n,face,vertices[j],...match,outward,light);
+        recordUV(id,vertices[j],match);
         plainCarrierVertexChecks++;
       }
       continue;
     }
     if(kind!==5)continue;
-    const {n,local,points}=decode(data,base),section=Depth.labelSection(n,state.sections);
-    if(!labelEdges.has(n.group))labelEdges.set(n.group,new Map());
+    const {n,face,local,points}=decode(data,base),id=faceKey(n,face),section=Depth.labelSection(n,state.sections);
+    recordFaceEdges(id,points);points.forEach((p,j)=>recordUV(id,p,local[j]));
+    if(!labelEdges.has(id))labelEdges.set(id,new Map());
     for(const [a,b]of [[0,1],[1,2],[2,0]]){
-      const key=edgeKey(points[a],points[b]),edges=labelEdges.get(n.group),prior=edges.get(key);
+      const key=edgeKey(points[a],points[b]),edges=labelEdges.get(id),prior=edges.get(key);
       if(prior)prior.count++;else edges.set(key,{count:1,local:[local[a],local[b]],points:[points[a],points[b]]});
     }
     assert.ok(section,'carrier must be owned by one material section');
     assert.equal(state.sections.filter(s=>n.carrierDepth+1e-8>=s.lo&&n.carrierDepth+1e-8<s.hi).length,1);
-    const patch=patches.get(n.group);
-    counts.set(n.group,(counts.get(n.group)||0)+1);
-    if(!unique.has(n.group))unique.set(n.group,new Set());
+    const patch=patches.get(id);
+    counts.set(id,(counts.get(id)||0)+1);
+    if(!unique.has(id))unique.set(id,new Set());
     const key=local.map(p=>p.map(v=>v.toFixed(5)).join(',')).join('|');
-    assert.ok(!unique.get(n.group).has(key),'the same carrier triangle cannot be copied to another side');unique.get(n.group).add(key);
+    assert.ok(!unique.get(id).has(key),'each original sheet face has exactly one copy of each triangle, never a same-facing clone');unique.get(id).add(key);
     for(let j=0;j<3;j++){
       near(data[base+j*stride+5]*T,n.carrierDepth,'every ink vertex has one immutable material s');
-      assert.equal(data[base+j*stride+11],1,'paper cannot move by an alpha ownership handoff');
+      assert.equal(data[base+j*stride+11],face===0?1:-1,'face orientation cannot move by an alpha ownership handoff');
       const col=n.group%8,row=Math.floor(n.group/8);
       const backU=(data[base+j*stride+9]*8*128-col*128-2)/124;
       const backV=(data[base+j*stride+10]*rows*152-row*152-2)/148;
@@ -141,12 +175,45 @@ function checkUpload(state){
       const p=patch.point(...local[j]);
       near(points[j].x,p.x,'UV u must run on the carrier leaf, not across stack depth',.0005);
       near(points[j].y,p.y,undefined,.0005);near(points[j].z,p.z,undefined,.0005);
-      checkColour(n,points[j],...local[j],data[base+j*stride+6],data[base+j*stride+7]);
+      checkColour(n,face,points[j],...local[j],data[base+j*stride+6],data[base+j*stride+7]);
       carrierVertexChecks++;
     }
   }
-  assert.equal(counts.size,39,'39 whole leaf labels, neither dropped nor split into row owners');
-  assert.equal(labelEdges.size,39,'every printed leaf has a complete connected ink domain');
+  assert.equal(counts.size,78,'39 original labelled sheets each retain their two physical faces');
+  assert.equal(labelEdges.size,78,'each physical face has a complete connected ink domain');
+  for(const n of notches)assert.deepEqual(unique.get(faceKey(n,0)),unique.get(faceKey(n,1)),
+    'front and back print cover exactly the same original material triangles, once per face');
+  // Start with the real uploaded front surface (ink AND plain margin), not
+  // a count of kind-1 triangles. Every free union boundary must meet an
+  // uploaded back boundary and the two exact fibre triangles closing it.
+  for(const n of notches){
+    const frontId=faceKey(n,0),backId=faceKey(n,1),front=patches.get(frontId),back=patches.get(backId);
+    let sealed=0;
+    for(const edge of faceEdges.get(frontId).values()){
+      assert.ok(edge.count<=2,'carrier face union has no same-facing non-manifold duplicate');
+      if(edge.count!==1)continue;
+      const uv=edge.points.map(p=>faceVertexUV.get(frontId).get(pointKey(p)));
+      assert.ok(uv.every(Boolean),'the uploaded free edge retains its material coordinates');
+      if(uv.every(([u,v])=>Math.abs(u-front.bounds(v).start)<1e-5))continue;
+      const [a,b]=edge.points,[aa,bb]=uv.map(p=>{
+        const q=back.point(...p);return {x:Math.fround(q.x),y:Math.fround(q.y),z:Math.fround(q.z)};
+      });
+      const backEdge=faceEdges.get(backId).get(edgeKey(aa,bb));
+      assert.ok(backEdge?.count===1,'front free edge has the exact corresponding uploaded back free edge');
+      const choices=[[[a,b,bb],[a,bb,aa]],[[a,b,aa],[b,bb,aa]]];
+      const joined=choices.find(pair=>pair.every(tri=>fibreTriangles.get(triangleKey(tri))?.length===1));
+      assert.ok(joined,'the actual GPU fibre rim closes both faces with shared Float32 vertices, not a near-overlaid card');
+      for(const tri of joined)for(const vertex of fibreTriangles.get(triangleKey(tri))[0]){
+        assert.equal(vertex[8],1,'the rim is unprinted fibre material');
+        for(const offset of [3,4,9,10])near(vertex[offset],.0001,'no atlas UV or lettering may enter a sheet rim');
+        assert.ok(Math.abs(vertex[5]*T-n.carrierDepth)<8e-5||Math.abs(vertex[5]*T-(n.carrierDepth+n.sheetPitch))<8e-5,
+          'the rim only joins the two boundaries of its original sheet');
+        near(vertex[6],1,'rim uses plain fibre tint');near(vertex[7],.97,'rim has paper-edge lighting');rimVertexChecks++;
+      }
+      sealed++;rimEdgeChecks++;
+    }
+    assert.ok(sealed>0,'every labelled sheet has an actually closed free edge');
+  }
   for(const [group,edges]of labelEdges){
     let boundary=0;
     for(const [key,edge]of edges){
@@ -196,9 +263,10 @@ function uploadedOcclusion(state){
     const projected=points.map(Solid.project),[a,b,c]=projected;
     const area=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);if(Math.abs(area)<1e-9)continue;
     // CSS screen y points down, while WebGL front-facing winding points up.
-    // The printed leaf shader discards the non-reading face; the paper edge
-    // and single-carrier stock are double-sided.
+    // Printed reading faces and both finite-thickness carrier surfaces reject
+    // their inward-facing triangles, exactly as the independently read shader.
     if((kind===3||kind===4)&&((kind===4)!==(area<0)))continue;
+    if(kind>=5&&(data[base+11]>0?area<0:area>0))continue;
     let book=-1,group=-1;
     if(kind===5){
       const decoded=decode(data,base),n=decoded.n;group=n.group;
@@ -319,8 +387,8 @@ for(const [start,end]of paths){
   for(const progress of phases){const s=drawPacket(from,to,progress,shape);checkUpload(s);forward.set(progress,s.digest);}
   for(const p of [0,1]){
     const turn=drawPacket(from,to,p,shape),stable=draw(p===0?start:end,p===0?source:'none');
-    for(const n of notches){
-      const a=Depth.labelFrame(n,Depth.labelSection(n,turn.sections),0),b=Depth.labelFrame(n,Depth.labelSection(n,stable.sections),0);
+    for(const n of notches)for(const face of [0,1]){
+      const a=Depth.labelFrame(n,Depth.labelSection(n,turn.sections),0,face),b=Depth.labelFrame(n,Depth.labelSection(n,stable.sections),0,face);
       for(const [u,v]of [[0,0],[1,0],[0,1],[.5,.5]]){
         const x=a.point(u,v),y=b.point(u,v);near(x.x,y.x,undefined,1e-8);near(x.y,y.y,undefined,1e-8);near(x.z,y.z,undefined,1e-8);endpointChecks++;
       }
@@ -331,5 +399,5 @@ for(const [start,end]of paths){
   }
 }
 assert.ok(blockedSamples>0,'real paper occlusion is included; tests do not treat all projected labels as always on top');
-console.log(JSON.stringify({ownershipStates:ownershipStates.length,carrierVertexChecks,plainEdgeChecks,plainCarrierVertexChecks,sharedEdgeChecks,originalLeafJoins,materialColourChecks,colourSeamChecks,hitChecks,blockedSamples,visibleUploadChecks,occlusionProofChecks,occludedCodeChecks,closedHitChecks,closedInkChecks,blankPaperChecks,
+console.log(JSON.stringify({ownershipStates:ownershipStates.length,carrierVertexChecks,plainEdgeChecks,plainCarrierVertexChecks,sharedEdgeChecks,originalLeafJoins,materialColourChecks,colourSeamChecks,rimEdgeChecks,rimVertexChecks,hitChecks,blockedSamples,visibleUploadChecks,occlusionProofChecks,occludedCodeChecks,closedHitChecks,closedInkChecks,blankPaperChecks,
   packetPaths:paths.length,endpointChecks,reverseFrameChecks,printedFacesIncluded:true}));

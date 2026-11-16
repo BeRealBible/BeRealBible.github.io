@@ -9,7 +9,7 @@
   else root.PaperBookKinematics=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const WIDTH=480,HEIGHT=704,DEFAULT_DEPTH=36,FAN_SWEEP=158,EDGE_SWEEP=.196;
+  const WIDTH=480,HEIGHT=704,DEFAULT_DEPTH=36,FAN_SWEEP=158,EDGE_SWEEP=.196,NATURAL_SHOULDER=82;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const sign=side=>{if(side==='left')return -1;if(side==='right')return 1;throw new TypeError('Book side must be left or right');};
@@ -47,6 +47,23 @@
     const b=.85*f.cosine*t,c=.55*f.cosine*f.sine*t-f.cosine;
     const amount=direction<0?f.leftDepth:f.rightDepth;
     const upper=amount>1e-10?clamp(1-d/amount,0,1):0;
+    // An open binding has a shoulder, not a stack of identical flat boards.
+    // The current reading sheet stays exactly at its original coordinates;
+    // underlying paper gradually exposes its outer margin on BOTH sides.
+    // Keep the deformation outside the text area and taper thin end packets
+    // linearly, rather than making the final handful of sheets a wide tooth.
+    const q=amount>1e-10?clamp(d/amount,0,1):0;
+    const margin=clamp((across-.72)/.28,0,1),marginEase=margin*margin*(3-2*margin);
+    const open=(1-f.close)*(1-f.close),sideFan=direction<0?f.fanLeft:f.fanRight;
+    // Fanning releases the upper shoulder continuously; the bound bottom
+    // stays still. At full fan this changes q^.78 into q^1.78, monotonically.
+    const naturalWeight=open*marginEase*(1-sideFan*(1-q));
+    const capacity=f.totalDepth>0?Math.min(1,amount/(f.totalDepth*.16)):0;
+    const shoulder=NATURAL_SHOULDER*capacity*Math.pow(q,.78)*naturalWeight;
+    // The derivative of this shallow arc is < .12*pi*amount. Combined with
+    // the existing -d depth, deeper open sheets remain strictly behind the
+    // reading surface, including very thin left/right packets.
+    const shoulderArch=Math.min(6,amount*.12)*Math.sin(Math.PI*q)*open*marginEase;
     const fan=(direction<0?f.fanLeft*f.leftCapacity:f.fanRight*f.rightCapacity)*upper*(.76+.24*upper*(3-2*upper));
     // A leaf bows between its sewn spine and free edge. Different paper
     // depths follow different arcs; there is no rigid two-board hinge.
@@ -61,8 +78,8 @@
     // splayed fore-edge. The paper is not scaled; the binding stays put.
     const wing=f.edgeInspection&&f.totalDepth?(layer/f.totalDepth-.5)*EDGE_SWEEP*f.edgeInspection:0;
     const slip=wing*across,tip=WIDTH*across;
-    return {x:f.hingeX+direction*(WIDTH*across-drawIn)*f.cosine+(layer-f.leftDepth)*a-direction*bend*f.sine+(slip?tip*Math.sin(slip):0),
-      y:finite(y)+d*b,z:(WIDTH*across-drawIn)*f.sine+d*c+bend*f.cosine-(slip?tip*2*Math.sin(slip/2)**2:0)};
+    return {x:f.hingeX+direction*(WIDTH*across-drawIn)*f.cosine+(layer-f.leftDepth)*a-direction*bend*f.sine+direction*shoulder+(slip?tip*Math.sin(slip):0),
+      y:finite(y)+d*b,z:(WIDTH*across-drawIn)*f.sine+d*c+bend*f.cosine+shoulderArch-(slip?tip*2*Math.sin(slip/2)**2:0)};
   }
   function shoulderFactor(notch,ds,vertical=1){
     if(notch.milled)ds/=Math.max(.0001,vertical);
@@ -201,7 +218,7 @@
   }
   function bottomMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,HEIGHT,segments,state);}
   function headMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,0,segments,state);}
-  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,EDGE_SWEEP,inspectionAmount,fanCapacity,frame,prepare,cutRange,cutProfile,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
+  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,EDGE_SWEEP,NATURAL_SHOULDER,inspectionAmount,fanCapacity,frame,prepare,cutRange,cutProfile,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
     surfaceStripMatrix,surfaceStripMatrixValues,
     topMatrix,topMatrixValues,foreedgeMatrix,foreedgeMatrixValues,matrixCSS,transformPoint,
     triangleMatrixValues,edgeMesh,bottomMesh,headMesh};

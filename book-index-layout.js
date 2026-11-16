@@ -9,7 +9,7 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const WIDTH=36,HEIGHT=704,DIGITAL_WIDTH=480,ROW=70;
-  const TOP=56,BOTTOM=648,SLOT_HEIGHT=8,FINAL_TRACK_OFFSET=20,CUT_SHEETS=100;
+  const TOP=56,BOTTOM=648,SLOT_HEIGHT=8,FINAL_TRACK_OFFSET=20,CUT_SHEETS=160;
   const tracks=Object.freeze([
     {id:'ot-a',testament:'old',rows:11,offset:0,groups:[
       ['GEN'],['EXO'],['LEV'],['NUM'],['DEU'],['JOS'],['JDG'],['RUT'],
@@ -90,6 +90,25 @@
         fraction:first.anchorDepth/depth,
         notch:{depth:(cutStart+cutEnd)/2,y:centerY,radius,span:(cutEnd-cutStart)/2,
           cutStart,cutEnd,carrierDepth:first.anchorDepth,carrierSheet:first.sheet}});
+    }
+    // A thumb recess exposes BOTH faces of its one labelled carrier. The
+    // neighbouring paper has a rounded approach on either side of that leaf;
+    // the carrier itself is restored by the renderer, with ink on both faces.
+    // Every run remains attached to fixed sheets, not to the current opening.
+    // End each column before the next one begins, and end the final column's
+    // individual windows at its next carrier (no inherited holes past REV).
+    for(const group of groups){
+      const nextTrack=trackOrder[trackOrder.indexOf(group.track)+1];
+      const following=groups.filter(g=>g.track===nextTrack);
+      const nextColumn=following.find(g=>g.trackRow>=group.trackRow)||following.at(-1);
+      const nextCarrier=groups.find(g=>g.track===group.track&&g.carrierDepth>group.carrierDepth);
+      const cap=nextColumn?nextColumn.carrierDepth:
+        nextCarrier?nextCarrier.carrierDepth:group.carrierDepth+pitch*.5;
+      const n=group.notch;
+      n.cutEnd=Math.min(depth,Math.max(group.carrierDepth+pitch*.5,
+        Math.min(cap,group.carrierDepth+CUT_SHEETS*pitch)));
+      n.depth=(n.cutStart+n.cutEnd)/2;n.span=(n.cutEnd-n.cutStart)/2;
+      n.doubleSided=true;
     }
     return {groups,slots,totalDepth:depth,pageCount:count,totalSheets:sheets,mode:plan.mode,
       digitalHeight:91+Math.ceil(books.length/2)*ROW+38};

@@ -4,7 +4,7 @@ const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/st
 const Physics=require('./paper-physics.js'),Gestures=require('./gesture-core.js'),Material=require('./book-material.js');
 let checks=0;
 function fixture(startSpread=2,options={}){
-  let now=0,nextId=1;const timers=new Map(),elements=new Map(),events={},saved=[],sceneWrites=[],indexCalls=[];let observer,indexOptions,ribbonOptions;const ribbonCalls=[];
+  let now=0,nextId=1;const timers=new Map(),elements=new Map(),events={},saved=[],sceneWrites=[],indexCalls=[],clipCalls=[];let observer,indexOptions,ribbonOptions;const ribbonCalls=[];
   const style=()=>({setProperty(name,value){this[name]=String(value);},getPropertyValue(name){return this[name]||'';},removeProperty(name){delete this[name];}});
   function listen(target,name,fn){const before=target[name];target[name]=before?(...args)=>{before(...args);return fn(...args);}:fn;}
   class Element{
@@ -36,7 +36,7 @@ function fixture(startSpread=2,options={}){
     hide(){delete el('book').dataset.curlProgress;}
   }
   const context={console,document:doc,PaperPhysics:Physics,PaperGestures:Gestures,PaperBookMaterial:Material,PaperSheetRenderer:Renderer,
-    PaperBookLeaves:{stripClip:()=>'none',create:()=>({setPages(){},update:(m,close,state)=>({active:close>0||state.fanLeft>0||state.fanRight>0})})},PaperBookSolid:{create:()=>({update(){}})},PaperRibbons:{create:args=>{ribbonOptions=args;return {update(){},setScene:(reading,close)=>ribbonCalls.push({reading,close}),open:slot=>ribbonCalls.push({open:slot})};}},PaperBookIndex:{geometry:require('./book-index-layout.js').geometry,create:args=>{indexOptions=args;return index;}},PaperImmersion:{setScene(){},showChrome(){},hideChrome(){}},
+    PaperBookLeaves:{stripClip:(...args)=>{clipCalls.push(args);return 'none';},create:()=>({setPages(){},update:(m,close,state)=>({active:close>0||state.fanLeft>0||state.fanRight>0})})},PaperBookSolid:{create:()=>({update(){}})},PaperRibbons:{create:args=>{ribbonOptions=args;return {update(){},setScene:(reading,close)=>ribbonCalls.push({reading,close}),open:slot=>ribbonCalls.push({open:slot})};}},PaperBookIndex:{geometry:require('./book-index-layout.js').geometry,create:args=>{indexOptions=args;return index;}},PaperImmersion:{setScene(){},showChrome(){},hideChrome(){}},
     performance:{now:()=>now},navigator:{},matchMedia:()=>({matches:!!options.reducedMotion,addEventListener(){},removeEventListener(){}}),
     CustomEvent:class{constructor(type,init={}){this.type=type;this.detail=init.detail;}},Event:class{constructor(type){this.type=type;}},
     localStorage:{getItem:()=>JSON.stringify({spread:startSpread}),setItem:(key,value)=>saved.push({at:now,scene:el('stage').dataset.scene,key,value:JSON.parse(value)})},
@@ -44,7 +44,7 @@ function fixture(startSpread=2,options={}){
     requestAnimationFrame:fn=>{const id=nextId++;timers.set(id,{fn:()=>fn(now),at:now+16});return id;},cancelAnimationFrame:id=>timers.delete(id),
     ResizeObserver:class{constructor(fn){observer=fn;}observe(){}},addEventListener:(name,fn)=>listen(events,name,fn),dispatchEvent:e=>events[e.type]?.(e)};
   const depthFrames=[];
-  if(options.depth){context.PaperBookPacket=require('./book-packet.js');context.PaperBookDepth={...require('./book-depth.js'),create:()=>({prepare(){},update:frame=>depthFrames.push({frame,pose:el('book').style.transform}),getStats:()=>({ms:1})})};}
+  if(options.depth){context.PaperBookPacket=require('./book-packet.js');context.PaperBookDepth={...require('./book-depth.js'),create:()=>({prepare(){},update:frame=>depthFrames.push({frame,pose:el('book').style.transform}),hit:(x,y,slop,side)=>options.indexHit?.({x,y,slop,side})??null,getStats:()=>({ms:1})})};}
   context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync('bible-data.js','utf8'),context);vm.runInContext(fs.readFileSync('book-kinematics.js','utf8'),context);vm.runInContext(fs.readFileSync('book-scene.js','utf8'),context);vm.runInContext(fs.readFileSync('paper-typography.js','utf8'),context);vm.runInContext(fs.readFileSync('paper-page.js','utf8'),context);vm.runInContext(fs.readFileSync('app.js','utf8'),context);
   function advance(ms){const end=now+ms;let loops=0;while(true){const upcoming=[...timers].filter(([id,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!upcoming)break;if(++loops>10000)throw Error('timer loop');now=upcoming[1].at;timers.delete(upcoming[0]);upcoming[1].fn();}now=end;}
   // A synchronous fake clock skips Promise continuations between RAF callbacks.
@@ -58,7 +58,7 @@ function fixture(startSpread=2,options={}){
   function held(side='right',radius=350){const p=at(side,radius);emit('pointerdown',p.x,p.y);advance(380);return p;}
   function drag(p,progress,side='right',id=1){emit('pointermove',p.x-(side==='right'?1:-1)*progress*2*p.radius*p.scale,p.y,id);}
   function up(p,progress,side='right',cancel=false){emit(cancel?'pointercancel':'pointerup',p.x-(side==='right'?1:-1)*progress*2*p.radius*p.scale,p.y);advance(1500);}
-  return {el,advance,advanceAsync,untilScene,emit,at,held,drag,up,rendered,depthFrames,events,saved,sceneWrites,indexCalls,ribbonCalls,navigateRibbon:(page,pose)=>ribbonOptions.onNavigate(page,pose),selectBook:i=>indexOptions.onSelect(i),closeIndex:()=>indexOptions.onClose(),resize:()=>observer(),context};
+  return {el,advance,advanceAsync,untilScene,emit,at,held,drag,up,rendered,depthFrames,events,saved,sceneWrites,indexCalls,clipCalls,ribbonCalls,navigateRibbon:(page,pose)=>ribbonOptions.onNavigate(page,pose),selectBook:i=>indexOptions.onSelect(i),closeIndex:()=>indexOptions.onClose(),resize:()=>observer(),context};
 }
 const scenarios=[];
 function test(name,fn){scenarios.push({name,fn});}
@@ -76,7 +76,7 @@ function assertDepthReadingView(f){
   const pose=cameraPose(f.el('book').style.transform);
   ['x','y','scale'].forEach((key,i)=>assert.ok(Math.abs(view.camera[key]-pose[i])<1e-10,
     `reading depth ${key} must match the actual SVG camera, not its last directory pose`));
-  assert.equal(frame.pick,false);assert.equal(frame.printed,null);
+  assert.equal(frame.pick,true,'natural reading labels are interactive without opening a special directory state');assert.equal(frame.printed,null);
   return frame;
 }
 function assertVectorReading(f,spread,svg){
@@ -528,11 +528,12 @@ test('reading promotion override is scoped away from page curls and preserves th
   assert.match(css,/\.book:not\(\.has-curved-leaves\) \.paper\{[^}]*translateZ\(300px\) scale\(\.833333333333\)/,
     'retain the calibrated flat-ink depth isolation and its inverse projection');
 });
-test('218 percent reading zoom keeps exact vector glyphs and uses a 2D camera without page changes',()=>{
+test('maximum reading zoom keeps exact vector glyphs and uses a 2D camera without page changes',()=>{
   const f=fixture(1174,{width:1600,height:1168,depth:true});
+  const fittedScale=cameraPose(f.el('book').style.transform)[2];
   const svg=['left-paper','right-paper'].map(id=>f.el(id).innerHTML),before=materialState(f);
-  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
-  assert.equal(f.el('zoom-value').textContent,'218%');assert.equal(f.el('stage').dataset.scale,'3.2000');
+  for(let i=0;i<4;i++)f.el('zoom-in').onclick();
+  assert.equal(f.el('zoom-value').textContent,Math.round(3.2/fittedScale*100)+'%');assert.equal(f.el('stage').dataset.scale,'3.2000');
   assertVectorReading(f,1174,svg);assert.equal(f.rendered.length,0);
   for(const key of Object.keys(before))closeTo(materialState(f)[key],before[key],`zoom changed ${key}`);
   const highPose=cameraPose(f.el('book').style.transform);
@@ -545,8 +546,8 @@ test('reading edge zoom and pan update only the retained raster camera, not mate
   const f=fixture(1174,{width:1600,height:1168,depth:true}),stage=f.el('stage');
   const initial=assertDepthReadingView(f),svg=['left-paper','right-paper'].map(id=>f.el(id).innerHTML);
   const geometryCalls=f.indexCalls.filter(c=>c.type==='geometry').length,frames=f.depthFrames.length;
-  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
-  assert.equal(f.depthFrames.length,frames+3,'every zoom immediately refreshes the depth raster');
+  for(let i=0;i<4;i++)f.el('zoom-in').onclick();
+  assert.equal(f.depthFrames.length,frames+4,'every zoom immediately refreshes the depth raster');
   const high=assertDepthReadingView(f);
   assert.equal(high.fineView.camera.scale,3.2);
   for(const key of ['material','shape','packet','printed','close','digital','pick','hideInk'])
@@ -582,7 +583,8 @@ test('directory selection returns to unpromoted vector zoom without changing tar
 });
 test('ordinary turn keeps its curl surface and returns to exact vector text before renewed zoom',async()=>{
   const f=fixture(1174,{width:1600,height:1168,depth:true});
-  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
+  const fittedScale=cameraPose(f.el('book').style.transform)[2];
+  for(let i=0;i<4;i++)f.el('zoom-in').onclick();
   f.el('next').onclick();
   assert.ok(f.el('book').classList.contains('curl-active'),'active curl must stay outside the promotion override');
   assert.equal(f.el('body').dataset.paperScene,'reading');assert.equal(f.rendered.length,1);
@@ -591,7 +593,71 @@ test('ordinary turn keeps its curl surface and returns to exact vector text befo
   assert.equal(f.el('stage').dataset.foldState,'committed');assertVectorReading(f,page,expected);
   f.el('zoom-out').onclick();assertVectorReading(f,page,expected);
   f.el('zoom-in').onclick();assertVectorReading(f,page,expected);
-  assert.equal(f.el('zoom-value').textContent,'218%');
+  assert.equal(f.el('zoom-value').textContent,Math.round(3.2/fittedScale*100)+'%');
+});
+function readingPoint(f,u,v=352){const [x,y,s]=cameraPose(f.el('book').style.transform);return {x:x+u*s,y:y+v*s};}
+test('natural reading exposes a hand cursor and selects the hit label without entering a fan first',async()=>{
+  const target=42,f=fixture(570,{depth:true,indexHit:({x,y,side})=>side==='right'&&Math.hypot(x-990,y-352)<8?target:null});
+  const p=readingPoint(f,990),stage=f.el('stage'),svg=f.el('right-paper').innerHTML;
+  assertDepthReadingView(f);f.emit('pointermove',p.x,p.y);
+  assert.equal(stage.style.cursor,'pointer');assert.equal(stage.dataset.indexHover,f.context.BIBLE_DATA.books[target].code);
+  f.emit('pointerdown',p.x,p.y);f.advance(70);f.emit('pointerup',p.x,p.y);
+  assert.equal(stage.dataset.lastGesture,'index-tap');assert.equal(stage.dataset.scene,'focusing');
+  assert.equal(f.el('right-paper').innerHTML,svg,'the reading page remains unchanged until navigation commits');
+  assert.ok(!f.sceneWrites.some(s=>s.key==='scene'&&s.value==='fan'),'no preliminary fan mode is required to choose a visible label');
+  await f.untilScene('reading');assert.equal(stage.dataset.spread,String(f.context.BIBLE_DATA.books[target].first&~1));
+  assertDepthReadingView(f);assert.equal(stage.style.cursor,'');
+});
+test('a visible back-face label on the left is hit with left ownership and selects its original book',async()=>{
+  const calls=[],target=18,f=fixture(970,{depth:true,indexHit:p=>{calls.push(p);return p.side==='left'&&Math.hypot(p.x+35,p.y-352)<8?target:null;}});
+  const p=readingPoint(f,-35);f.emit('pointerdown',p.x,p.y);f.advance(60);f.emit('pointerup',p.x,p.y);
+  assert.equal(f.el('stage').dataset.lastGesture,'index-tap');assert.ok(calls.every(c=>c.side==='left'));
+  await f.untilScene('reading');assert.equal(f.el('stage').dataset.spread,String(f.context.BIBLE_DATA.books[target].first&~1));
+});
+test('moving or cancelling a label contact never navigates and retains the original reading gesture',()=>{
+  for(const cancel of [false,true]){
+    const f=fixture(570,{depth:true,indexHit:()=>42}),p=readingPoint(f,990),stage=f.el('stage');
+    f.emit('pointerdown',p.x,p.y);f.advance(160);f.emit('pointermove',p.x-26,p.y+32);f.advance(250);
+    f.emit(cancel?'pointercancel':'pointerup',p.x-45,p.y+65);f.advance(500);
+    assert.equal(stage.dataset.scene,'reading');assert.equal(stage.dataset.spread,'570');
+    assert.notEqual(stage.dataset.lastGesture,'index-tap');assert.equal(f.rendered.length,0);
+  }
+});
+test('nonmatching side and occluded misses cannot activate a reading label',async()=>{
+  const f=fixture(570,{depth:true,indexHit:({side})=>side==='right'?42:null}),p=readingPoint(f,-35),stage=f.el('stage');
+  f.emit('pointermove',p.x,p.y);assert.notEqual(stage.style.cursor,'pointer');
+  f.emit('pointerdown',p.x,p.y);f.advance(70);f.emit('pointerup',p.x,p.y);
+  assert.equal(stage.dataset.lastGesture,'edge-tap');await f.untilScene('fan');
+  assert.equal(stage.dataset.spread,'570');assert.equal(stage.dataset.fanSide,'left');
+});
+test('reading wheel and two-finger zoom remain available over the natural index',()=>{
+  const f=fixture(570,{depth:true,indexHit:()=>42}),stage=f.el('stage');
+  for(let i=0;i<3;i++)f.el('zoom-in').onclick();
+  const before=cameraPose(f.el('book').style.transform);stage.handlers.wheel({deltaX:17,deltaY:34,preventDefault(){}});
+  assert.notDeepEqual(cameraPose(f.el('book').style.transform).slice(0,2),before.slice(0,2));
+  const p=readingPoint(f,990);f.emit('pointerdown',p.x,p.y);f.advance(30);f.emit('pointerdown',p.x-50,p.y+50,2);
+  f.advance(90);f.emit('pointermove',p.x-60,p.y-30,1);f.emit('pointermove',p.x+20,p.y+100,2);
+  f.emit('pointerup',p.x-60,p.y-30,1);f.emit('pointerup',p.x+20,p.y+100,2);f.advance(500);
+  assert.equal(stage.dataset.scene,'reading');assert.equal(stage.dataset.spread,'570');assert.notEqual(stage.dataset.lastGesture,'index-tap');
+});
+test('whole-book fit includes both natural shoulders without altering flat scripture surfaces',()=>{
+  for(const width of [390,1280])for(const spread of [0,570,970,1252]){
+    const f=fixture(spread,{width,height:844,depth:true}),frame=assertDepthReadingView(f),[x,y,s]=cameraPose(f.el('book').style.transform);
+    for(const side of ['left','right'])for(const yy of [0,352,704]){
+      const m=frame.material,p=f.context.PaperBookScene.project(f.context.PaperBookKinematics.pagePoint(side,side==='left'?0:m.totalDepth,1,yy,m,0));
+      assert.ok(x+p.x*s>=20&&x+p.x*s<=width-20,'natural base must not be clipped horizontally');
+    }
+    assert.equal(frame.printed,null);assert.equal(f.el('book').classList.contains('has-curved-leaves'),false);
+  }
+});
+test('flat SVG samples the preceding leaf back on the left and current recto on the right',()=>{
+  for(const spread of [0,570,970,1252]){
+    const f=fixture(spread,{depth:true}),[left,right]=f.clipCalls;
+    assert.equal(left[0],'left');assert.equal(right[0],'right');
+    const m=right[4],pitch=m.totalDepth/m.totalSheets;
+    assert.equal(left[1],Math.max(0,m.leftDepth-pitch));assert.equal(right[1],m.leftDepth);
+    assert.equal(f.el('left-half').style.transform,'none');assert.equal(f.el('right-half').style.transform,'translateX(480px)');
+  }
 });
 test('flat ink compositor isolation preserves screen pixels and leaves curl above ribbons',async()=>{
   for(const [z,s] of [[300,.833333333333],[320,.822222222222],[600,.666666666667]]){

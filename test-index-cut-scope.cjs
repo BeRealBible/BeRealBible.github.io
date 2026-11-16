@@ -21,7 +21,12 @@ function expectedRange(group){
     start=Math.floor(first.first/2)*sheetDepth;
   }
   const carrier=Math.floor(books[group.first].first/2)*sheetDepth;
-  return {start,end:Math.min(model.totalDepth,carrier+sheetDepth*.5)};
+  const definition=Layout.tracks[track],row=definition.groups.findIndex(codes=>codes[0]===books[group.first].code);
+  assert.ok(row>=0,'the carrier is independently located in the semantic track');
+  const nextCode=Layout.tracks[track+1]?.groups[Math.min(row,Layout.tracks[track+1].groups.length-1)][0]||definition.groups[row+1]?.[0];
+  const boundary=nextCode?Math.floor(bookByCode.get(nextCode).first/2)*sheetDepth:carrier+sheetDepth*.5;
+  return {start:Math.max(start,carrier-160*sheetDepth),
+    end:Math.min(model.totalDepth,Math.max(carrier+sheetDepth*.5,Math.min(boundary,carrier+160*sheetDepth))),boundary};
 }
 // Keep the motivating regression first: old code must fail because its actual
 // paper is cut, not merely because it lacks the new explicit range metadata.
@@ -43,28 +48,30 @@ for(const spread of [1228,1230,1244]){
   else assert.deepEqual(active,[],'after the Revelation carrier, the remaining tail has no thumb recesses');
 }
 for(const n of notches){
-  const group=model.groups[n.group],carrierSheet=Math.floor(books[group.first].first/2),end=(carrierSheet+1)*sheetDepth,expected=expectedRange(group);
+  const group=model.groups[n.group],carrierSheet=Math.floor(books[group.first].first/2),expected=expectedRange(group);
   assert.ok(Number.isFinite(n.cutStart)&&Number.isFinite(n.cutEnd),'milled cuts declare their absolute material interval');
   assert.ok(n.cutStart>=-eps&&n.cutStart<=n.carrierDepth+eps,'a cut begins within the bound paper, no later than its carrier');
-  assert.ok(n.cutEnd>n.cutStart&&n.cutEnd<=end+eps,'a cut cannot reach a sheet after its independently derived carrier');
-  assert.ok(n.cutStart>=expected.start-eps,'the cut cannot start before its preceding-track material boundary');
-  assert.ok(n.carrierDepth-n.cutStart<=100*sheetDepth+eps,'a cut has at most 100 real sheets of approach, never a font-sized tunnel');
-  near(n.cutEnd,expected.end,'cut ends half a real sheet after its own carrier, before the next leaf');
+  assert.ok(n.cutEnd>n.carrierDepth&&n.cutEnd<=model.totalDepth,'both carrier faces have a bounded physical opening');
+  near(n.cutStart,expected.start,'front approach starts at its independently derived material boundary');
+  assert.ok(n.carrierDepth-n.cutStart<=160*sheetDepth+eps,'a cut has at most 160 real sheets of approach, never a font-sized tunnel');
+  assert.ok(n.cutEnd-n.carrierDepth<=160*sheetDepth+eps,'the reverse opening is bounded to 160 actual sheets too');
+  assert.ok(n.cutEnd<=Math.max(expected.boundary,n.carrierDepth+sheetDepth*.5)+eps,'reverse opening cannot cross the next column or final-track carrier');
+  near(n.cutEnd,expected.end,'reverse approach stops at the independent next-column or final-track carrier boundary');
   near(n.depth,(n.cutStart+n.cutEnd)/2,'mesh depth centre belongs to the material range, not font width');
   near(n.span,(n.cutEnd-n.cutStart)/2,'mesh support width is the actual cut interval');
   near(n.carrierDepth,carrierSheet*sheetDepth,'carrier depth still equals the real opening leaf');
   const state={notches:[n]},m=mat(0),p=K.prepare(m,0,state);
   for(let sheet=0;sheet<model.totalSheets;sheet++){
-    const s=sheet*sheetDepth,afterCarrier=sheet>carrierSheet;
+    const s=sheet*sheetDepth;
     for(const fraction of [0,.5])for(const q of [-.5,0,.5]){
       const depth=s+fraction*sheetDepth,y=n.y+q*n.radius,direct=K.edgeInset('right',depth,y,m,state),prepared=p.edgeInset('right',depth,y);
       near(direct,prepared,'direct and prepared cutter use identical fixed material scope');agreementChecks++;
-      if(afterCarrier||depth<n.cutStart||depth>=n.cutEnd){assert.equal(direct,0,'no milling outside the absolute allowed material');scopeChecks++;}
+      if(depth<n.cutStart||depth>=n.cutEnd){assert.equal(direct,0,'no milling outside the absolute allowed material');scopeChecks++;}
       near(K.edgeInset('left',depth,y,m,state),direct,'side cannot change whether a fixed sheet was cut');agreementChecks++;
     }
     const profile=Leaves.edgeProfile('right',s,m,state),clip=Leaves.stripClip('right',s,0,480,m,state,profile);
     for(const v of profile.edge){near(v.inset,p.edgeInset('right',s,v.y),'printed silhouette agrees with the solid at every sampled height');profileChecks++;}
-    if(afterCarrier||s<n.cutStart||s>=n.cutEnd){assert.equal(profile.max,0,'completed labels cannot leave cuts in later printed SVG pages');assert.equal(clip,'none');profileChecks++;}
+    if(s<n.cutStart||s>=n.cutEnd){assert.equal(profile.max,0,'outside either fixed approach no printed page may retain a cut');assert.equal(clip,'none');profileChecks++;}
     else if(profile.max>eps){assert.match(clip,/^polygon\(/,'an allowed physical recess also clips the printed leaf');profileChecks++;}
   }
   // Explicitly exercise interval boundaries; sheet starts alone can miss a
@@ -93,7 +100,11 @@ for(let sheet=0;sheet<model.totalSheets;sheet++){
   const spread=sheet*2,m=mat(spread);
   for(const side of ['left','right']){
     const index=spread+(side==='right'?1:0);if(index>=pages.length)continue;
-    const expected=Leaves.stripClip(side,m.leftDepth,0,480,m,{notches}),svg=svgPage(pages[index],index);
+    // The left visible face is the reverse of the immediately preceding
+    // sheet; the right visible face is the current recto. Same carrier,
+    // different side, without inventing another sheet over its printed back.
+    const carrier=side==='left'?Math.max(0,m.leftDepth-sheetDepth):m.leftDepth;
+    const expected=Leaves.stripClip(side,carrier,0,480,m,{notches}),svg=svgPage(pages[index],index);
     if(expected==='none')assert.doesNotMatch(svg,/<clipPath\b/,'an uncut leaf cannot retain a stale SVG clipping mask');
     else{
       const actual=svg.match(/<polygon points="([^"]+)"/);assert.ok(actual,'an allowed solid cut must reach the actual ordinary SVG');

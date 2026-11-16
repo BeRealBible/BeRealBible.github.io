@@ -120,6 +120,29 @@ function fixture({blobs=false}={}){
   const afterPage=retained.getStats().renderPasses;rf.listeners.get('loadingdone')();
   check(retained.getStats().renderPasses>afterPage,'font revision invalidates the retained-flat render cache');
   retained.destroy();check(rf.revoked.length===rf.urls.length,'persistent mode retains normal blob cleanup');
+  // A terminal cut can end inside the previous sheet (Titus/Revelation are
+  // real examples). Its left verso must retain that sheet's cut, not acquire
+  // the uncut silhouette of the next right recto at the split boundary.
+  const cf=fixture(),cutLeaves=Leaves.create(cf);await Promise.resolve();cutLeaves.setPages(626,627);
+  const carrier=m.leftDepth-m.sheetDepth;
+  const terminal={notches:[{carrierDepth:carrier,cutStart:carrier-m.sheetDepth*.1,cutEnd:carrier+m.sheetDepth*.5,
+    depth:carrier,y:200,radius:13,span:m.sheetDepth,inset:19,milled:true}]};
+  check(Leaves.edgeProfile('left',m.leftDepth,m,terminal).max===0,'low-level profile retains absolute material-depth semantics');
+  near(Leaves.edgeProfile('left',carrier,m,terminal).max,19,'carrier sheet retains its own full recess');
+  cutLeaves.update(m,.2,terminal);
+  const leftCut=cf.host.children.filter(n=>n.dataset.side==='left'&&n.style.clipPath!=='none');
+  check(leftCut.length===2,'left verso uses the preceding real sheet cut');
+  check(cf.host.children.filter(n=>n.dataset.side==='right').every(n=>n.style.clipPath==='none'),'next right recto stays uncut');
+  for(const node of cf.host.children){
+    const side=node.dataset.side,u=(Number(node.dataset.strip)+(side==='left'?1:0))/32;
+    pointNear(K.transformPoint(matrix(node.style.transform),0,0),K.pagePoint(side,m.leftDepth,u,0,m,.2,terminal),
+      'verso cut lookup cannot move the reading surface matrix');
+  }
+  const cutBuilds=cutLeaves.getStats().clipBuilds;
+  cutLeaves.update({...m,sheetDepth:m.sheetDepth*2},.2,terminal);
+  check(cutLeaves.getStats().clipBuilds===cutBuilds+1,'physical sheet pitch invalidates cut and render caches');
+  check(cf.host.children.every(n=>n.style.clipPath==='none'),'changed pitch samples the genuinely different preceding sheet');
+  cutLeaves.destroy();
   // Replay app.startFold -> updateFold -> finishFold page assignment with the
   // real persistent texture controller. The moving front/back are owned by
   // the separate curl canvas; these textures are only the stationary/under
