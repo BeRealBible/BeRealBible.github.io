@@ -5,7 +5,7 @@
   else api.init(root.document,root.location);
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const VERSION='index-5';
+  const VERSION='index-6';
   function refreshURL(href,nonce){
     const url=new URL(href);
     url.searchParams.set('v',VERSION);

@@ -147,10 +147,13 @@
     $('physical-index-host').style.transform='none';
     index.setSurfaceFrame({material,close:f.close,...surfaceState()});
   }
-  function surfaceState(){return {fanLeft:fanSide==='left'?fanAmount:0,fanRight:fanSide==='right'?fanAmount:0,notches};}
+  function surfaceState(){return {fanLeft:fanSide==='left'?fanAmount:0,fanRight:fanSide==='right'?fanAmount:0,edgeInspection:!!depth,notches};}
+  function sceneOptions(material){
+    return {digital:digitalProgress,edgeY,inspectionBand:depth?material.totalDepth+2*K.WIDTH*Math.sin(K.EDGE_SWEEP/2):0};
+  }
   function applyMaterial(next,sceneFrame){
     material=next||Material.compute(spread,D.pages.length,D.books);
-    const f=sceneFrame||window.PaperBookScene.sample(sceneProgress,readPose||capturePose(),view,fitScale,focusRect,focusAmount,material,{digital:digitalProgress,edgeY});
+    const f=sceneFrame||window.PaperBookScene.sample(sceneProgress,readPose||capturePose(),view,fitScale,focusRect,focusAmount,material,sceneOptions(material));
     const joined=f.close,leftDepth=material.leftDepth,rightDepth=material.rightDepth;
     const lx=leftDepth*.55,rx=rightDepth*.55,ly=leftDepth*.85,ry=rightDepth*.85;
     $('left-stack').style.transform=`translate(${-lx}px,${ly}px)`;
@@ -168,7 +171,7 @@
       depth.update({material,close:f.close,shape,packet:packet?.frame,
         printed:drawPrinted&&f.close<1?(packet?.pages||[spread,spread+1]):null,
         pick:['fan','edge'].includes(sceneState)&&digitalProgress===0,
-        digital:digitalProgress,hideInk});
+        digital:digitalProgress,hideInk,fineView:['fan','edge'].includes(sceneState)?{...view,camera:f}:null});
       curved={active:drawPrinted};
     }else{
       solid.update(material,f.close,shape);
@@ -327,7 +330,7 @@
     const paintStarted=performance.now();
     const sceneMaterial=nextMaterial||Material.compute(spread,D.pages.length,D.books);
     const pose=readPose||capturePose(),Scene=window.PaperBookScene;
-    let f=Scene.sample(sceneProgress,pose,view,fitScale,focusRect,focusAmount,sceneMaterial,{digital:digitalProgress,edgeY});
+    let f=Scene.sample(sceneProgress,pose,view,fitScale,focusRect,focusAmount,sceneMaterial,sceneOptions(sceneMaterial));
     if(fanSide&&fanCamera>0){
       const fanMaterial=fold?.originSurface?.material||sceneMaterial;
       const side=fanSide,deep=side==='right'?fanMaterial.totalDepth:0;

@@ -8,7 +8,7 @@
 })(typeof window!=='undefined'?window:globalThis,function(K,Solid){
   'use strict';
   const R=Solid.RASTER, clamp=(n,a,b)=>Math.max(a,Math.min(b,n)), mix=(a,b,t)=>a+(b-a)*t;
-  const COLUMNS=8,TILE_W=108,TILE_H=112,STRIDE=9;
+  const COLUMNS=8,TILE_W=128,TILE_H=152,STRIDE=11;
   const unique=xs=>[...new Set(xs.map(x=>+x.toFixed(9)))].sort((a,b)=>a-b);
   const tone=(n,s,y)=>{
     const q=Math.abs((s-n.depth)/n.span),v=Math.abs((y-n.y)/n.radius);
@@ -52,9 +52,9 @@
     const t=clamp((q-.42)/.58,0,1),u=.12*t+.88*(1-Math.sqrt(1-t*t));
     return [side==='left'?1-u:u,clamp((y-(n.y-n.radius))/(2*n.radius),0,1)];
   }
-  function atlasUV(n,u,v,rows){
+  function atlasUV(n,u,v,rows,inspection=false){
     return [((n.group%COLUMNS)*TILE_W+2+u*(TILE_W-4))/(COLUMNS*TILE_W),
-      (Math.floor(n.group/COLUMNS)*TILE_H+2+v*(TILE_H-4))/(rows*TILE_H)];
+      ((Math.floor(n.group/COLUMNS)+(inspection?rows:0))*TILE_H+2+v*(TILE_H-4))/(2*rows*TILE_H)];
   }
   function projectTriangle(tri){
     const p=tri.points.map(Solid.project),xs=p.map(v=>v.x),ys=p.map(v=>v.y);
@@ -76,17 +76,44 @@
     for(const tri of tris){const at=atPixel(tri,x,y);if(at&&(!best||at.z>best.z))best={...at,tri};}
     return best;
   }
-  const VS=`attribute vec3 a_pos;attribute vec2 a_uv;attribute vec4 a_paper;
-    varying vec2 uv;varying vec4 paper;
+  // Keep native-density pixels for the window being inspected, not an
+  // oversized backing buffer for the whole 1080×1080 book world.
+  function rasterRegion(fineView,dpr=1,limit=4096){
+    const complete={x:-R.LEFT,y:-R.TOP,w:R.WIDTH,h:R.HEIGHT};
+    let region=complete,requested=clamp(dpr,1,1.6);
+    const f=fineView?.camera,w=fineView?.w,h=fineView?.h;
+    if(f?.scale>0&&w>0&&h>0){
+      const tile=32,margin=12/f.scale;
+      const x0=Math.floor((-f.x/f.scale-margin)/tile)*tile;
+      const y0=Math.floor((-f.y/f.scale-margin)/tile)*tile;
+      const x1=Math.ceil(((w-f.x)/f.scale+margin)/tile)*tile;
+      const y1=Math.ceil(((h-f.y)/f.scale+margin)/tile)*tile;
+      const x=Math.max(complete.x,x0),y=Math.max(complete.y,y0);
+      const right=Math.min(complete.x+complete.w,x1),bottom=Math.min(complete.y+complete.h,y1);
+      if(right>x&&bottom>y)region={x,y,w:right-x,h:bottom-y};
+      requested=Math.max(requested,f.scale*clamp(dpr,1.25,3));
+    }
+    const ratio=Math.min(requested,limit/Math.max(region.w,region.h),Math.sqrt(3600000/(region.w*region.h)));
+    return {...region,px:Math.max(1,Math.floor(region.w*ratio)),py:Math.max(1,Math.floor(region.h*ratio))};
+  }
+  const VS=`attribute vec3 a_pos;attribute vec2 a_uv;attribute vec4 a_paper;attribute vec2 a_floor;
+    uniform vec4 u_region;
+    varying vec2 uv;varying vec2 floorUV;varying vec4 paper;
     void main(){
       float w=1.0-a_pos.z/1800.0;
-      gl_Position=vec4((a_pos.x-480.0)/540.0,
-        (352.0-a_pos.y)/540.0+(1.0-532.0/540.0)*w,-a_pos.z/1100.0,w);
-      uv=a_uv;paper=a_paper;
+      vec2 pivot=(vec2(480.0,352.0)-u_region.xy)/u_region.zw;
+      vec2 clip=2.0*(a_pos.xy-vec2(480.0,352.0))/u_region.zw+(2.0*pivot-1.0)*w;
+      gl_Position=vec4(clip.x,-clip.y,-a_pos.z/1100.0,w);
+      uv=a_uv;floorUV=a_floor;paper=a_paper;
     }`;
   const FS=`#extension GL_OES_standard_derivatives : enable
-    precision mediump float;varying vec2 uv;varying vec4 paper;
-    uniform sampler2D u_tex;uniform float u_stamp;uniform float u_sheets;uniform float u_closed;
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+    varying vec2 uv;varying vec2 floorUV;varying vec4 paper;
+    uniform sampler2D u_tex;uniform float u_stamp;uniform float u_sheets;uniform float u_closed;uniform float u_inspect;
     void main(){
       if(paper.w>2.5){
         if((paper.w>3.5)!=gl_FrontFacing)discard;
@@ -111,7 +138,20 @@
       float stamp=paper.w>.05&&paper.w<.15?1.0:
         paper.w>=.15&&paper.w<.25?u_closed:
         paper.w>=.25&&paper.w<.35?1.0-u_closed:0.0;
-      gl_FragColor=vec4(mix(stock,ink.rgb*(.91+.09*paper.z),ink.a*u_stamp*stamp*smoothstep(.02,.29,paper.y)),1.0);
+      vec4 inlay=texture2D(u_tex,floorUV);
+      // The inspected glyph follows the whole recessed floor. Keep the lip
+      // clean; neither of these atlas samples projects beyond the cut mesh.
+      float edge=smoothstep(.025,.32,paper.y);
+      float shoulderAlpha=ink.a*stamp*edge;
+      float floorAlpha=inlay.a*smoothstep(.09,.53,paper.y);
+      vec3 shoulder=mix(stock,ink.rgb*(.91+.09*paper.z),u_stamp*shoulderAlpha);
+      // Bright sliced fibres surround the shade on the recessed floor,
+      // even when viewing the fore-edge straight on and hiding its ink.
+      float cavity=smoothstep(.0,.91,paper.y);
+      vec3 recess=mix(tinted,fibre*(1.0-.23*cavity),smoothstep(.035,.47,paper.y));
+      recess*=.99+irregular-line*.14-grain*.052;
+      vec3 floorInk=mix(recess,inlay.rgb,u_stamp*floorAlpha);
+      gl_FragColor=vec4(mix(shoulder,floorInk,u_inspect),1.0);
     }`;
   function compile(gl,type,src){
     const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
@@ -128,12 +168,13 @@
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
     gl.useProgram(program);
     const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-    [['a_pos',3,0],['a_uv',2,3],['a_paper',4,5]].forEach(([name,size,offset])=>{
+    [['a_pos',3,0],['a_uv',2,3],['a_paper',4,5],['a_floor',2,9]].forEach(([name,size,offset])=>{
       const at=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(at);
       gl.vertexAttribPointer(at,size,gl.FLOAT,false,STRIDE*4,offset*4);
     });
     gl.clearColor(0,0,0,0);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);
     const stamp=gl.getUniformLocation(program,'u_stamp'),sheets=gl.getUniformLocation(program,'u_sheets'),closed=gl.getUniformLocation(program,'u_closed');
+    const region=gl.getUniformLocation(program,'u_region'),inspect=gl.getUniformLocation(program,'u_inspect');
     function texture(canvas){
       const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
       for(const axis of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T])gl.texParameteri(gl.TEXTURE_2D,axis,gl.CLAMP_TO_EDGE);
@@ -143,43 +184,49 @@
     return {gl,texture,draw(batch,tex){
       gl.bindTexture(gl.TEXTURE_2D,tex);gl.bufferData(gl.ARRAY_BUFFER,batch,gl.DYNAMIC_DRAW);
       gl.drawArrays(gl.TRIANGLES,0,batch.length/STRIDE);
-    },begin(fade,count,closure){
+    },begin(fade,count,closure,inspection,window){
+      gl.uniform4f(region,window.x,window.y,window.w,window.h);gl.uniform1f(inspect,inspection);
       gl.viewport(0,0,canvas.width,canvas.height);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       gl.uniform1f(stamp,fade);gl.uniform1f(sheets,count);gl.uniform1f(closed,closure);
     }};
   }
   class Batch{
     constructor(size){this.data=new Float32Array(size);this.length=0;}
-    push(x,y,z,u,v,s,ink,light,kind){
+    push(x,y,z,u,v,s,ink,light,kind,fu=.0001,fv=.0001){
       let i=this.length;
       if(i+STRIDE>this.data.length){const next=new Float32Array(this.data.length*2);next.set(this.data);this.data=next;}
       const d=this.data;d[i++]=x;d[i++]=y;d[i++]=z;d[i++]=u;d[i++]=v;
-      d[i++]=s;d[i++]=ink;d[i++]=light;d[i++]=kind;this.length=i;
+      d[i++]=s;d[i++]=ink;d[i++]=light;d[i++]=kind;d[i++]=fu;d[i++]=fv;this.length=i;
     }
     view(){return this.data.subarray(0,this.length);}
   }
   function create({host,model,notches,paintPage,onContextLoss}){
-    const doc=host.ownerDocument,ratio=Math.min(1.6,doc.defaultView.devicePixelRatio||1);
-    const canvas=doc.createElement('canvas');canvas.width=Math.round(R.WIDTH*ratio);canvas.height=Math.round(R.HEIGHT*ratio);
+    const doc=host.ownerDocument,canvas=doc.createElement('canvas');
     let gpu;
     try{gpu=initGL(canvas);}catch(error){console.warn('纸层深度绘图不可用',error.message);}
     if(!gpu)return null;
     const {gl}=gpu,bands=topology(model.totalDepth,notches);
+    const limit=Math.min(4096,gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
     const rows=Math.ceil(notches.length/COLUMNS),atlas=doc.createElement('canvas');
-    atlas.width=COLUMNS*TILE_W;atlas.height=rows*TILE_H;
-    let atlasTexture=null,dirty=true,pages=new Map(),last=null,lastKey='',projected=new Map(),targets=[],cost={};
+    atlas.width=COLUMNS*TILE_W;atlas.height=2*rows*TILE_H;
+    let atlasTexture=null,dirty=true,pages=new Map(),last=null,lastKey='',lastGeometry='',lastLayers=null,projected=new Map(),targets=[],cost={};
     const body=new Batch(4096),pageBatches=Array.from({length:4},()=>new Batch(4096)),meshes=new Map();
     const atlasPaint=atlas.getContext('2d');
     function printAtlas(){
       atlasPaint.clearRect(0,0,atlas.width,atlas.height);
-      for(const n of notches){
-        const x=n.group%COLUMNS*TILE_W+2,y=Math.floor(n.group/COLUMNS)*TILE_H+2;
+      for(const inspection of [false,true])for(const n of notches){
+        const x=n.group%COLUMNS*TILE_W+2,y=(Math.floor(n.group/COLUMNS)+(inspection?rows:0))*TILE_H+2;
         const w=TILE_W-4,h=TILE_H-4;
         atlasPaint.save();atlasPaint.translate(x,y);
-        atlasPaint.beginPath();atlasPaint.moveTo(w*.25,h*.50);
-        atlasPaint.bezierCurveTo(w*.24,h*.235,w*.52,h*.09,w*.94,h*.082);
-        atlasPaint.lineTo(w*.94,h*.935);
-        atlasPaint.bezierCurveTo(w*.52,h*.91,w*.24,h*.765,w*.25,h*.50);atlasPaint.closePath();
+        atlasPaint.beginPath();
+        if(inspection)atlasPaint.ellipse(w*.5,h*.5,w*.392,h*.434,0,0,2*Math.PI);
+        else {
+          atlasPaint.moveTo(w*.25,h*.50);
+          atlasPaint.bezierCurveTo(w*.24,h*.235,w*.52,h*.09,w*.94,h*.082);
+          atlasPaint.lineTo(w*.94,h*.935);
+          atlasPaint.bezierCurveTo(w*.52,h*.91,w*.24,h*.765,w*.25,h*.50);
+        }
+        atlasPaint.closePath();
         // Both left/right shoulders sample this same registered ink. Keep
         // natural glyphs in the atlas; only the projection can foreshorten.
         atlasPaint.fillStyle=n.testament==='new'?'#932d31':'#282c27';atlasPaint.fill();
@@ -192,10 +239,18 @@
         atlasPaint.textAlign='center';atlasPaint.textBaseline='middle';
         n.indices.forEach((i,j)=>{
           const slot=model.slots[i],yy=h*(.5+(j-(n.indices.length-1)/2)*(.69/n.indices.length));
-          if(j){atlasPaint.fillStyle='#dabb755c';atlasPaint.fillRect(w*.33,yy-h*.345/n.indices.length,w*.51,.9);}
-          atlasPaint.fillStyle='#f5df9f';
-          atlasPaint.font=`${Math.min(66,h*(n.indices.length===1?.53:.64/n.indices.length))}px PaperSerif,"Microsoft YaHei",serif`;
-          atlasPaint.fillText(slot.label,w*.64,yy,w*.54);
+          if(j){atlasPaint.fillStyle='#dabb755c';atlasPaint.fillRect(w*(inspection?.15:.33),yy-h*.345/n.indices.length,w*(inspection?.70:.51),1);}
+          atlasPaint.fillStyle=inspection?'#fff0bc':'#f9e6ac';
+          const size=Math.min(94,h*(inspection?(n.indices.length===1?.37:.54/n.indices.length):(n.indices.length===1?.52:.61/n.indices.length)));
+          atlasPaint.font=inspection?`650 ${size}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`:`600 ${size}px PaperSerif,"Microsoft YaHei",serif`;
+          if(inspection){
+            // The floor is a tall, narrow surface. A wider ink master on
+            // the substrate counteracts its smaller horizontal projection.
+            const inkWidth=atlasPaint.measureText(slot.label).width||1;
+            atlasPaint.save();atlasPaint.translate(w*.5,yy);
+            atlasPaint.scale(Math.min(1.55,w*.71/inkWidth),1);
+            atlasPaint.fillText(slot.label,0,0);atlasPaint.restore();
+          }else atlasPaint.fillText(slot.label,w*.64,yy,w*.60);
         });
         atlasPaint.restore();
       }
@@ -209,9 +264,15 @@
       return tex;
     }
     canvas.className='bs-raster';canvas.setAttribute('aria-hidden','true');
-    Object.assign(canvas.style,{left:-R.LEFT+'px',top:-R.TOP+'px',width:R.WIDTH+'px',height:R.HEIGHT+'px',
-      transformOrigin:(R.CX+R.LEFT)+'px '+(R.CY+R.TOP)+'px',
-      transform:`translateZ(${R.BACK}px) scale(${1-R.BACK/R.PERSPECTIVE})`});
+    canvas.style.transform=`translateZ(${R.BACK}px) scale(${1-R.BACK/R.PERSPECTIVE})`;
+    let activeRegion='';
+    function useRegion(r,key){
+      if(key===activeRegion)return;activeRegion=key;
+      if(canvas.width!==r.px)canvas.width=r.px;if(canvas.height!==r.py)canvas.height=r.py;
+      Object.assign(canvas.style,{left:r.x+'px',top:r.y+'px',width:r.w+'px',height:r.h+'px',
+        transformOrigin:(R.CX-r.x)+'px '+(R.CY-r.y)+'px'});
+      host.dataset.paperRaster=[r.px,r.py].join('x');
+    }
     host.classList.add('book-solid','book-solid-raster');host.dataset.renderer='shared-depth';host.appendChild(canvas);
     let lost=false;
     function cells(band,a,b,side,pointSource){
@@ -251,12 +312,13 @@
             samples.push([s,1-pointSource.edgeInset(side,s,y)/K.WIDTH,y]);return i;
           });
           const uv=meta.map(([x,y])=>kind?atlasUV(n,x,y,rows):[.0001,.0001]);
+          const floor=meta.map(([,v,s])=>n?atlasUV(n,.5+(s-n.depth)/(n.span*2.1),v,rows,true):[.0001,.0001]);
           for(const row of [[0,1,2],[0,2,3]]){
             for(const i of row){
               const [,,s,[tint,light]]=meta[i];
-              indices.push(ids[i]);batch.push(0,0,0,uv[i][0],uv[i][1],s/model.totalDepth,tint,light,kind);
+              indices.push(ids[i]);batch.push(0,0,0,uv[i][0],uv[i][1],s/model.totalDepth,tint,light,kind,floor[i][0],floor[i][1]);
             }
-            groups.push(kind?n.group:-1);
+            groups.push(n?n.group:-1);
           }
         }
       }
@@ -272,14 +334,28 @@
     }
     doc.fonts?.ready.then(repaintFonts);doc.fonts?.addEventListener('loadingdone',repaintFonts);
     doc.fonts?.load('20px PaperSerif',model.slots.map(s=>s.label).join('')).catch(()=>{});
+    function drawLayers({meshesToDraw,sheets,fade,totalSheets,closure,inspection},region){
+      gpu.begin(fade,totalSheets,closure,inspection,region);
+      for(const mesh of meshesToDraw)gpu.draw(mesh,atlasTexture);
+      gpu.draw(body.view(),atlasTexture);
+      for(const [index,batch] of sheets)gpu.draw(batch.view(),page(index));
+    }
     function update(state){
       if(lost)return false;
       last=state;
-      const {material:m,close,shape,packet,printed,digital=0,pick=false,hideInk=false}=state;
-      const left=shape.fanLeft,right=shape.fanRight;
-      const key=[m.leftDepth,close,left,right,packet?.s1,packet?.progress,printed?.join(','),pick,digital,hideInk].join('|');
+      const {material:m,close,shape,packet,printed,digital=0,pick=false,hideInk=false,fineView}=state;
+      const left=shape.fanLeft,right=shape.fanRight,inspection=shape.edgeInspection?K.inspectionAmount(close):0;
+      const region=rasterRegion(fineView,doc.defaultView.devicePixelRatio||1,limit),regionKey=Object.values(region).join(',');
+      const geometry=[m.leftDepth,close,left,right,packet?.s1,packet?.progress,printed?.join(','),pick,digital,hideInk,inspection].join('|');
+      const key=geometry+'|'+regionKey;
       if(key===lastKey&&!dirty)return true;
-      lastKey=key;const started=performance.now();if(dirty)printAtlas();
+      lastKey=key;const started=performance.now();useRegion(region,regionKey);if(dirty)printAtlas();
+      if(geometry===lastGeometry&&lastLayers){
+        // Panning across raster tiles does not touch material, glyph layout
+        // or hit-test buckets. Only redraw the retained triangles at the new resolution.
+        drawLayers(lastLayers,region);host.dataset.depthMs=(performance.now()-started).toFixed(2);return true;
+      }
+      lastGeometry=geometry;
       const prepared=K.prepare(m,close,shape),T=m.totalDepth,sheets=new Map(),hitTris=[];
       const meshesToDraw=[];body.length=0;for(const batch of pageBatches)batch.length=0;
       function append(points,meta,kind,n,texIndex,stamp=false){
@@ -315,8 +391,9 @@
         }
         if(pick)for(let i=0;i<mesh.groups.length;i++){
           const g=mesh.groups[i],base=i*3*STRIDE,kind=data[base+8],offset=i*3;
-          const stamp=g>=0&&(kind<.15||kind<.25&&close>.75||kind>.25&&close<1);
-          const atlasV=j=>[0,(data[base+j*STRIDE+4]*rows*TILE_H-Math.floor(g/COLUMNS)*TILE_H-2)/(TILE_H-4)];
+          const floor=inspection>.5,stamp=g>=0&&(floor||kind>.05&&(kind<.15||kind<.25&&close>.75||kind>.25&&close<1));
+          const row=Math.floor(g/COLUMNS)+(floor?rows:0),vertexV=floor?10:4;
+          const atlasV=j=>[0,(data[base+j*STRIDE+vertexV]*2*rows*TILE_H-row*TILE_H-2)/(TILE_H-4)];
           hitTris.push(projectTriangle({points:[world[indices[offset]],world[indices[offset+1]],world[indices[offset+2]]],
             meta:stamp?[atlasV(0),atlasV(1),atlasV(2)]:null,n:stamp?notches[g]:null}));
         }
@@ -370,10 +447,8 @@
         }
       }
       const fade=1-clamp(digital/.19,0,1);
-      gpu.begin(hideInk?0:fade,m.totalSheets,clamp((close-.75)/.25,0,1));
-      for(const mesh of meshesToDraw)gpu.draw(mesh,atlasTexture);
-      gpu.draw(body.view(),atlasTexture);
-      for(const [index,batch] of sheets)gpu.draw(batch.view(),page(index));
+      lastLayers={meshesToDraw,sheets,fade:hideInk?0:fade,totalSheets:m.totalSheets,closure:clamp((close-.75)/.25,0,1),inspection};
+      drawLayers(lastLayers,region);
       projected=new Map();for(const tri of hitTris){
         const first=Math.floor(tri.bounds[1]/32),last=Math.floor(tri.bounds[3]/32);
         for(let y=first;y<=last;y++){if(!projected.has(y))projected.set(y,[]);projected.get(y).push(tri);}
@@ -384,7 +459,7 @@
         const dir=stampSide==='left'?-1:1,j=slot.groupRow,count=n.indices.length;
         const v=.5+(j-(count-1)/2)*(.69/count),y=n.y+n.radius*(2*v-1);
         if(!section||section.hi-section.lo<1e-8)return [];
-        return [.92,.96,.86].map(q=>{
+        return (inspection>.5?[0,.27,-.27]:[.92,.96,.86]).map(q=>{
           const sectionWidth=Math.sqrt(1-(2*v-1)**2);
           const s=clamp(n.depth+n.span*dir*q*sectionWidth,section.lo+1e-8,section.hi-1e-8);
           return {...Solid.project(outer(section,s,y)),n:n.group,index:slot.index,side};
@@ -414,5 +489,5 @@
     }
     return {update,hit,prepare,getStats:()=>cost,hide:()=>{canvas.hidden=true;},show:()=>{canvas.hidden=false;}};
   }
-  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt};
+  return {create,milling,topology,stampUV,projectTriangle,atPixel,frontAt,rasterRegion};
 });

@@ -9,11 +9,12 @@
   else root.PaperBookKinematics=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const WIDTH=480,HEIGHT=704,DEFAULT_DEPTH=36,FAN_SWEEP=158;
+  const WIDTH=480,HEIGHT=704,DEFAULT_DEPTH=36,FAN_SWEEP=158,EDGE_SWEEP=.196;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
   const sign=side=>{if(side==='left')return -1;if(side==='right')return 1;throw new TypeError('Book side must be left or right');};
   const taper=u=>u*(2-u);
+  function inspectionAmount(close){const t=clamp((close-.70)/.30,0,1);return t*t*(3-2*t);}
   function frame(material={},close=0,state={}){
     if(material?._kinematicFrame&&material.close===close&&material._state===state)return material;
     const hasTotal=material&&Number.isFinite(Number(material.totalDepth));
@@ -29,6 +30,7 @@
       fanLeft:clamp(finite(state?.fanLeft),0,1)*(1-progress)*(1-progress),
       fanRight:clamp(finite(state?.fanRight),0,1)*(1-progress)*(1-progress),
       leftCapacity:fanCapacity(leftDepth,totalDepth),rightCapacity:fanCapacity(rightDepth,totalDepth),
+      edgeInspection:state?.edgeInspection?inspectionAmount(progress):0,
       notches:Array.isArray(state?.notches)?state.notches:[],
       hingeX:WIDTH+(leftDepth-totalDepth/2)*sine,
       A:sine+.55*cosine*cosine,B:.85*cosine,C:.55*cosine*sine-cosine};
@@ -54,8 +56,13 @@
     // at the same horizontal position, even at the overhanging free edge.
     const bend=closingBow*arch+fan*(52*t+10*across);
     const drawIn=FAN_SWEEP*fan*across*across;
-    return {x:f.hingeX+direction*(WIDTH*across-drawIn)*f.cosine+(layer-f.leftDepth)*a-direction*bend*f.sine,
-      y:finite(y)+d*b,z:(WIDTH*across-drawIn)*f.sine+d*c+bend*f.cosine};
+    // From the spine end, gently diverge the sheet tips. The angle belongs
+    // to absolute depth, so changing which spread opens cannot shift the
+    // splayed fore-edge. The paper is not scaled; the binding stays put.
+    const wing=f.edgeInspection&&f.totalDepth?(layer/f.totalDepth-.5)*EDGE_SWEEP*f.edgeInspection:0;
+    const slip=wing*across,tip=WIDTH*across;
+    return {x:f.hingeX+direction*(WIDTH*across-drawIn)*f.cosine+(layer-f.leftDepth)*a-direction*bend*f.sine+(slip?tip*Math.sin(slip):0),
+      y:finite(y)+d*b,z:(WIDTH*across-drawIn)*f.sine+d*c+bend*f.cosine-(slip?tip*2*Math.sin(slip/2)**2:0)};
   }
   function shoulderFactor(notch,ds,vertical=1){
     if(notch.milled)ds/=Math.max(.0001,vertical);
@@ -173,7 +180,7 @@
   }
   function bottomMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,HEIGHT,segments,state);}
   function headMesh(side,material,close,segments=24,state){return edgeMesh(side,material,close,0,segments,state);}
-  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,fanCapacity,frame,prepare,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
+  return {WIDTH,HEIGHT,DEFAULT_DEPTH,FAN_SWEEP,EDGE_SWEEP,inspectionAmount,fanCapacity,frame,prepare,taper,pagePoint,foreedgePoint,edgeInset,layerInterval,
     surfaceStripMatrix,surfaceStripMatrixValues,
     topMatrix,topMatrixValues,foreedgeMatrix,foreedgeMatrixValues,matrixCSS,transformPoint,
     triangleMatrixValues,edgeMesh,bottomMesh,headMesh};

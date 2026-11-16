@@ -185,9 +185,12 @@
     function milledMatrix(slot,side,state){
       const n=state.notches[slot.group],{material,close}=surface;
       const v=.5+(slot.groupRow-(n.indices.length-1)/2)*(.69/n.indices.length);
-      const dir=close>.9999||side==='right'?1:-1,s=n.depth+n.span*dir*.90*Math.sqrt(1-(v*2-1)**2);
+      const dir=close>.9999||side==='right'?1:-1;
+      const inspect=state.edgeInspection?K.inspectionAmount(close):0;
+      const s=n.depth+n.span*dir*.90*Math.sqrt(1-(v*2-1)**2)*(1-inspect);
       const p=K.foreedgePoint(side,s,n.y+n.radius*(v*2-1),material,close,state);
-      const l=K.foreedgePoint(side,s-.12*n.span,n.y,material,close,state),r=K.foreedgePoint(side,s+.12*n.span,n.y,material,close,state);
+      const half=n.span*(.12+inspect*.21);
+      const l=K.foreedgePoint(side,s-half,n.y,material,close,state),r=K.foreedgePoint(side,s+half,n.y,material,close,state);
       const width=slot.physical.width,height=slot.physical.height;
       const xx=Math.max(.075,Math.abs(r.x-l.x)/width*2),xz=(r.z-l.z)/width*2;
       return {matrix:[xx,0,xz,0,0,1,0,0,0,0,1,0,p.x-xx*width/2,p.y-height/2,p.z-xz*width/2,1]};
@@ -214,7 +217,7 @@
     function paint(){
       const d=digital,w=model.totalDepth,split=clamp(frame.splitDepth,0,w),labelProgress=smooth(.25,.9,d);
       const baked=!!options.depthInk?.(),motion=baked?smooth(.18,1,d):d;
-      physicalState=surface?{fanLeft:surface.fanLeft,fanRight:surface.fanRight,notches:baked?options.inkNotches():notches()}:null;
+      physicalState=surface?{fanLeft:surface.fanLeft,fanRight:surface.fanRight,edgeInspection:surface.edgeInspection,notches:baked?options.inkNotches():notches()}:null;
       root.dataset.inkLayer=baked?'depth':'dom';
       root.style.setProperty('--pbi-ink-handoff',Math.min(1,d/.22).toFixed(4));
       const wrap=surface&&!baked?smooth(.62,.98,surface.close)*(1-smooth(0,.16,d)):0,facets=wrap>0?facetSampler(surface.material,surface.close,physicalState):null;
@@ -266,8 +269,8 @@
     }
     function setSurfaceFrame(next){
       if(destroyed||!next?.material)return;
-      if(surface&&surface.material.leftDepth===next.material.leftDepth&&surface.material.totalDepth===next.material.totalDepth&&surface.close===clamp(next.close)&&surface.fanLeft===clamp(next.fanLeft)&&surface.fanRight===clamp(next.fanRight))return;
-      surface={material:next.material,close:clamp(next.close),fanLeft:clamp(next.fanLeft),fanRight:clamp(next.fanRight)};
+      if(surface&&surface.material.leftDepth===next.material.leftDepth&&surface.material.totalDepth===next.material.totalDepth&&surface.close===clamp(next.close)&&surface.fanLeft===clamp(next.fanLeft)&&surface.fanRight===clamp(next.fanRight)&&surface.edgeInspection===!!next.edgeInspection)return;
+      surface={material:next.material,close:clamp(next.close),fanLeft:clamp(next.fanLeft),fanRight:clamp(next.fanRight),edgeInspection:!!next.edgeInspection};
       frame.splitDepth=Number(next.material.leftDepth)||0;frame.totalDepth=Number(next.material.totalDepth)||WIDTH;
       if(frame.totalDepth!==model.totalDepth)model=geometry(books,next.material.pageCount||model.pageCount,frame.totalDepth);
       root.dataset.rightSheets=String(next.material.rightSheets);root.dataset.leftSheets=String(next.material.leftSheets);

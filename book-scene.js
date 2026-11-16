@@ -1,5 +1,5 @@
 /* Camera only. Paper and labels retain their own 3D geometry.
- * The closed fore-edge keeps its true thickness; no widened directory card. */
+ * The inspection shot follows the actual splayed tips, not a scaled card. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.PaperBookScene=api;})(typeof window!=='undefined'?window:globalThis,()=>{
   'use strict';
   const clamp=n=>Math.max(0,Math.min(1,Number(n)||0)),mix=(a,b,t)=>a+(b-a)*t;
@@ -20,14 +20,15 @@
     const rawDepth=finite(rect?.depth,finite(rect?.anchorDepth,
       fallbackDepth>=0&&fallbackDepth<=totalDepth?fallbackDepth:fallbackDepth-WIDTH+totalDepth/2));
     const selectedDepth=Math.max(0,Math.min(totalDepth,rawDepth));
-    const physicalScale=(w<600?2.6:2.4)*(1+.18*focus);
+    const edgeBand=finite(options.inspectionBand,0);
+    const physicalScale=edgeBand>0?Math.min(w<600?2.9:3.1,Math.max(.85,(w-26)/edgeBand))*(1+.11*focus):(w<600?2.6:2.4)*(1+.18*focus);
     const digitalScale=Math.max(.18,Math.min((w-42)/510,(h-160)/740,1.18));
     const visibleHeight=Math.max(64,h-160)/physicalScale;
     const halfHeight=Math.min(HEIGHT/2,visibleHeight/2);
     const requestedY=mix(finite(options.edgeY,HEIGHT/2),finite(rect?.y,finite(options.edgeY,HEIGHT/2)),focus);
     const physicalY=Math.max(halfHeight,Math.min(HEIGHT-halfHeight,requestedY));
     const edgeCenterY=mix(physicalY,HEIGHT/2,digital);
-    const edgeCenterX=WIDTH+(selectedDepth-totalDepth/2)*focus;
+    const edgeCenterX=WIDTH+(selectedDepth-totalDepth/2)*focus*(edgeBand>0?edgeBand/totalDepth:1);
     const projectedCenterX=WIDTH+(edgeCenterX-WIDTH)/depthScale;
     const projectedCenterY=HEIGHT/2+(edgeCenterY-HEIGHT/2)/depthScale;
     const presentedScale=mix(physicalScale,digitalScale,digital)*depthScale;
