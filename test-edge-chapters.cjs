@@ -74,6 +74,25 @@ test('all chapter controls retain large native targets and plain untransformed t
   const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');assert.match(css,/min-width:44px;min-height:44px/);assert.match(css,/overflow-y:auto/);assert.match(css,/backdrop-filter:blur/);assert.doesNotMatch(css,/(?<!backdrop-)filter\s*:|transform\s*:/);
   const f=setup();f.menu.open({bookIndices:[0],index:0,anchor});for(const button of find(f,'edge-chapters__chapter')){assert.equal(button.events.has('keydown'),false);assert.ok(button.title.includes('创世记'));assert.ok(button.getAttribute('aria-label'));}
 });
+test('selected book and current chapter colors outrank global hover while retaining forced-color overrides',()=>{
+  const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8'),global=fs.readFileSync(require.resolve('./style.css'),'utf8');
+  const globalSelector='button:hover:not(:disabled)';assert.ok(global.includes(globalSelector+'{color:#9b7540}'));
+  // These selectors only use types, classes, attributes and simple :not();
+  // :not itself contributes no specificity, but its argument does.
+  const specificity=selector=>{
+    const s=selector.replace(/:not\(([^)]+)\)/g,'$1');
+    return [(s.match(/#[\w-]+/g)||[]).length,(s.match(/\.[\w-]+|\[[^\]]+\]|:[\w-]+/g)||[]).length,(s.replace(/#[\w-]+|\.[\w-]+|\[[^\]]+\]|:[\w-]+/g,'').match(/\b[a-z][\w-]*/g)||[]).length];
+  };
+  const greater=(a,b)=>a[0]>b[0]||a[0]===b[0]&&(a[1]>b[1]||a[1]===b[1]&&a[2]>b[2]);
+  const rules=[['.edge-chapters .edge-chapters__book[aria-pressed="true"]','#fff9ec','#6e5840'],['.edge-chapters .edge-chapters__chapter[aria-current="page"]','#fff9ed','#73583f']];
+  for(const [selector,color,background] of rules){
+    assert.ok(css.includes(selector+' { color:'+color+';background:'+background+';'));
+    assert.ok(greater(specificity(selector),specificity(globalSelector)),selector+' must outrank global hover');
+  }
+  const forced=css.slice(css.indexOf('@media (forced-colors:active)'));
+  for(const [selector] of rules)assert.ok(forced.includes(selector));
+  assert.match(forced,/color:HighlightText;background:Highlight;border-color:Highlight!important/);
+});
 test('Escape is intercepted at window before document and restores launcher focus',()=>{
   const f=setup();f.menu.open({bookIndices:[0],index:0,anchor});const event=f.win.dispatch('keydown',{key:'Escape'});
   assert.ok(event.prevented&&event.stopped&&event.immediate);assert.equal(f.menu.isOpen(),false);assert.equal(f.doc.activeElement,f.launcher);assert.equal(f.doc.events.has('keydown'),false);

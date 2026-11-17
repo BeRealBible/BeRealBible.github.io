@@ -14,14 +14,20 @@
 .edge-chapters__close { flex:none;color:#756553;background:transparent;font-size:25px!important;font-weight:300; }
 .edge-chapters__books { display:flex;flex-wrap:wrap;gap:6px;flex:none;padding:0 0 10px; }
 .edge-chapters__book { flex:1 1 auto;background:#e9dfcd;color:#574938;font-size:12px!important; }
-.edge-chapters__book[aria-pressed="true"] { color:#fff9ec;background:#6e5840; }
+/* The scoped selected state outranks global button:hover:not(:disabled). */
+.edge-chapters .edge-chapters__book[aria-pressed="true"] { color:#fff9ec;background:#6e5840; }
 .edge-chapters__grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#baa98c transparent;padding:2px; }
 .edge-chapters__chapter { color:#514130;background:rgba(255,253,246,.7);border-color:#cbbda34d!important;font-size:14px!important;font-variant-numeric:tabular-nums; }
-.edge-chapters__chapter[aria-current="page"] { color:#fff9ed;background:#73583f;border-color:#73583f!important; }
+.edge-chapters .edge-chapters__chapter[aria-current="page"] { color:#fff9ed;background:#73583f;border-color:#73583f!important; }
 .edge-chapters__footer { display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;padding-top:10px; }
 .edge-chapters__opening { padding-inline:12px!important;background:#e8ddc9;color:#594733;font-size:12px!important; }
 .edge-chapters__hint { color:#8b7b65;font-size:10px;line-height:1.4;text-align:right; }
 .edge-chapters button:focus-visible { outline:2px solid #8b693d;outline-offset:1px; }
 @media (hover:hover) { .edge-chapters__chapter:hover,.edge-chapters__opening:hover,.edge-chapters__book:hover { box-shadow:inset 0 0 0 1px #9d8059; } }
 @media (prefers-reduced-transparency:reduce) { .edge-chapters__panel { background:#f9f4e7;backdrop-filter:none;-webkit-backdrop-filter:none; } }
-@media (forced-colors:active) { .edge-chapters__panel { background:Canvas;border-color:CanvasText; } .edge-chapters button { color:ButtonText;background:ButtonFace;border-color:ButtonText; } }
+@media (forced-colors:active) {
+  .edge-chapters__panel { background:Canvas;border-color:CanvasText; }
+  .edge-chapters button { color:ButtonText;background:ButtonFace;border-color:ButtonText; }
+  .edge-chapters .edge-chapters__book[aria-pressed="true"],
+  .edge-chapters .edge-chapters__chapter[aria-current="page"] { color:HighlightText;background:Highlight;border-color:Highlight!important; }
+}
