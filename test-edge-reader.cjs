@@ -13,13 +13,17 @@ const Material = require('./book-material.js');
 const Page = require('./paper-page.js');
 const Edges = require('./paper-edges.js');
 const EdgeIndex = require('./edge-index.js');
-let ruleData;
-function currentRuleData() {
-  if (!ruleData) {
+let ruleData, bibleSource;
+function currentBibleSource() {
+  if (!bibleSource) {
     const sourceContext = { window: {} };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'data/bible-source.js'), 'utf8'), sourceContext);
-    ruleData = require('./paper-layout.js').paginate(sourceContext.window.BIBLE_SOURCE);
+    bibleSource = sourceContext.window.BIBLE_SOURCE;
   }
+  return bibleSource;
+}
+function currentRuleData() {
+  if (!ruleData) ruleData = require('./paper-layout.js').paginate(currentBibleSource());
   return ruleData;
 }
 
@@ -27,7 +31,7 @@ function fixture(startSpread = 2, options = {}) {
   let now = 0, nextId = 1, observer, edgeOptions, ribbonOptions, readerIndex, chapterOptions, chapterOpenState = null;
   let jumpActive = null, chapterReader;
   const timers = new Map(), elements = new Map(), events = {}, rendered = [], draws = [];
-  const saved = [], edgeCalls = [], ribbonCalls = [], sceneCalls = [], jumpCalls = [], chapterCalls = [];
+  const saved = [], edgeCalls = [], ribbonCalls = [], sceneCalls = [], jumpCalls = [], chapterCalls = [], previewCalls = [], previewSources = [];
   const storage = new Map(Object.entries({
     'paper-bible-position-v1': JSON.stringify({ spread: startSpread, ...(options.pose || {}) }),
     'paper-bible-ribbon-v1-0': JSON.stringify({ version: 1, page: 34, spread: 34, bookName: '创世记', ref: '40:1', pose: { zoom: 2, cx: 600, cy: 340, focus: 'custom' } }),
@@ -187,6 +191,11 @@ function fixture(startSpread = 2, options = {}) {
     PaperPhysics: Physics, PaperGestures: Gestures, PaperBookMaterial: Material, PaperPage: Page, PaperEdges: Edges,
     PaperSheetRenderer: Renderer,
     PaperJump: { create: () => jump },
+    BIBLE_SOURCE: options.source || currentBibleSource(),
+    PaperChapterPreview: { create: source => {
+      previewSources.push(source); const lookup = require('./chapter-preview.js').create(source);
+      return (code, chapter) => { previewCalls.push({ code, chapter }); return lookup(code, chapter); };
+    } },
     PaperEdgeChapters: { create: (host, args) => { chapterOptions = args; chapterReader = options.realChaptersDom ? require('./edge-chapters.js').create(host, args) : chapters; return chapterReader; } },
     PaperEdgeIndex: { create: (host, args) => { edgeOptions = args || host; readerIndex = options.realIndexDom ? EdgeIndex.create(host, args) : edge; return readerIndex; } },
     PaperRibbons: { create: args => { ribbonOptions = args; return { update: () => ribbonCalls.push({ type: 'update' }), setScene: (...args) => ribbonCalls.push({ type: 'scene', args }), open: slot => ribbonCalls.push({ type: 'open', slot }) }; } },
@@ -255,11 +264,12 @@ function fixture(startSpread = 2, options = {}) {
     }
     chapters.close(); return chapterOptions.onSelect(page);
   }
-  return { el, advance, emit, at, tap, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls, jumpCalls, chapterCalls,
+  return { el, advance, emit, at, tap, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls, jumpCalls, chapterCalls, previewCalls, previewSources,
     get now() { return now; }, get ribbonOptions() { return ribbonOptions; }, get edgeItems() { return edgeItems; },
     get edgeLayout() { return options.realIndexDom ? EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, Number(el('stage').dataset.spread), readerIndex.getExpanded()) : edgeLayout; },
     get expandedSide() { return readerIndex.getExpanded(); }, get indexElement() { return readerIndex.element; },
     get chapterState() { return chapterOpenState; }, get chapterElement() { return chapterReader.element; }, get chaptersOpen() { return chapterReader.isOpen(); }, get chapterOptions() { return chapterOptions; }, get jumpActive() { return jump.isActive(); },
+    get chapterMode() { return chapterReader.getMode(); }, setChapterMode: mode => chapterReader.setMode(mode),
     finishJump: () => finishJump(), cancelJump: () => jump.cancel(), invokeJumpFinish: index => finishJump(jumpCalls[index], true),
     invokeJumpCancel: index => jumpCalls[index].options.onCancel?.(),
     event: (type, extra = {}) => dispatch(events, type, extra), resize: () => observer?.(),
@@ -742,6 +752,81 @@ test('real chapter Escape closes only the popover before a second Escape closes 
   assert.equal(f.chaptersOpen, false); assert.equal(f.expandedSide, 'right'); assert.equal(f.jumpCalls.length, 0);
   f.event('document:keydown', { key: 'Escape', target: f.context.document.activeElement });
   assert.equal(f.expandedSide, null); assert.equal(spread(f), 20);
+});
+function clickChapterMode(f, mode) {
+  const label = mode === 'preview' ? '经文摘读' : '章号格子';
+  const button = f.chapterElement.querySelectorAll('.edge-chapters__mode').find(node => node.getAttribute('aria-label') === label);
+  assert.ok(button, label + ' mode button is exposed by its accessible name');
+  button.dispatchEvent({ type: 'click' }); assert.equal(f.chapterMode, mode);
+  assert.equal(button.getAttribute('aria-pressed'), 'true');
+}
+function assertPreviewButton(f, book, entry, source = currentBibleSource()) {
+  const button = f.chapterElement.querySelectorAll('.edge-chapters__chapter').find(node => Number(node.dataset.chapter) === entry.chapter);
+  assert.ok(button && !button.hidden && !button.disabled, `${book.name} ${entry.chapter} stays reachable`);
+  assert.equal(Number(button.dataset.page), entry.page); assert.equal(button.getAttribute('aria-label'), `${book.name} 第 ${entry.chapter} 章`);
+  const expected = require('./chapter-preview.js').create(source)(book.code, entry.chapter);
+  assert.ok(expected, 'real source excerpt exists');
+  assert.equal(button.querySelector('.edge-chapters__preview').textContent, expected.text);
+  assert.equal(button.querySelector('.edge-chapters__reference').textContent, expected.reference);
+  assert.equal(button.dataset.preview, 'available');
+  const raw = source.books.find(item => item.code === book.code).chapters.find(chapter => chapter.chapter === entry.chapter).verses.slice(0, 2).map(verse => verse[1]).join('');
+  const clean = value => value.replace(/\s/gu, '').replace(/…$/, '');
+  assert.ok(clean(raw).startsWith(clean(expected.text)), 'excerpt is a prefix of this exact source chapter, not neighboring-book text');
+  return button;
+}
+test('chapter modes default to numbers, switch without navigation or persistence, and remain selected in this session', () => {
+  const data = currentRuleData(), f = fixture(20, { data, realChaptersDom: true, manualJump: true });
+  const stored = Object.fromEntries(f.storage), writes = f.saved.length; f.selectBook(0);
+  assert.equal(f.chapterMode, 'numbers'); assert.equal(f.chapterElement.dataset.mode, 'numbers');
+  assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 50);
+  clickChapterMode(f, 'preview'); assert.equal(f.chapterElement.dataset.mode, 'preview');
+  assert.equal(spread(f), 20); assert.equal(f.jumpCalls.length, 0); assert.deepEqual(Object.fromEntries(f.storage), stored); assert.equal(f.saved.length, writes);
+  f.chapterElement.querySelector('.edge-chapters__close').dispatchEvent({ type: 'click' }); assert.equal(f.chaptersOpen, false);
+  f.selectBook(42); assert.equal(f.chapterMode, 'preview');
+  clickChapterMode(f, 'numbers');
+  f.chapterElement.querySelector('.edge-chapters__close').dispatchEvent({ type: 'click' }); f.selectBook(18);
+  assert.equal(f.chapterMode, 'numbers'); assert.equal(f.jumpCalls.length, 0); assert.deepEqual(Object.fromEntries(f.storage), stored);
+  const fresh = fixture(20, { data, realChaptersDom: true, manualJump: true }); fresh.selectBook(0); assert.equal(fresh.chapterMode, 'numbers', 'another reader session does not inherit a stored mode');
+});
+test('real preview helper receives canonical book codes even when source book order differs', () => {
+  const data = currentRuleData(), source = { ...currentBibleSource(), books: [...currentBibleSource().books].reverse() };
+  const f = fixture(20, { data, source, realChaptersDom: true, manualJump: true });
+  for (const code of ['GEN', 'JHN', 'PHM', '2JN', 'PSA']) {
+    const index = data.books.findIndex(book => book.code === code), book = data.books[index];
+    const callStart = f.previewCalls.length; f.selectBook(index); clickChapterMode(f, 'preview');
+    assertPreviewButton(f, book, book.chapters[0], source);
+    assert.ok(f.previewCalls.slice(callStart).some(call => call.code === code && Number(call.chapter) === 1));
+  }
+  assert.equal(f.previewSources.length, 1); assert.equal(f.previewSources[0], source);
+  assert.equal(f.jumpCalls.length, 0); assert.equal(spread(f), 20);
+});
+test('single-chapter short books keep one real preview and commit the exact even-page target', () => {
+  const data = currentRuleData();
+  for (const code of ['PHM', '2JN']) {
+    const index = data.books.findIndex(book => book.code === code), book = data.books[index];
+    const f = fixture(20, { data, realChaptersDom: true, manualJump: true, width: 390, height: 844 });
+    f.selectBook(index); assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 1);
+    const original = f.storage.get('paper-bible-position-v1'); clickChapterMode(f, 'preview');
+    const button = assertPreviewButton(f, book, book.chapters[0]); button.dispatchEvent({ type: 'click' });
+    assert.equal(f.chaptersOpen, false); assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), original);
+    f.finishJump(); assert.equal(f.el('book-name').textContent, book.name); assert.equal(f.ribbonOptions.getCurrent().page, book.chapters[0].page);
+    assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, book.chapters[0].page);
+  }
+});
+test('all 150 Psalm preview chapters remain reachable and navigate to their real mapped pages', () => {
+  const data = currentRuleData(), index = data.books.findIndex(book => book.code === 'PSA'), book = data.books[index];
+  const f = fixture(20, { data, realChaptersDom: true, manualJump: true, width: 390, height: 844 });
+  f.selectBook(index); clickChapterMode(f, 'preview');
+  assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 150);
+  for (const entry of book.chapters) {
+    if (!f.chaptersOpen) f.selectBook(index);
+    assert.equal(f.chapterMode, 'preview');
+    const button = assertPreviewButton(f, book, entry), before = spread(f); button.dispatchEvent({ type: 'click' });
+    if ((entry.page & ~1) !== before) { assert.equal(spread(f), before); assert.equal(f.jumpActive, true); f.finishJump(); }
+    assert.equal(f.ribbonOptions.getCurrent().page, entry.page);
+    assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, entry.page);
+  }
+  assert.equal(f.chaptersOpen, false); assertUnchangedBookmarks(f);
 });
 
 async function run() {

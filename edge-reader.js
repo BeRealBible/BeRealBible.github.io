@@ -18,6 +18,7 @@
   if(Number.isInteger(window.PAPER_INITIAL_SPREAD)){spread=clamp(window.PAPER_INITIAL_SPREAD&~1,0,MAX_SPREAD);saved=null;readingSide=1;}
   if(Number.isInteger(window.PAPER_INITIAL_PAGE))readingSide=window.PAPER_INITIAL_PAGE&1;
   const svgPage=index=>Page.svg(D.pages[index],index,D.books);
+  const chapterPreview=window.PaperChapterPreview.create(window.BIBLE_SOURCE);
   const renderer=new window.PaperSheetRenderer(book,(canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
   renderer.onContextLoss=()=>{interrupt();feedback('绘图已恢复到原页，可以继续阅读');};
@@ -219,6 +220,7 @@
     }});
   }
   chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:page=>jump(page),
+    getPreview:(index,chapter)=>chapterPreview(D.books[index]?.code,chapter),
     getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingPage().start,10)||1})});
   function openEdgeChapters(i,_book,metadata={}){
     interrupt();
