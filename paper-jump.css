@@ -1,0 +1,8 @@
+/* Local 3D context only: never rotate, scale or rasterize the authoritative book. */
+.paper-jump-layer{position:absolute;left:0;top:0;width:960px;height:704px;z-index:8;pointer-events:none;overflow:visible;perspective:2400px;perspective-origin:480px 352px;transform-style:preserve-3d}
+.paper-jump-leaf{position:absolute;left:480px;top:0;width:480px;height:704px;transform-origin:0 50%;transform-style:preserve-3d;pointer-events:none;will-change:transform}
+.paper-jump-face{position:absolute;inset:0;width:480px;height:704px;overflow:hidden;background:#fffdf1;backface-visibility:hidden;-webkit-backface-visibility:hidden;pointer-events:none;box-shadow:0 0 9px #21190f28}
+.paper-jump-face--front{transform:rotateY(0deg)}
+.paper-jump-face--back{transform:rotateY(180deg)}
+.paper-jump-face>svg{display:block;width:480px;height:704px;font-family:var(--serif);text-rendering:geometricPrecision}
+@media(prefers-reduced-motion:reduce){.paper-jump-layer{display:none}}

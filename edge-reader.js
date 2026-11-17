@@ -9,7 +9,7 @@
   const HOLD_MS=160,MOVE_SLOP=8,MAX_SCALE=3.2,MAX_SPREAD=(D.pages.length-2)&~1;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
-  let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,ribbons=null;
+  let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,ribbons=null,chapters=null,jumpState=null;
   let saved=null,storage,queuedTurns=[],demoFrame=0,readingSide=1,edgePose=null,edgeSide=null;
   const pointers=new Map();
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
@@ -19,8 +19,9 @@
   if(Number.isInteger(window.PAPER_INITIAL_PAGE))readingSide=window.PAPER_INITIAL_PAGE&1;
   const svgPage=index=>Page.svg(D.pages[index],index,D.books);
   const renderer=new window.PaperSheetRenderer(book,(canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
+  const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
   renderer.onContextLoss=()=>{interrupt();feedback('绘图已恢复到原页，可以继续阅读');};
-  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:i=>jump(D.books[i].first),onExpand:expandEdge});
+  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,onExpand:expandEdge});
   const readingPage=()=>{
     const a=D.pages[spread+1-readingSide],b=D.pages[spread+readingSide];
     return b.b>=0&&!b.blank&&b.start?b:a.b>=0&&!a.blank&&a.start?a:b;
@@ -37,7 +38,7 @@
     if(delay)feedbackTimer=setTimeout(()=>$('gesture-feedback').classList.add('idle'),delay);
   }
   function updateIndex(){
-    const e=index.update({spread,scale,currentBook:currentBook(),turning:!!fold});
+    const e=index.update({spread,scale,currentBook:currentBook(),turning:!!fold||!!jumpState});
     book.style.setProperty('--edge-left-extent',e.normalLeftExtent+'px');
     book.style.setProperty('--edge-right-extent',e.normalRightExtent+'px');
     return e;
@@ -133,7 +134,7 @@
   }
   function clearHold(){clearTimeout(holdTimer);holdTimer=null;}
   function startFold(direction,contact,count=1,source='manual'){
-    if(fold)return false;
+    if(fold||jumpState)return false;
     const target=clamp(spread+direction*count*2,0,MAX_SPREAD);
     if(target===spread){feedback(direction>0?'已经到最后一页':'已经到第一页');return false;}
     const side=direction>0?1:0;
@@ -180,7 +181,7 @@
     foldFrame=requestAnimationFrame(frame);
   }
   function turn(direction,count=1,source='tap'){
-    if(edgeSide)return;
+    if(edgeSide||jumpState||chapters?.isOpen())return;
     clearHold();
     if(fold){if(fold.settling&&queuedTurns.length<8)queuedTurns.push([direction,count,source]);return;}
     if(startFold(direction,{x:480+direction*392,y:360},count,source))settleFold(true,true);
@@ -188,15 +189,40 @@
   function interrupt(){
     clearHold();queuedTurns=[];cancelAnimationFrame(demoFrame);demoFrame=0;
     pointers.clear();gesture=null;stage.classList.remove('dragging');
+    chapters?.close();
+    if(jumpState){jumpState=null;pageJump.cancel();render();stage.dataset.jumpState='cancelled';}
     if(fold)finishFold(false);
   }
   function jump(page,pose){
-    closeEdge();interrupt();spread=clamp(page&~1,0,MAX_SPREAD);readingSide=page&1;render();fitScale=measureFit();
-    if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus||'custom';}
-    else if(view.w<560&&focus!=='fit'){focusPage(page%2?'right':'left');}
-    else if(focus==='fit')scale=fitScale;
-    constrain();transform();save();$('book-picker').close();stage.dataset.lastGesture='directory';
-    feedback(`${currentBook().name} · ${readingPage().start||'卷首'}`);
+    closeEdge();interrupt();$('book-picker').close();
+    page=clamp(page,0,D.pages.length-1);
+    const target=clamp(page&~1,0,MAX_SPREAD),transaction={from:spread,target,page,pose};
+    jumpState=transaction;
+    const complete=()=>{
+      if(jumpState!==transaction)return; // A cancelled/replaced animation cannot move the saved bookmark.
+      jumpState=null;spread=target;readingSide=page&1;render();fitScale=measureFit();
+      if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus||'custom';}
+      else if(view.w<560&&focus!=='fit'){focusPage(page%2?'right':'left');}
+      else if(focus==='fit')scale=fitScale;
+      constrain();transform();save();stage.dataset.lastGesture='directory';stage.dataset.jumpState='committed';
+      feedback(`${currentBook().name} · ${readingPage().start||'卷首'}`);
+    };
+    if(target===spread){complete();return;}
+    // The stationary page underneath the moving packet already belongs to the
+    // destination. Reading metadata and persistence still belong to the source.
+    const forward=target>spread;
+    papers[forward?1:0].innerHTML=svgPage(target+(forward?1:0));
+    stage.dataset.jumpState='running';stage.dataset.jumpTarget=String(target);updateIndex();
+    pageJump.start({from:spread,to:target,onFinish:complete,onCancel:()=>{
+      if(jumpState!==transaction)return;
+      jumpState=null;render();stage.dataset.jumpState='cancelled';
+    }});
+  }
+  chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:page=>jump(page),
+    getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingPage().start,10)||1})});
+  function openEdgeChapters(i,_book,metadata={}){
+    interrupt();
+    chapters.open({bookIndices:metadata.bookIndices||[i],index:i,anchor:metadata.anchor});
   }
   ribbons=window.PaperRibbons.create({host:$('ribbon-bookmarks'),panelHost:document.querySelector('.stage-wrap'),storage,pageCount:D.pages.length,
     getCurrent:()=>({spread,page:readingPage()===D.pages[spread+1]?spread+1:spread,bookName:currentBook().name,ref:readingPage().start||'',pose:edgePose||capturePose()}),onNavigate:jump});
@@ -222,7 +248,7 @@
   const centroid=()=>{const a=[...pointers.values()];return {x:a.reduce((s,p)=>s+p.x,0)/a.length,y:a.reduce((s,p)=>s+p.y,0)/a.length,t:Math.max(...a.map(p=>p.t))};};
   const distance=()=>{const a=[...pointers.values()];return a.length<2?0:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);};
   function pointerDown(e){
-    if(edgeSide||e.button>0||e.target?.closest?.('button,a,input,dialog,.paper-ribbons,.edge-index'))return;
+    if(edgeSide||jumpState||chapters?.isOpen()||e.button>0||e.target?.closest?.('button,a,input,dialog,.paper-ribbons,.edge-index'))return;
     if(pointers.size===0&&demoFrame)interrupt();clearHold();
     pointers.set(e.pointerId,relative(e));try{stage.setPointerCapture(e.pointerId);}catch{}
     if(pointers.size>1){
@@ -286,12 +312,13 @@
   window.addEventListener('blur',interrupt);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)interrupt();});
   stage.addEventListener('wheel',e=>{
-    if(edgeSide){e.preventDefault();return;}
+    if(edgeSide||jumpState||chapters?.isOpen()){e.preventDefault();return;}
     if(e.target?.closest?.('button,dialog'))return;e.preventDefault();if(fold||pointers.size)return;
     if(e.ctrlKey||e.metaKey)zoom(scale*Math.exp(-e.deltaY*.003),relative(e));
     else{x-=e.deltaX;y-=e.deltaY;focus='custom';constrain();transform();save();}
   },{passive:false});
   stage.addEventListener('keydown',e=>{
+    if(jumpState||chapters?.isOpen()){if(e.key==='Escape'){e.preventDefault();interrupt();}return;}
     if(edgeSide){if(e.key==='Escape'){e.preventDefault();closeEdge();}return;}
     if(e.target?.closest?.('button,input,dialog'))return;
     if(e.key==='ArrowRight'){e.preventDefault();turn(1);}else if(e.key==='ArrowLeft'){e.preventDefault();turn(-1);}

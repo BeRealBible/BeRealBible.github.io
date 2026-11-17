@@ -1,5 +1,6 @@
 /* Runs the real edge reader controller with deterministic input/timing.
- * Renderer and ribbons are spies; scripture SVG, physics and paper material are real.
+ * Curl renderer, jump timing and ribbons are spies; scripture, physics and paper material are real.
+ * Integration scenarios also run the real EdgeIndex and chapter-popover DOM modules.
  * This does not replace browser rendering or physical-phone acceptance tests. */
 'use strict';
 const vm = require('node:vm');
@@ -23,9 +24,10 @@ function currentRuleData() {
 }
 
 function fixture(startSpread = 2, options = {}) {
-  let now = 0, nextId = 1, observer, edgeOptions, ribbonOptions, readerIndex;
+  let now = 0, nextId = 1, observer, edgeOptions, ribbonOptions, readerIndex, chapterOptions, chapterOpenState = null;
+  let jumpActive = null, chapterReader;
   const timers = new Map(), elements = new Map(), events = {}, rendered = [], draws = [];
-  const saved = [], edgeCalls = [], ribbonCalls = [], sceneCalls = [];
+  const saved = [], edgeCalls = [], ribbonCalls = [], sceneCalls = [], jumpCalls = [], chapterCalls = [];
   const storage = new Map(Object.entries({
     'paper-bible-position-v1': JSON.stringify({ spread: startSpread, ...(options.pose || {}) }),
     'paper-bible-ribbon-v1-0': JSON.stringify({ version: 1, page: 34, spread: 34, bookName: '创世记', ref: '40:1', pose: { zoom: 2, cx: 600, cy: 340, focus: 'custom' } }),
@@ -70,6 +72,7 @@ function fixture(startSpread = 2, options = {}) {
     getAttribute(k) { return this.attributes[k] ?? null; }
     removeAttribute(k) { delete this.attributes[k]; }
     appendChild(child) { child.parentElement = this; this.children.push(child); return child; }
+    remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null; }
     append(...children) { children.forEach(c => this.appendChild(c)); }
     replaceChildren(...children) { this.children = []; this.append(...children); }
     contains(child) { return child === this || this.children.some(c => c.contains?.(child)); }
@@ -158,10 +161,33 @@ function fixture(startSpread = 2, options = {}) {
     getExpanded: () => expandedSide,
     destroy() {}
   };
+  function finishJump(call = jumpActive, stale = false) {
+    if (!call || (!stale && jumpActive !== call)) return;
+    if (jumpActive === call) jumpActive = null;
+    call.finished = (call.finished || 0) + 1; call.options.onFinish?.();
+  }
+  const jump = {
+    start(args) {
+      if (jumpActive) this.cancel();
+      const call = { options: args, at: now, from: args.from, to: args.to, cancelled: false, finished: 0 };
+      jumpCalls.push(call); jumpActive = call;
+      if (!options.manualJump) finishJump(call);
+      return true;
+    },
+    cancel() { const call = jumpActive; if (call) { jumpActive = null; call.cancelled = true; call.options.onCancel?.(); } },
+    isActive: () => Boolean(jumpActive)
+  };
+  const chapters = {
+    open(args) { chapterOpenState = args; chapterCalls.push({ type: 'open', args, at: now }); },
+    close() { chapterOpenState = null; chapterCalls.push({ type: 'close', at: now }); },
+    isOpen: () => Boolean(chapterOpenState), destroy() { chapterOpenState = null; }
+  };
   const context = {
     console, document: doc, navigator: {}, performance: { now: () => now },
     PaperPhysics: Physics, PaperGestures: Gestures, PaperBookMaterial: Material, PaperPage: Page, PaperEdges: Edges,
     PaperSheetRenderer: Renderer,
+    PaperJump: { create: () => jump },
+    PaperEdgeChapters: { create: (host, args) => { chapterOptions = args; chapterReader = options.realChaptersDom ? require('./edge-chapters.js').create(host, args) : chapters; return chapterReader; } },
     PaperEdgeIndex: { create: (host, args) => { edgeOptions = args || host; readerIndex = options.realIndexDom ? EdgeIndex.create(host, args) : edge; return readerIndex; } },
     PaperRibbons: { create: args => { ribbonOptions = args; return { update: () => ribbonCalls.push({ type: 'update' }), setScene: (...args) => ribbonCalls.push({ type: 'scene', args }), open: slot => ribbonCalls.push({ type: 'open', slot }) }; } },
     PaperImmersion: { setScene: value => sceneCalls.push(value), showChrome() {}, hideChrome() {} },
@@ -174,13 +200,14 @@ function fixture(startSpread = 2, options = {}) {
     requestAnimationFrame: fn => { const id = nextId++; timers.set(id, { fn: () => fn(now), at: now + 16 }); return id; },
     cancelAnimationFrame: id => timers.delete(id),
     ResizeObserver: class { constructor(fn) { observer = fn; } observe() {} },
+    innerWidth: options.width || 980, innerHeight: options.height || 720,
     addEventListener: (type, fn) => listen(events, type, fn),
     dispatchEvent: event => dispatch(events, event.type, event)
   };
   if (options.customStorage) context.PAPER_READER_STORAGE = store;
   if (options.initialSpread !== undefined) context.PAPER_INITIAL_SPREAD = options.initialSpread;
   if (options.initialPage !== undefined) context.PAPER_INITIAL_PAGE = options.initialPage;
-  context.window = context; vm.createContext(context);
+  context.window = context; doc.defaultView = context; vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'bible-data.js'), 'utf8'), context);
   if (options.data) context.BIBLE_DATA = options.data;
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'edge-reader.js'), 'utf8'), context, { filename: 'edge-reader.js' });
@@ -213,16 +240,31 @@ function fixture(startSpread = 2, options = {}) {
     emit(type, px, p.y, 1, pointerType, el(p.side + '-paper'));
   }
   function click(id, extra = {}) { el(id).dispatchEvent({ type: 'click', detail: 1, ...extra }); }
-  return { el, advance, emit, at, tap, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls,
+  function selectBook(index, metadata) {
+    assert.ok(edgeOptions, 'edge index is installed');
+    if (options.realIndexDom) return readerIndex.element.querySelector(`[data-book="${index}"]`).dispatchEvent({ type: 'click' });
+    if (edgeState.turning) return;
+    return edgeOptions.onSelect(index, context.BIBLE_DATA.books[index], metadata || { bookIndices: [index], anchor: { left: 300, top: 250, width: 44, height: 26, right: 344, bottom: 276 } });
+  }
+  function chooseChapter(page) {
+    assert.ok(chapterOptions, 'chapter selector is installed');
+    if (options.realChaptersDom) {
+      const button = chapterReader.element.querySelectorAll('.edge-chapters__chapter').find(node => Number(node.dataset.page) === page)
+        || chapterReader.element.querySelectorAll('.edge-chapters__opening').find(node => Number(node.dataset.page) === page);
+      assert.ok(button, 'requested real chapter button exists'); return button.dispatchEvent({ type: 'click' });
+    }
+    chapters.close(); return chapterOptions.onSelect(page);
+  }
+  return { el, advance, emit, at, tap, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls, jumpCalls, chapterCalls,
     get now() { return now; }, get ribbonOptions() { return ribbonOptions; }, get edgeItems() { return edgeItems; },
     get edgeLayout() { return options.realIndexDom ? EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, Number(el('stage').dataset.spread), readerIndex.getExpanded()) : edgeLayout; },
     get expandedSide() { return readerIndex.getExpanded(); }, get indexElement() { return readerIndex.element; },
+    get chapterState() { return chapterOpenState; }, get chapterElement() { return chapterReader.element; }, get chaptersOpen() { return chapterReader.isOpen(); }, get chapterOptions() { return chapterOptions; }, get jumpActive() { return jump.isActive(); },
+    finishJump: () => finishJump(), cancelJump: () => jump.cancel(), invokeJumpFinish: index => finishJump(jumpCalls[index], true),
+    invokeJumpCancel: index => jumpCalls[index].options.onCancel?.(),
     event: (type, extra = {}) => dispatch(events, type, extra), resize: () => observer?.(),
-    selectBook: index => {
-      assert.ok(edgeOptions, 'edge index is installed');
-      if (options.realIndexDom) return readerIndex.element.querySelector(`[data-book="${index}"]`).dispatchEvent({ type: 'click' });
-      if (edgeState.turning) return; if (expandedSide !== null) edge.setExpanded(null); return edgeOptions.onSelect(index);
-    },
+    selectBook, chooseChapter,
+    goBook: index => { selectBook(index); chooseChapter(context.BIBLE_DATA.books[index].first); },
     expand: side => { assert.ok(edgeOptions, 'edge index is installed'); return readerIndex.setExpanded(side); },
     navigateRibbon: (page, pose) => ribbonOptions.onNavigate(page, pose) };
 }
@@ -346,9 +388,9 @@ test('continuous taps queue every requested sheet rather than dropping input', (
   const f = fixture(20); f.tap(); f.advance(30); f.tap(); f.advance(30); f.tap(); f.advance(4000);
   assert.equal(spread(f), 26); assert.equal(f.rendered.length, 3); assert.ok(f.rendered.every(x => x.count === 1));
 });
-test('selecting a edge navigates directly while book stays open', () => {
+test('choosing an edge chapter navigates while the book stays open', () => {
   const f = fixture(20), target = f.context.BIBLE_DATA.books[65].first & ~1;
-  f.selectBook(65); f.advance(4000); assert.equal(spread(f), target); assertReading(f);
+  f.goBook(65); f.advance(4000); assert.equal(spread(f), target); assertReading(f);
   assert.ok(f.edgeCalls.length); assertUnchangedBookmarks(f);
 });
 for (const code of ['PHM', '2JN']) test(`${code} even-page edge keeps its own title, ribbon page and saved anchor after reload`, () => {
@@ -357,7 +399,7 @@ for (const code of ['PHM', '2JN']) test(`${code} even-page edge keeps its own ti
   assert.notEqual(data.pages[page + 1].b, index, 'right page belongs to the following short book');
   for (const width of [980, 390]) {
     const options = { data, width, height: 844, realEdgeGeometry: true, customStorage: true };
-    const f = fixture(20, options); f.selectBook(index);
+    const f = fixture(20, options); f.goBook(index);
     function assertSelected(reader) {
       assert.equal(spread(reader), page); assert.equal(reader.el('book-name').textContent, selected.name);
       assert.equal(reader.el('stage').dataset.book, selected.code);
@@ -470,7 +512,7 @@ test('current rules edition retains exact scripture SVG and last-book navigation
   const f = fixture(20, { data, customStorage: true });
   assert.equal(f.el('left-paper').innerHTML, Page.svg(data.pages[20], 20, data.books));
   assert.equal(f.el('right-paper').innerHTML, Page.svg(data.pages[21], 21, data.books));
-  f.selectBook(65); f.advance(4000);
+  f.goBook(65); f.advance(4000);
   const target = data.books[65].first & ~1;
   assert.equal(spread(f), target); assertReading(f); assertUnchangedBookmarks(f);
   assert.equal(f.el('right-paper').innerHTML, Page.svg(data.pages[target + 1], target + 1, data.books));
@@ -521,7 +563,9 @@ test('every one of 66 books remains individually reachable in expanded edges wit
     const selected = data.books[index], side = EdgeIndex.carrierSheet(selected) <= Math.floor(spread(f) / 2) ? 'left' : 'right';
     f.expand(side);
     assert.ok(f.edgeLayout.expandedBooks.some(item => item.index === index && item.side === side), selected.name + ' is individually accessible on its own carrier side');
-    f.selectBook(index);
+    const before = spread(f); f.selectBook(index);
+    assert.equal(f.chaptersOpen, true); assert.equal(spread(f), before, 'book label opens chapters before navigation');
+    f.chooseChapter(selected.first);
     assert.equal(f.expandedSide, null); assert.equal(spread(f), selected.first & ~1);
     assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, selected.first); assertReading(f);
@@ -560,20 +604,144 @@ test('peek demo closes edge selection before drawing and reading resumes afterwa
   assert.equal(spread(f), 600); assertCameraEqual(camera(f), original);
   f.tap(); f.advance(1500); assert.equal(spread(f), 602);
 });
-test('real EdgeIndex DOM and reader callbacks expand, select all 66, then resume page turns', () => {
-  const data = currentRuleData(), f = fixture(600, { data, realIndexDom: true, width: 390, height: 844 });
+test('real edge and chapter DOM choose all 66 books then commit packets and resume page turns', () => {
+  const data = currentRuleData(), f = fixture(600, { data, realIndexDom: true, realChaptersDom: true, manualJump: true, width: 390, height: 844 });
   for (let index = 0; index < data.books.length; index++) {
     const selected = data.books[index], side = EdgeIndex.carrierSheet(selected) <= Math.floor(spread(f) / 2) ? 'left' : 'right';
     const band = f.indexElement.querySelectorAll('.edge-index__band').find(button => button.dataset.side === side);
     assert.ok(!band.disabled); band.dispatchEvent({ type: 'click' }); assert.equal(f.expandedSide, side);
     const button = f.indexElement.querySelector(`[data-book="${index}"]`);
     assert.ok(!button.hidden && !button.disabled, selected.name + ' actual button is accessible');
-    f.selectBook(index);
+    const before = spread(f); f.selectBook(index);
+    assert.equal(f.chaptersOpen, true); assert.equal(spread(f), before); assert.equal(f.expandedSide, side);
+    assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, selected.chapters.length);
+    f.chooseChapter(selected.chapters[0].page);
+    if ((selected.first & ~1) !== before) { assert.equal(f.jumpActive, true); assert.equal(spread(f), before); f.finishJump(); }
     assert.equal(f.expandedSide, null); assert.equal(f.el('book-name').textContent, selected.name);
     assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
   }
   f.tap(); f.advance(1500); assert.equal(spread(f), (data.books[65].first & ~1) + 2);
   assertUnchangedBookmarks(f);
+});
+test('book index click opens anchored chapter selector without changing the page or closing the edge', () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), anchor = { left: 300, top: 250, right: 344, bottom: 276, width: 44, height: 26 };
+  const stored = f.storage.get('paper-bible-position-v1'); f.expand('right');
+  f.selectBook(55, { bookIndices: [55, 56], anchor });
+  assert.equal(f.expandedSide, 'right'); assert.equal(f.chaptersOpen, true);
+  assert.deepEqual(Array.from(f.chapterState.bookIndices), [55, 56]); assert.equal(f.chapterState.index, 55);
+  assert.deepEqual(f.chapterState.anchor, anchor); assert.equal(spread(f), 20); assert.equal(f.jumpCalls.length, 0);
+  assert.equal(f.storage.get('paper-bible-position-v1'), stored);
+  const current = f.chapterOptions.getCurrent();
+  assert.equal(data.books[current.bookIndex].code, f.el('stage').dataset.book); assert.ok(current.chapter >= 1);
+});
+test('chapter selector consumes tap, hold and arrows; Escape dismisses without navigation', () => {
+  const f = fixture(20, { data: currentRuleData(), manualJump: true }), stored = f.storage.get('paper-bible-position-v1');
+  f.selectBook(65); f.tap(); const p = f.hold(); f.drag(p, .8, 'pointerup');
+  f.el('stage').dispatchEvent({ type: 'keydown', key: 'ArrowRight' }); f.advance(1500);
+  assert.equal(f.rendered.length, 0); assert.equal(f.jumpCalls.length, 0); assert.equal(spread(f), 20);
+  f.el('stage').dispatchEvent({ type: 'keydown', key: 'Escape' });
+  assert.equal(f.chaptersOpen, false); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
+});
+test('far chapter jump keeps source metadata and storage until packet completion then commits exact face', () => {
+  const data = currentRuleData(), selected = data.books.find(book => book.code === 'PHM'), index = data.books.indexOf(selected);
+  const f = fixture(20, { data, width: 390, height: 844, manualJump: true }), stored = f.storage.get('paper-bible-position-v1');
+  f.expand('right'); f.selectBook(index); f.chooseChapter(selected.first);
+  assert.equal(f.expandedSide, null); assert.equal(f.chaptersOpen, false); assert.equal(f.jumpActive, true);
+  assert.equal(f.jumpCalls.length, 1); assert.equal(f.jumpCalls[0].from, 20); assert.equal(f.jumpCalls[0].to, selected.first);
+  assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
+  assert.notEqual(f.ribbonOptions.getCurrent().page, selected.first); f.advance(10000);
+  assert.equal(spread(f), 20, 'time alone cannot commit an unfinished packet');
+  f.finishJump(); const saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
+  assert.equal(f.jumpActive, false); assert.equal(spread(f), selected.first); assert.equal(saved.page, selected.first);
+  assert.equal(saved.focus, 'left'); assert.equal(saved.bookName, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
+  assert.equal(f.el('left-paper').innerHTML, Page.svg(data.pages[selected.first], selected.first, data.books));
+  assert.equal(f.el('stage').dataset.jumpState, 'committed'); assertUnchangedBookmarks(f);
+});
+test('backward packet commits the odd target page rather than losing its right-face anchor', () => {
+  const data = currentRuleData(), f = fixture(1200, { data, width: 390, height: 844, manualJump: true }), target = data.books[0].first;
+  assert.equal(target % 2, 1); f.navigateRibbon(target); assert.equal(spread(f), 1200);
+  assert.equal(f.jumpCalls[0].from, 1200); assert.equal(f.jumpCalls[0].to, target & ~1);
+  f.finishJump(); const saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
+  assert.equal(saved.page, target); assert.equal(saved.focus, 'right'); assert.equal(f.el('book-name').textContent, data.books[0].name);
+});
+test('cancelled jump restores source SVG and cannot save target even if its old finish callback arrives', () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true });
+  const stored = f.storage.get('paper-bible-position-v1'), original = ['left-paper', 'right-paper'].map(id => f.el(id).innerHTML);
+  f.navigateRibbon(data.books[65].first); f.cancelJump(); f.invokeJumpFinish(0);
+  assert.equal(spread(f), 20); assert.equal(f.jumpActive, false); assert.equal(f.el('stage').dataset.jumpState, 'cancelled');
+  assert.equal(f.storage.get('paper-bible-position-v1'), stored);
+  assert.deepEqual(['left-paper', 'right-paper'].map(id => f.el(id).innerHTML), original);
+  f.tap(); f.advance(1500); assert.equal(spread(f), 22);
+});
+test('new jump replaces the previous packet and ignores its stale finish and cancel callbacks', () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), first = data.books[65].first, second = data.books[23].first;
+  const stored = f.storage.get('paper-bible-position-v1');
+  f.navigateRibbon(first); f.navigateRibbon(second);
+  assert.equal(f.jumpCalls.length, 2); assert.equal(f.jumpCalls[0].cancelled, true); assert.equal(f.jumpCalls[1].from, 20);
+  f.invokeJumpFinish(0); f.invokeJumpCancel(0);
+  assert.equal(spread(f), 20); assert.equal(f.jumpActive, true); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
+  f.finishJump(); assert.equal(spread(f), second & ~1); assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, second);
+  f.invokeJumpFinish(0); assert.equal(spread(f), second & ~1);
+});
+test('pending packet excludes taps, held curls, arrows and queued ordinary page turns', () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), target = data.books[65].first;
+  f.navigateRibbon(target); f.tap(); const p = f.hold(); f.drag(p, .8, 'pointerup');
+  f.el('stage').dispatchEvent({ type: 'keydown', key: 'ArrowRight' }); f.click('next'); f.advance(1500);
+  assert.equal(spread(f), 20); assert.equal(f.rendered.length, 0); assert.equal(f.jumpCalls.length, 1);
+  f.finishJump(); f.advance(1500); assert.equal(spread(f), target & ~1); assert.equal(f.rendered.length, 0);
+});
+test('starting packet navigation releases a held curl and consumes its remaining pointer', () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), p = f.hold(), target = data.books[65].first;
+  f.drag(p, .8); f.navigateRibbon(target); f.drag(p, .8, 'pointerup'); f.advance(1500);
+  assert.equal(state(f), 'returned'); assert.equal(f.jumpActive, true); assert.equal(spread(f), 20); assert.equal(f.rendered.length, 1);
+  f.finishJump(); assert.equal(spread(f), target & ~1); assert.equal(f.rendered.length, 1);
+});
+for (const reason of ['blur', 'Escape', 'resize']) test(`${reason} cancels pending packet without persisting destination`, () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), stored = f.storage.get('paper-bible-position-v1');
+  f.navigateRibbon(data.books[65].first);
+  if (reason === 'Escape') f.el('stage').dispatchEvent({ type: 'keydown', key: 'Escape' });
+  else if (reason === 'resize') f.resize(); else f.event(reason);
+  assert.equal(f.jumpActive, false); assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
+  f.invokeJumpFinish(0); assert.equal(spread(f), 20);
+});
+test('same-spread chapter selection updates exact face without manufacturing a packet', () => {
+  const data = currentRuleData(), left = data.books.find(book => book.code === 'PHM').first, f = fixture(left, { data, manualJump: true });
+  f.navigateRibbon(left); assert.equal(f.jumpCalls.length, 0); assert.equal(f.ribbonOptions.getCurrent().page, left);
+  f.navigateRibbon(left + 1); assert.equal(f.jumpCalls.length, 0); assert.equal(f.ribbonOptions.getCurrent().page, left + 1);
+  assert.equal(f.el('book-name').textContent, data.books[data.pages[left + 1].b].name);
+});
+test('normal grouped edge opens all member books and lets a later member choose its chapter', () => {
+  const data = currentRuleData();
+  for (const code of ['PHM', '2JN']) {
+    const index = data.books.findIndex(book => book.code === code), selected = data.books[index];
+    const f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true });
+    const group = f.indexElement.querySelectorAll('.edge-index__group').find(button => !button.hidden && button.dataset.members?.split(',').includes(String(index)));
+    assert.ok(group); group.dispatchEvent({ type: 'click' }); assert.equal(f.chaptersOpen, true); assert.equal(f.jumpCalls.length, 0);
+    const memberButtons = f.chapterElement.querySelectorAll('.edge-chapters__book');
+    assert.equal(memberButtons.length, group.dataset.members.split(',').length);
+    memberButtons.find(button => Number(button.dataset.book) === index).dispatchEvent({ type: 'click' });
+    assert.equal(f.chapterElement.dataset.book, String(index));
+    f.chooseChapter(selected.chapters[0].page); assert.equal(spread(f), 20); f.finishJump();
+    assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.chapters[0].page);
+  }
+});
+test('actual chapter 150 button requests its real page instead of the first page of Psalms', () => {
+  const data = currentRuleData(), index = data.books.findIndex(book => book.code === 'PSA'), selected = data.books[index];
+  const f = fixture(20, { data, realChaptersDom: true, manualJump: true }); f.selectBook(index);
+  const button = f.chapterElement.querySelectorAll('.edge-chapters__chapter').find(node => node.dataset.chapter === '150');
+  assert.ok(button); button.dispatchEvent({ type: 'click' });
+  const target = selected.chapters.find(chapter => chapter.chapter === 150).page;
+  assert.notEqual(target, selected.first); assert.equal(f.jumpCalls[0].to, target & ~1); assert.equal(spread(f), 20);
+  f.finishJump(); assert.equal(f.ribbonOptions.getCurrent().page, target);
+  assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, target);
+});
+test('real chapter Escape closes only the popover before a second Escape closes the expanded edge', () => {
+  const data = currentRuleData(), f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true });
+  f.expand('right'); f.selectBook(65); assert.equal(f.chaptersOpen, true);
+  f.event('keydown', { key: 'Escape', target: f.context.document.activeElement });
+  assert.equal(f.chaptersOpen, false); assert.equal(f.expandedSide, 'right'); assert.equal(f.jumpCalls.length, 0);
+  f.event('document:keydown', { key: 'Escape', target: f.context.document.activeElement });
+  assert.equal(f.expandedSide, null); assert.equal(spread(f), 20);
 });
 
 async function run() {

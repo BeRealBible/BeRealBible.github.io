@@ -20,6 +20,11 @@
   function rectanglesOverlap(a,b,padding=0){
     return a.x<b.x+b.width+padding&&b.x<a.x+a.width+padding&&a.y<b.y+b.height+padding&&b.y<a.y+a.height+padding;
   }
+  function anchorRect(element){
+    const rect=element.getBoundingClientRect?.()||{},number=value=>Number.isFinite(Number(value))?Number(value):0;
+    const left=number(rect.left??rect.x),top=number(rect.top??rect.y),width=number(rect.width),height=number(rect.height);
+    return {x:left,y:top,left,top,right:number(rect.right??left+width),bottom:number(rect.bottom??top+height),width,height};
+  }
   function normalizePageCount(books,pageCount){
     const inferred=books.reduce((max,book)=>Math.max(max,Number(book.last)||Number(book.first)||0),0)+1;
     return Math.max(1,Number.isFinite(Number(pageCount))?Number(pageCount):inferred);
@@ -126,23 +131,24 @@
       listen(button,'click',event=>{
         stop(event);const item=button._edgeItem;
         if(destroyed||state.turning||expanded||button.hidden||!item)return;
-        const index=item.bookIndices[0];if(typeof onSelect==='function')onSelect(index,books[index]);
+        const index=item.bookIndices[0];if(typeof onSelect==='function')onSelect(index,books[index],{bookIndices:item.bookIndices.slice(),anchor:anchorRect(button)});
       });
       groupButtons.set(group.index+':'+side,button);
     }
     const bookButtons=books.map((book,index)=>{
       const button=configureButton(add('button','edge-index__book '+(index>=39?'edge-index__nt':'edge-index__ot')));
       button.dataset.book=String(index);button.dataset.code=book.code||String(index);
-      button.textContent=String(book.short||book.name);button.title=`${book.name} · 跳转到开篇`;
-      button.setAttribute('aria-label',`${book.name}，跳转到开篇`);
+      button.textContent=String(book.short||book.name);button.title=`${book.name} · 选择章节`;
+      button.setAttribute('aria-label',`${book.name}，选择章节`);button.setAttribute('aria-haspopup','dialog');
       listen(button,'click',event=>{
         stop(event);if(destroyed||state.turning||!expanded||button.hidden)return;
-        setExpanded(null);if(typeof onSelect==='function')onSelect(index,book);
+        if(typeof onSelect==='function')onSelect(index,book,{bookIndices:[index],anchor:anchorRect(button)});
       });return button;
     });
     const caption=add('div','edge-index__caption');caption.setAttribute('role','status');caption.setAttribute('aria-live','polite');
     listen(dim,'click',event=>{stop(event);setExpanded(null);});
     listen(doc,'keydown',event=>{
+      if(event.target?.closest?.('.edge-chapters')||doc.querySelector?.('.edge-chapters:not([hidden])'))return;
       if(expanded&&event.key==='Escape'){event.preventDefault();event.stopPropagation();setExpanded(null);}
     },true);
     host.appendChild(root);
@@ -168,8 +174,8 @@
         button.children[0].textContent=item.label;
         const count=[...item.label].length,fontSize=Math.min(item.width-2,count>2?7.3:count>1?9.5:10.5);
         button.style.fontSize=fontSize+'px';
-        button.title=item.bookIndices.map(index=>books[index].name).join(' · ')+` · 跳转到${books[item.bookIndices[0]].name}开篇`;
-        button.setAttribute('aria-label',button.title+'，书口空白处可展开逐卷选择');
+        button.title=item.bookIndices.map(index=>books[index].name).join(' · ')+' · 选择章节';
+        button.setAttribute('aria-label',button.title+'，书口空白处可展开逐卷选择');button.setAttribute('aria-haspopup','dialog');
         button.dataset.members=item.bookIndices.join(',');markCurrent(button,item.bookIndices.some(current));
       }
       for(const button of bookButtons){button.hidden=true;button.disabled=Boolean(state.turning);}
@@ -178,7 +184,7 @@
         markCurrent(button,current(item.index));
       }
       caption.hidden=!expanded;
-      if(expanded){caption.style.left=geometry.bands[expanded].x+'px';caption.textContent=`${expanded==='left'?'左侧':'右侧'}书口 · ${geometry.expandedBooks.length} 卷 · 点击跳转 · Esc 收起`;}
+      if(expanded){caption.style.left=geometry.bands[expanded].x+'px';caption.textContent=`${expanded==='left'?'左侧':'右侧'}书口 · ${geometry.expandedBooks.length} 卷 · 点击选章 · Esc 收起`;}
       return {...geometry.bounds};
     }
     function update(next={}){

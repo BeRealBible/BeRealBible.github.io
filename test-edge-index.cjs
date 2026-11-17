@@ -19,11 +19,12 @@ class Element extends Target {
   appendChild(child){child.parentNode=this;this.children.push(child);return child;}
   remove(){if(this.parentNode)this.parentNode.children=this.parentNode.children.filter(child=>child!==this);this.parentNode=null;}
   focus(){this.ownerDocument.activeElement=this;}
+  getBoundingClientRect(){return {x:101,y:202,left:101,top:202,right:114,bottom:226,width:13,height:24};}
   click(){return this.dispatch('click');}
 }
-function setup(){const doc=new Target();doc.createElement=tag=>new Element(tag,doc);const host=new Element('div',doc),events=[];
-  host.style.zIndex='6';const index=E.create(host,{books,pageCount,onSelect:(i,b)=>events.push(['select',i,b.code]),onExpand:side=>events.push(['expand',side])});
-  return {doc,host,index,events,children:index.element.children};
+function setup(){const doc=new Target();doc.createElement=tag=>new Element(tag,doc);const host=new Element('div',doc),events=[],metadata=[];
+  host.style.zIndex='6';const index=E.create(host,{books,pageCount,onSelect:(i,b,meta)=>{events.push(['select',i,b.code]);metadata.push(meta);},onExpand:side=>events.push(['expand',side])});
+  return {doc,host,index,events,metadata,children:index.element.children};
 }
 const isClass=(node,name)=>String(node.className||'').split(' ').includes(name);
 const classNodes=(fixture,name)=>fixture.children.filter(node=>isClass(node,name));
@@ -111,13 +112,30 @@ test('normal group buttons select the first actual member on that side',()=>{
   const right=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='right');
   left.click();right.click();assert.deepEqual(f.events,[['select',8,'1SA'],['select',9,'2SA']]);
 });
-test('expanded selection closes first, emits one callback, and reaches each of the real 66 books',()=>{
+test('expanded selection requests a chapter menu without collapsing and reaches each of the real 66 books',()=>{
   const f=setup();f.index.update({spread:740});
   for(let i=0;i<books.length;i++){
     const side=E.sideOf(books[i],740);f.index.setExpanded(side);const button=visibleBooks(f).find(node=>+node.dataset.book===i);assert.ok(button);
-    const start=f.events.length;button.click();assert.deepEqual(f.events.slice(start),[['expand',null],['select',i,books[i].code]]);assert.equal(f.index.getExpanded(),null);
+    const start=f.events.length;button.click();assert.deepEqual(f.events.slice(start),[['select',i,books[i].code]]);assert.equal(f.index.getExpanded(),side);
+    assert.deepEqual(f.metadata.at(-1).bookIndices,[i]);
   }
   assert.equal(f.events.filter(event=>event[0]==='select').length,66);
+});
+test('chapter requests carry only this side group members and a detached plain screen anchor',()=>{
+  const f=setup();f.index.update({spread:262});
+  const left=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='left');
+  const right=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='right');
+  left.click();right.click();assert.deepEqual(f.metadata.map(meta=>meta.bookIndices),[[8],[9]]);
+  assert.deepEqual(f.metadata[0].anchor,{x:101,y:202,left:101,top:202,right:114,bottom:226,width:13,height:24});
+  assert.equal(Object.getPrototypeOf(f.metadata[0].anchor),Object.prototype);
+  f.metadata[0].bookIndices.push(65);left.click();assert.deepEqual(f.metadata.at(-1).bookIndices,[8]);
+  assert.match(left.getAttribute('aria-label'),/选择章节/);assert.equal(left.getAttribute('aria-haspopup'),'dialog');
+});
+test('Escape belonging to the chapter dialog does not collapse the expanded book edge',()=>{
+  const f=setup();f.index.setExpanded('right');
+  const event=f.doc.dispatch('keydown',{key:'Escape',target:{closest:selector=>selector==='.edge-chapters'?{}:null}});
+  assert.equal(f.index.getExpanded(),'right');assert.equal(event.prevented,false);
+  f.doc.querySelector=()=>({});f.doc.dispatch('keydown',{key:'Escape'});assert.equal(f.index.getExpanded(),'right');
 });
 test('bands, group labels and individual labels are native focusable buttons with full names',()=>{
   const f=setup();f.index.setExpanded('right');
