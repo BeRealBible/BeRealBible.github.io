@@ -8,7 +8,7 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const constants=Object.freeze({WIDTH:960,HEIGHT:704,MIN_BAND:10,DEPTH_BAND:42,MIXED_MIN_BAND:32,TRACK_GAP:3,EXPANDED:208,
-    GROUP_WIDTH:13,GROUP_HEIGHT:24,BOOK_WIDTH:44,BOOK_HEIGHT:26,COLUMNS:4,COLUMN_PITCH:48,COLUMN_INSET:10,COLLISION_GAP:3});
+    GROUP_WIDTH:13,GROUP_HEIGHT:24,BOOK_WIDTH:28,BOOK_HEIGHT:18,DEPTH_INSET:10,VERTICAL_INSET:10,COLLISION_GAP:2});
   const OTG=[['创',[0]],['出',[1]],['利',[2]],['民',[3]],['申',[4]],['书',[5]],['士得',[6,7]],['撒',[8,9]],['王',[10,11]],['代',[12,13]],['拉尼斯',[14,15,16]],['伯',[17]],['诗',[18]],['箴',[19]],['传歌',[20,21]],['赛',[22]],['耶哀',[23,24]],['结',[25]],['但',[26]],['何珥摩',[27,28,29]],['俄拿弥',[30,31,32]],['鸿哈番',[33,34,35]],['该亚玛',[36,37,38]]];
   const NTG=[['太',[39]],['可',[40]],['路',[41]],['约',[42]],['徒',[43]],['罗',[44]],['林前',[45]],['林后',[46]],['加弗',[47,48]],['腓西',[49,50]],['帖',[51,52]],['提',[53,54]],['多门',[55,56]],['来',[57]],['雅',[58]],['彼',[59,60]],['壹贰叁',[61,62,63]],['犹',[64]],['启',[65]]];
   const GROUPS=Object.freeze([...OTG.map(([label,members],row)=>({label,members,nt:false,row})),
@@ -30,42 +30,51 @@
     return Math.max(1,Number.isFinite(Number(pageCount))?Number(pageCount):inferred);
   }
   function depthRatio(first,side,spread,total){
-    return side==='left'?clamp((first-1)/Math.max(1,spread-1),0,1):clamp((first-spread-1)/Math.max(1,total-spread-1),0,1);
+    const carrier=carrierSheet({first}),split=Math.floor(spread/2),sheets=Math.ceil(total/2);
+    // The two faces of one physical leaf have one depth. Both fore-edges read
+    // left-to-right in canonical order: cover -> current page on the left,
+    // current page -> back cover on the right. Never mirror the left stack.
+    return side==='left'?clamp((carrier-1)/Math.max(1,split-1),0,1):
+      clamp((carrier-split-1)/Math.max(1,sheets-split-1),0,1);
   }
   function expandedLayout(entries,band,spread,total){
-    const placed=[],columns=Array.from({length:constants.COLUMNS},(_,i)=>band.x+constants.COLUMN_INSET+i*constants.COLUMN_PITCH);
-    const byGroup=new Map();
-    for(const entry of entries){
-      const key=entry.groupIndex+':'+entry.side;
-      if(!byGroup.has(key))byGroup.set(key,[]);byGroup.get(key).push(entry);
+    if(!entries.length)return [];
+    const width=constants.BOOK_WIDTH,height=constants.BOOK_HEIGHT,gap=constants.COLLISION_GAP;
+    const inset=constants.DEPTH_INSET,top=constants.VERTICAL_INSET,bottom=constants.HEIGHT-top-height;
+    // X is physical data, not a layout hint. Nothing in the collision solver
+    // can snap it to columns, reorder it, or separate labels on one carrier.
+    const items=entries.map(entry=>{
+      const ratio=depthRatio(entry.first,entry.side,spread,total);
+      return {...entry,carrier:carrierSheet({first:entry.first}),depthRatio:ratio,
+        x:band.x+inset+ratio*(band.width-2*inset-width),width,height};
+    }).sort((a,b)=>a.x-b.x||a.index-b.index);
+    // Equal-width horizontal intervals form an interval graph. Its maximum
+    // concurrent count is the exact number of disjoint vertical lanes needed.
+    let first=0,laneCount=1;
+    for(let i=0;i<items.length;i++){
+      while(first<i&&items[first].x+width+gap<=items[i].x)first++;
+      laneCount=Math.max(laneCount,i-first+1);
     }
-    const packs=[...byGroup.values()].map(pack=>pack.sort((a,b)=>a.index-b.index))
-      .sort((a,b)=>a[0].originalY-b[0].originalY||a[0].groupIndex-b[0].groupIndex);
-    // Move whole groups, never individual members: canonical order reads left
-    // to right on one shared baseline, even if the nearest free slot is left.
-    // Every candidate pack is checked against BOTH testaments' placed items.
-    for(const pack of packs){
-      const desired=pack.map(entry=>band.x+constants.BOOK_WIDTH/2+constants.COLUMN_INSET+
-        depthRatio(entry.first,entry.side,spread,total)*(constants.EXPANDED-2*constants.COLUMN_INSET-constants.BOOK_WIDTH));
-      const score=start=>pack.reduce((sum,entry,i)=>sum+Math.abs(columns[start+i]+constants.BOOK_WIDTH/2-desired[i]),0);
-      const choices=Array.from({length:constants.COLUMNS-pack.length+1},(_,i)=>i).sort((a,b)=>score(a)-score(b)||a-b);
-      const top=pack[0].originalY-constants.BOOK_HEIGHT/2;
-      let match=null;
-      for(let distance=0;distance<=constants.HEIGHT&&!match;distance+=2){
-        const candidates=distance?[top-distance,top+distance]:[top];
-        for(const y of candidates){
-          if(y<10||y+constants.BOOK_HEIGHT>constants.HEIGHT-10)continue;
-          for(const start of choices){
-            const rects=pack.map((entry,i)=>({...entry,x:columns[start+i],y,width:constants.BOOK_WIDTH,height:constants.BOOK_HEIGHT}));
-            if(!rects.some(rect=>placed.some(other=>rectanglesOverlap(rect,other,constants.COLLISION_GAP)))){match=rects;break;}
-          }
-          if(match)break;
-        }
+    if(laneCount*height+(laneCount-1)*gap>constants.HEIGHT-2*top)
+      throw new RangeError('Physical fore-edge depths require more vertical space; horizontal depth cannot be rearranged');
+    // The clique bound proves feasibility; use ALL available vertical lanes
+    // when choosing the nearest original group Y. Restricting the candidates
+    // to the minimum lane count would unnecessarily jump labels up and down.
+    const slots=Math.floor((constants.HEIGHT-2*top+gap)/(height+gap));
+    const ys=Array.from({length:slots},(_,i)=>top+i*(height+gap));
+    const occupiedUntil=Array(slots).fill(-Infinity);
+    for(const item of items){
+      const desired=clamp(item.originalY-height/2,top,bottom);
+      let lane=-1,distance=Infinity;
+      for(let i=0;i<slots;i++)if(occupiedUntil[i]<=item.x){
+        const next=Math.abs(ys[i]-desired);
+        if(next<distance){lane=i;distance=next;}
       }
-      if(!match)throw new RangeError('The expanded fore-edge has no collision-free slot');
-      placed.push(...match);
+      if(lane<0)throw new RangeError('Physical fore-edge interval allocation failed');
+      item.y=laneCount===1?desired:ys[lane];item.lane=lane;
+      occupiedUntil[lane]=item.x+width+gap;
     }
-    return placed.sort((a,b)=>a.index-b.index);
+    return items.sort((a,b)=>a.index-b.index);
   }
   function layout(books,pageCount,spread=0,expanded=null){
     const total=normalizePageCount(books,pageCount),page=clamp(Math.floor(Number(spread)||0),0,total);
@@ -181,6 +190,7 @@
       for(const button of bookButtons){button.hidden=true;button.disabled=Boolean(state.turning);}
       for(const item of geometry.expandedBooks){
         const button=bookButtons[item.index];position(button,item);button.hidden=false;button.dataset.side=item.side;
+        button.dataset.carrier=String(item.carrier);button.dataset.depthRatio=String(item.depthRatio);
         markCurrent(button,current(item.index));
       }
       caption.hidden=!expanded;

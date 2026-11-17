@@ -1,4 +1,4 @@
-/* Contract checks for the index-19 flat-book shell; no browser or network needed. */
+/* Contract checks for the index-20 flat-book shell; no browser or network needed. */
 'use strict';
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -17,14 +17,14 @@ for(const entry of ['index.html','rules.html']){
   for(const file of retiredScripts)assert.ok(!scripts.includes(file),`${entry}: retired controller loaded: ${file}`);
   assert.ok(scripts.indexOf('edge-index.js')<scripts.indexOf('edge-reader.js'),`${entry}: edge API loads before reader`);
   for(const file of ['chapter-preview.js','edge-chapters.js','paper-jump.js'])assert.ok(scripts.indexOf(file)<scripts.indexOf('edge-reader.js'),`${entry}: ${file} loads before reader`);
-  for(const file of ['edge-chapters.css','paper-jump.css'])assert.ok(html.includes(`href="${file}?v=index-19"`),`${entry}: new interaction styles loaded`);
+  for(const file of ['edge-chapters.css','paper-jump.css'])assert.ok(html.includes(`href="${file}?v=index-20"`),`${entry}: new interaction styles loaded`);
   assert.ok(html.includes('纸质选章')&&html.includes('章号格子')&&html.includes('经文摘读')&&html.includes('连续翻过多张纸'),`${entry}: adaptive chapter menu and packet-jump instructions`);
   assert.ok(scripts.indexOf('rule-reader-bootstrap.js')<scripts.indexOf('edge-reader.js'),`${entry}: layout bootstrap loads before reader`);
   assert.ok(!/id="(?:scene-controls|index-placement|physical-index-host|view-edge|view-open|right-edge-open|left-edge-open|paper-solid|book-leaves)"/.test(html),`${entry}: old scene entry remains`);
   assert.ok(!/合书|合起书|看书侧|切口|切槽|半圆|拨开|半秒/.test(html),`${entry}: old interaction instructions remain`);
   assert.ok(!/sticker-(?:reader|index)|贴纸/.test(html),`${entry}: retired sticker presentation remains`);
   assert.ok(html.includes('点索引组')&&html.includes('点书口空白')&&html.includes('Esc 收起'),`${entry}: compact edge direct/select/close instructions`);
-  assert.ok(html.includes('data-reader-build="index-19"'),`${entry}: release stamp`);
+  assert.ok(html.includes('data-reader-build="index-20"'),`${entry}: release stamp`);
   assert.ok(html.includes('0.16 秒')&&html.includes('松手即响应，不等待双击'),`${entry}: fast tap and 160 ms hold instructions`);
   assert.ok(!/book-(?:index|scene|solid|leaves)\.css/.test(html),`${entry}: old scene styling loaded`);
   for(const side of ['left','right']){
@@ -35,7 +35,7 @@ for(const entry of ['index.html','rules.html']){
     if(/^(?:https?:|#|\.\/\?)/.test(url))continue;
     const file=url.split('?')[0];
     assert.ok(fs.existsSync(path.join(root,file)),`${entry}: referenced resource is missing: ${file}`);
-    if(/\.(?:js|css)$/.test(file))assert.ok(url.endsWith('?v=index-19'),`${entry}: unstamped resource ${url}`);
+    if(/\.(?:js|css)$/.test(file))assert.ok(url.endsWith('?v=index-20'),`${entry}: unstamped resource ${url}`);
   }
 }
 const immersion=fs.readFileSync(path.join(root,'immersion.js'),'utf8');

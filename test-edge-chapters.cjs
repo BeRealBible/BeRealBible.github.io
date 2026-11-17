@@ -24,7 +24,7 @@ class Element extends Target {
   get isConnected(){return this.tagName==='BODY'||Boolean(this.parentNode?.isConnected);}
   getBoundingClientRect(){
     const width=parseFloat(this.style.width)||28,cell=parseFloat(this.style['--cell'])||28,columns=+this.style['--columns']||1,count=+this.dataset.count||1;
-    const natural=this._height??(this.className==='edge-chapters__panel'?40+Math.ceil(count/columns)*(this.dataset.mode==='preview'?(cell===28?40:38):cell+1):28);
+    const natural=this._height??(this.className==='edge-chapters__panel'?74+Math.ceil(count/columns)*(this.dataset.mode==='preview'?(cell===28?40:36):cell+1):28);
     const height=Math.min(natural,parseFloat(this.style.maxHeight)||natural),left=parseFloat(this.style.left)||0,top=parseFloat(this.style.top)||0;
     return {left,top,right:left+width,bottom:top+height,width,height};
   }
@@ -52,27 +52,31 @@ test('opening a book never navigates, creates a body portal and highlights the a
   assert.equal(find(f,'edge-chapters__books')[0].hidden,true);assert.equal(find(f,'edge-chapters__chapter').length,150);
   const current=find(f,'edge-chapters__chapter').filter(button=>button.getAttribute('aria-current'));assert.equal(current.length,1);assert.equal(current[0].dataset.chapter,'119');assert.equal(f.doc.activeElement,current[0]);
   assert.equal(find(f,'edge-chapters__panel')[0].getAttribute('role'),'dialog');
-  assert.equal(find(f,'edge-chapters__eyebrow')[0].textContent,'150 篇');assert.equal(find(f,'edge-chapters__subtitle')[0].hidden,true);
-  assert.equal(find(f,'edge-chapters__close')[0].textContent,'×');assert.equal(find(f,'edge-chapters__hint')[0].textContent,'点纸外收起');
-  const header=find(f,'edge-chapters__header')[0],modes=find(f,'edge-chapters__modes')[0];
-  assert.deepEqual(header.children.map(node=>node.className),['edge-chapters__heading','edge-chapters__modes','edge-chapters__close']);
-  assert.deepEqual(modes.children.map(node=>node.textContent),['章号','摘句','卷首']);assert.equal(find(f,'edge-chapters__close')[0].getAttribute('aria-label'),'关闭章节菜单');
+  assert.equal(find(f,'edge-chapters__eyebrow')[0].textContent,'共150篇');assert.equal(find(f,'edge-chapters__subtitle').length,0);
+  assert.equal(find(f,'edge-chapters__close')[0].textContent,'收');assert.equal(find(f,'edge-chapters__hint')[0].textContent,'点章码翻页');
+  const panel=find(f,'edge-chapters__panel')[0],sheet=find(f,'edge-chapters__sheet')[0],header=find(f,'edge-chapters__header')[0],modes=find(f,'edge-chapters__modes')[0];
+  assert.deepEqual(panel.children.map(node=>node.className),['edge-chapters__modes','edge-chapters__close','edge-chapters__sheet','edge-chapters__corner']);
+  assert.deepEqual(sheet.children.map(node=>node.className),['edge-chapters__header','edge-chapters__books','edge-chapters__rule','edge-chapters__grid','edge-chapters__footer']);
+  assert.deepEqual(header.children.map(node=>node.className),['edge-chapters__kicker','edge-chapters__heading']);assert.equal(find(f,'edge-chapters__kicker')[0].textContent,'卷内目次');
+  assert.equal(find(f,'edge-chapters__current')[0].textContent,'读至119篇');assert.equal(find(f,'edge-chapters__current')[0].hidden,false);
+  assert.equal(find(f,'edge-chapters__corner')[0].getAttribute('aria-hidden'),'true');
+  assert.deepEqual(modes.children.map(node=>node.textContent),['章码','摘句']);assert.equal(find(f,'edge-chapters__close')[0].getAttribute('aria-label'),'关闭章节菜单');
   assert.deepEqual(find(f,'edge-chapters__mode').map(node=>node.getAttribute('aria-label')),['章号格子','经文摘读']);
 });
 test('adaptive menu sizes follow chapter counts and avoid stretching short books or overflowing viewports',()=>{
-  for(const [count,width,columns] of [[1,220,1],[3,220,3],[4,220,4],[5,220,5],[6,220,6],[7,220,7],[8,227,8],[30,227,8],[80,227,8],[81,277,10],[150,277,10]]){
+  for(const [count,width,columns] of [[1,220,1],[3,220,3],[4,220,4],[5,220,5],[6,220,6],[7,222,7],[8,247,8],[30,247,8],[80,247,8],[81,297,10],[150,297,10]]){
     assert.deepEqual(C.menuSize(count,'numbers',1000,900,1),{width,columns,maxHeight:340});
   }
-  for(const [count,width,columns] of [[1,260,1],[3,260,1],[4,260,1],[8,260,1],[9,440,2],[150,440,2]]){
-    assert.deepEqual(C.menuSize(count,'preview',1000,900,3),{width,columns,maxHeight:360});
+  for(const [count,width,columns] of [[1,274,1],[3,274,1],[4,274,1],[8,274,1],[9,460,2],[150,460,2]]){
+    assert.deepEqual(C.menuSize(count,'preview',1000,900,3),{width,columns,maxHeight:390});
   }
-  assert.deepEqual(C.menuSize(150,'numbers',320,568,1),{width:288,columns:9,maxHeight:340});
-  assert.deepEqual(C.menuSize(150,'numbers',390,720,1),{width:317,columns:10,maxHeight:340});
-  assert.deepEqual(C.menuSize(1,'preview',390,720,1),{width:260,columns:1,maxHeight:360});
-  assert.deepEqual(C.menuSize(150,'preview',320,360,1),{width:260,columns:1,maxHeight:336});
-  assert.deepEqual(C.menuSize(150,'numbers',1000,900,1,{width:170,height:140}),{width:170,columns:5,maxHeight:140});
-  assert.deepEqual(C.menuSize(150,'preview',1000,900,1,{width:399,height:500}),{width:260,columns:1,maxHeight:360});
-  assert.deepEqual(C.menuSize(150,'preview',1000,900,1,{width:400,height:500}),{width:400,columns:2,maxHeight:360});
+  assert.deepEqual(C.menuSize(150,'numbers',320,568,1),{width:279,columns:8,maxHeight:340});
+  assert.deepEqual(C.menuSize(150,'numbers',390,720,1),{width:337,columns:10,maxHeight:340});
+  assert.deepEqual(C.menuSize(1,'preview',390,720,1),{width:274,columns:1,maxHeight:390});
+  assert.deepEqual(C.menuSize(150,'preview',320,360,1),{width:274,columns:1,maxHeight:336});
+  assert.deepEqual(C.menuSize(150,'numbers',1000,900,1,{width:170,height:140}),{width:170,columns:4,maxHeight:140});
+  assert.deepEqual(C.menuSize(150,'preview',1000,900,1,{width:409,height:500}),{width:274,columns:1,maxHeight:390});
+  assert.deepEqual(C.menuSize(150,'preview',1000,900,1,{width:410,height:500}),{width:410,columns:2,maxHeight:390});
   for(const viewportWidth of [320,390,1000])for(const count of [1,3,5,22,50,150]){
     const size=C.menuSize(count,'numbers',viewportWidth,720),cell=viewportWidth<560?28:24;
     assert.ok(size.width-C.constants.PADDING-(size.columns*cell+(size.columns-1)*C.constants.NUMBER_GAP)>=C.constants.NUMBER_GUTTER,'number grid must reserve scrollbar width');
@@ -88,9 +92,9 @@ test('mode controls never navigate, remember the session choice across reopen an
   const preview=find(f,'edge-chapters__mode').find(button=>button.dataset.mode==='preview');
   assert.equal(preview.tagName,'BUTTON');assert.equal(preview.type,'button');assert.equal(preview.getAttribute('aria-label'),'经文摘读');
   preview.click();assert.equal(f.menu.getMode(),'preview');assert.equal(f.selected.length,0);assert.equal(f.doc.activeElement,preview);
-  assert.equal(preview.getAttribute('aria-pressed'),'true');assert.equal(find(f,'edge-chapters__panel')[0].style.width,'260px');assert.equal(find(f,'preview').length,5);
+  assert.equal(preview.getAttribute('aria-pressed'),'true');assert.equal(find(f,'edge-chapters__panel')[0].style.width,'274px');assert.equal(find(f,'preview').length,5);assert.equal(find(f,'edge-chapters__hint')[0].textContent,'点摘句翻页');
   f.menu.close();f.menu.open({bookIndices:[52],index:52,anchor});assert.equal(f.menu.getMode(),'preview');assert.equal(find(f,'preview').length,3);
-  assert.equal(find(f,'edge-chapters__panel')[0].style.width,'260px');assert.equal(f.menu.setMode('numbers'),'numbers');assert.equal(find(f,'preview').length,0);assert.equal(f.selected.length,0);
+  assert.equal(find(f,'edge-chapters__panel')[0].style.width,'274px');assert.equal(f.menu.setMode('numbers'),'numbers');assert.equal(find(f,'preview').length,0);assert.equal(f.selected.length,0);assert.equal(find(f,'edge-chapters__hint')[0].textContent,'点章码翻页');
   assert.throws(()=>f.menu.setMode('unknown'),TypeError);assert.throws(()=>C.menuSize(1,'unknown',390,720),TypeError);
   assert.doesNotMatch(fs.readFileSync(require.resolve('./edge-chapters.js'),'utf8'),/localStorage|sessionStorage/);
 });
@@ -118,11 +122,18 @@ test('missing or failed preview never fabricates scripture and keeps precise cha
 });
 test('group selector contains only supplied side members and switches chapter grids without navigation',()=>{
   const f=setup();f.menu.open({bookIndices:[51,52],index:51,anchor});
-  assert.equal(find(f,'edge-chapters__eyebrow')[0].textContent,'5 章');assert.equal(find(f,'edge-chapters__subtitle')[0].hidden,true);
+  assert.equal(find(f,'edge-chapters__eyebrow')[0].textContent,'共5章');assert.equal(find(f,'edge-chapters__subtitle').length,0);assert.equal(find(f,'edge-chapters__current')[0].hidden,true);
   assert.deepEqual(find(f,'edge-chapters__book').map(button=>+button.dataset.book),[51,52]);assert.equal(find(f,'edge-chapters__chapter').length,5);
   find(f,'edge-chapters__book')[1].click();assert.equal(find(f,'edge-chapters__chapter').length,3);assert.equal(f.menu.element.dataset.book,'52');assert.equal(f.selected.length,0);
   assert.equal(find(f,'edge-chapters__title')[0].textContent,'帖撒罗尼迦后书');
-  assert.equal(find(f,'edge-chapters__eyebrow')[0].textContent,'3 章');assert.equal(find(f,'edge-chapters__subtitle')[0].hidden,true);
+  assert.equal(find(f,'edge-chapters__eyebrow')[0].textContent,'共3章');assert.equal(find(f,'edge-chapters__subtitle').length,0);
+});
+test('reading status only appears for a valid current chapter belonging to the selected book',()=>{
+  const current={bookIndex:51,chapter:3},f=setup(current);f.menu.open({bookIndices:[51,52],index:51,anchor});
+  const status=find(f,'edge-chapters__current')[0];assert.equal(status.hidden,false);assert.equal(status.textContent,'读至3章');
+  find(f,'edge-chapters__book')[1].click();assert.equal(status.hidden,true);assert.equal(status.textContent,'');
+  current.bookIndex=52;current.chapter=99;f.menu.setMode('preview');assert.equal(status.hidden,true);
+  current.chapter=2;f.menu.setMode('numbers');assert.equal(status.hidden,false);assert.equal(status.textContent,'读至2章');
 });
 test('both menu modes select every one of 1189 chapters by its exact real page and close before navigation',()=>{
   const f=setup(undefined,undefined,actualPreview);let count=0;
@@ -135,8 +146,8 @@ test('both menu modes select every one of 1189 chapters by its exact real page a
 });
 test('optional opening button selects the real book opening independently of chapter mapping',()=>{
   const f=setup();f.menu.open({bookIndices:[65],index:65,anchor});
-  const modes=find(f,'edge-chapters__modes')[0],opening=find(f,'edge-chapters__opening')[0],footer=find(f,'edge-chapters__footer')[0];
-  assert.equal(opening.parentNode,modes);assert.equal(modes.children.at(-1),opening);assert.equal(footer.hidden,true);assert.equal(find(f,'edge-chapters__hint')[0].parentNode,footer);
+  const opening=find(f,'edge-chapters__opening')[0],footer=find(f,'edge-chapters__footer')[0];
+  assert.equal(opening.parentNode,footer);assert.equal(footer.children[0],opening);assert.equal(Boolean(footer.hidden),false);assert.equal(find(f,'edge-chapters__hint')[0].parentNode,footer);
   opening.click();assert.deepEqual(f.selected,[books[65].first]);assert.equal(f.menu.isOpen(),false);
 });
 test('fixed corner placement fits phone, landscape and desktop and honors visual viewport offsets',()=>{
@@ -146,14 +157,14 @@ test('fixed corner placement fits phone, landscape and desktop and honors visual
       assert.ok(p.left>=left&&p.top>=top);assert.ok(p.left+p.width<=left+viewport.width+1e-7);assert.ok(p.top+p.height<=top+viewport.height+1e-7);
     }
   }
-  const f=setup(undefined,{width:320,height:568});f.menu.open({bookIndices:[18],index:18,anchor});const panel=find(f,'edge-chapters__panel')[0];assert.equal(panel.style.width,'288px');assert.equal(panel.style.maxHeight,'332px');
+  const f=setup(undefined,{width:320,height:568});f.menu.open({bookIndices:[18],index:18,anchor});const panel=find(f,'edge-chapters__panel')[0];assert.equal(panel.style.width,'279px');assert.equal(panel.style.maxHeight,'332px');
 });
 test('chapter controls use 24px print-index desktop cells, 28px phone cells and plain untransformed text',()=>{
   const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');assert.match(css,/min-width:\s*var\(--cell,24px\);min-height:\s*var\(--cell,24px\)/);assert.match(css,/overflow-y:\s*auto/);
   for(const name of ['number','preview','reference']){const rule=css.match(new RegExp('\\.edge-chapters__'+name+'\\s*\\{([^}]+)\\}'));assert.ok(rule);assert.doesNotMatch(rule[1],/filter\s*:|transform\s*:/);}
   const numberRule=css.match(/\.edge-chapters__number\s*\{([^}]+)\}/)[1],previewRule=css.match(/\.edge-chapters__preview\s*\{([^}]+)\}/)[1];
   assert.match(numberRule,/border-radius:\s*0(?:;|$)/);assert.match(numberRule,/font:\s*12px\//);assert.match(previewRule,/font-size:\s*10\.5px/);
-  assert.match(css,/\[data-mode="preview"\] \.edge-chapters__chapter\s*\{[^}]*min-height:\s*38px/);
+  assert.match(css,/\[data-mode="preview"\] \.edge-chapters__chapter\s*\{[^}]*min-height:\s*36px/);
   assert.match(css,/@media\(max-width:559px\)[\s\S]*?\.edge-chapters__chapter\s*\{min-height:\s*40px/);assert.match(css,/-webkit-line-clamp:\s*2/);
   const f=setup();f.menu.open({bookIndices:[0],index:0,anchor});for(const button of find(f,'edge-chapters__chapter')){assert.equal(button.events.has('keydown'),false);assert.ok(button.title.includes('创世记'));assert.ok(button.getAttribute('aria-label'));}
   assert.equal(find(f,'edge-chapters__panel')[0].style['--cell'],'28px');
@@ -189,13 +200,16 @@ test('little corner space reduces size and enables whole-paper scrolling without
   f.menu.open({index:18,anchor:a});f.menu.setMode('preview');const panel=find(f,'edge-chapters__panel')[0];
   assert.equal(panel.dataset.tight,'true');assert.equal(panel.style.maxHeight,'137.5px');assert.equal(+panel.dataset.anchorX,350.25);assert.equal(+panel.dataset.anchorY,110.5);
   const r=panel.getBoundingClientRect();assert.equal(r.right,350.25);assert.equal(r.top,110.5);assert.ok(r.bottom<=248);
-  const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');assert.match(css,/\.edge-chapters__panel\[data-tight="true"\]\s*\{[^}]*overflow-y:\s*auto/);
+  const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');assert.match(css,/\.edge-chapters__panel\[data-tight="true"\] \.edge-chapters__sheet\s*\{[^}]*overflow-y:\s*auto/);
 });
 test('paper and immersion shade are translucent and appearance never translates the docked corner',()=>{
   const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');
-  const outside=css.match(/\.edge-chapters__outside\s*\{([^}]+)\}/)[1],panel=css.match(/\.edge-chapters__panel\s*\{([^}]+)\}/)[1];
-  assert.match(outside,/background:\s*rgba\([^)]*,\s*\.[0-9]+\)/);assert.match(panel,/rgba\([^)]*,\s*\.[0-9]+\)/);
-  assert.doesNotMatch(css,/\btransform\s*:/);assert.match(css,/@keyframes\s+directory-leaf-in\s*\{from\{opacity:0\}to\{opacity:1\}\}/);
+  const outside=css.match(/\.edge-chapters__outside\s*\{([^}]+)\}/)[1],panel=css.match(/\.edge-chapters__panel\s*\{([^}]+)\}/)[1],sheet=css.match(/\.edge-chapters__sheet\s*\{([^}]+)\}/)[1];
+  assert.match(outside,/background:\s*rgba\([^)]*,\s*\.[0-9]+\)/);assert.match(sheet,/rgba\([^)]*,\s*\.[0-9]+\)/);
+  assert.doesNotMatch(panel,/\btransform\s*:|clip-path\s*:/);assert.match(css,/@keyframes\s+directory-leaf-in\s*\{from\{opacity:0\}to\{opacity:1\}\}/);
+  assert.match(sheet,/data:image\/svg\+xml/);assert.match(css,/\.edge-chapters__sheet:before\s*\{[^}]*border:/);assert.match(css,/\.edge-chapters__sheet:after\s*\{[^}]*width:2px/);
+  assert.match(css,/\.edge-chapters__modes\s*\{[^}]*position:absolute/);assert.match(css,/\.edge-chapters \.edge-chapters__close\s*\{[^}]*position:absolute/);
+  for(const [corner,opposite] of [['top-left','right:0;bottom:0'],['top-right','left:0;bottom:0'],['bottom-left','right:0;top:0'],['bottom-right','left:0;top:0']])assert.ok(css.includes(`[data-dock-corner="${corner}"] .edge-chapters__corner{${opposite}`),'fold must not remove the attached corner');
 });
 test('preview grid rows keep intrinsic content height and never shrink chapter number, excerpt or reference',()=>{
   const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');
@@ -222,7 +236,8 @@ test('paper-ink selected states keep readable contrast, scoped hover precedence 
   const paper=css.match(/@media\s*\(prefers-reduced-transparency:\s*reduce\)[\s\S]*?background:\s*(#[0-9a-f]{6})/i)[1];
   for(const selector of rules){
     const rule=css.match(new RegExp(escape(selector)+'\\s*\\{([^}]+)\\}'))[1],ink=rule.match(/color:\s*(#[0-9a-f]{6})/i)[1];
-    const light=Math.max(luminance(paper),luminance(ink)),dark=Math.min(luminance(paper),luminance(ink));assert.ok((light+.05)/(dark+.05)>=4.5,'paper/ink contrast');
+    const solidBackground=rule.match(/background:\s*(#[0-9a-f]{6})(?:;|$)/i)?.[1],background=solidBackground||paper;
+    const light=Math.max(luminance(background),luminance(ink)),dark=Math.min(luminance(background),luminance(ink));assert.ok((light+.05)/(dark+.05)>=4.5,'paper or cloth clip / ink contrast');
     assert.ok(greater(specificity(selector),specificity(globalSelector)),selector+' must outrank global hover');
   }
   const forced=css.slice(css.search(/@media\s*\(forced-colors:\s*active\)/));
@@ -237,8 +252,8 @@ test('outside click closes only this menu and pointer propagation cannot reach t
   const click=find(f,'edge-chapters__outside')[0].click();assert.equal(click.stopped,true);assert.equal(f.menu.isOpen(),false);assert.equal(f.selected.length,0);
 });
 test('keyboard Tab wraps inside dialog without trapping focus after it closes',()=>{
-  const f=setup();f.menu.open({bookIndices:[0],index:0,anchor});const first=find(f,'edge-chapters__mode')[0],last=find(f,'edge-chapters__chapter').at(-1);
-  const opening=find(f,'edge-chapters__opening')[0];opening.focus();assert.equal(f.win.dispatch('keydown',{key:'Tab'}).prevented,false,'opening precedes chapters and must not wrap focus');
+  const f=setup();f.menu.open({bookIndices:[0],index:0,anchor});const first=find(f,'edge-chapters__mode')[0],last=find(f,'edge-chapters__opening')[0];
+  const chapter=find(f,'edge-chapters__chapter').at(-1);chapter.focus();assert.equal(f.win.dispatch('keydown',{key:'Tab'}).prevented,false,'last chapter precedes the visible footer opening control');
   last.focus();let event=f.win.dispatch('keydown',{key:'Tab'});assert.ok(event.prevented);assert.equal(f.doc.activeElement,first);
   first.focus();event=f.win.dispatch('keydown',{key:'Tab',shiftKey:true});assert.ok(event.prevented);assert.equal(f.doc.activeElement,last);
   f.menu.close();event=f.win.dispatch('keydown',{key:'Tab'});assert.equal(event.prevented,false);

@@ -5,7 +5,7 @@
   else root.PaperEdgeChapters=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const constants=Object.freeze({WIDTH:360,MARGIN:12,MIN_TARGET:28,DESKTOP_CELL:24,MOBILE_BREAKPOINT:560,PADDING:18,NUMBER_GAP:1,NUMBER_GUTTER:10,PREVIEW_GAP:12});
+  const constants=Object.freeze({WIDTH:360,MARGIN:12,MIN_TARGET:28,DESKTOP_CELL:24,MOBILE_BREAKPOINT:560,PADDING:38,NUMBER_GAP:1,NUMBER_GUTTER:10,PREVIEW_GAP:12});
   let instance=0;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,lo,hi)=>Math.max(lo,Math.min(hi,value));
@@ -21,15 +21,15 @@
     let width,columns;
     if(mode==='preview'){
       columns=chapters<=8?1:2;
-      if(availableWidth<400)columns=1;
-      width=Math.min(columns===1?260:440,availableWidth);
+      if(availableWidth<410)columns=1;
+      width=Math.min(columns===1?274:460,availableWidth);
     }else{
       const cell=vw<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
       columns=chapters<=8?Math.max(1,chapters):chapters<=80?8:10;
       columns=Math.min(columns,Math.max(1,Math.floor((availableWidth-constants.PADDING-constants.NUMBER_GUTTER+constants.NUMBER_GAP)/(cell+constants.NUMBER_GAP))));
       width=Math.min(availableWidth,Math.max(220,columns*cell+(columns-1)*constants.NUMBER_GAP+constants.PADDING+constants.NUMBER_GUTTER));
     }
-    return {width,columns,maxHeight:Math.min(availableHeight,mode==='preview'?360:340)};
+    return {width,columns,maxHeight:Math.min(availableHeight,mode==='preview'?390:340)};
   }
   function viewportRect(viewport={}){
     const left=finite(viewport.left),top=finite(viewport.top),width=Math.max(1,finite(viewport.width,360)),height=Math.max(1,finite(viewport.height,640));
@@ -67,22 +67,23 @@
     const stop=event=>event.stopPropagation();
     const outside=add(root,'button','edge-chapters__outside');outside.type='button';outside.tabIndex=-1;outside.setAttribute('aria-label','关闭章节菜单');
     const panel=add(root,'section','edge-chapters__panel');panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');
-    const header=add(panel,'header','edge-chapters__header'),heading=add(header,'div','edge-chapters__heading');
-    const eyebrow=add(heading,'div','edge-chapters__eyebrow');eyebrow.textContent='卷内目录';
-    const title=add(heading,'h2','edge-chapters__title');title.id='edge-chapters-title-'+(++instance);panel.setAttribute('aria-labelledby',title.id);
-    const subtitle=add(heading,'div','edge-chapters__subtitle');subtitle.hidden=true;
-    const modes=add(header,'div','edge-chapters__modes');modes.setAttribute('role','group');modes.setAttribute('aria-label','目录样式');
+    const modes=add(panel,'div','edge-chapters__modes');modes.setAttribute('role','group');modes.setAttribute('aria-label','目录样式');
     const modeButtons=['numbers','preview'].map(value=>{
       const button=add(modes,'button','edge-chapters__mode');button.type='button';button.dataset.mode=value;
-      button.textContent=value==='numbers'?'章号':'摘句';button.setAttribute('aria-label',value==='numbers'?'章号格子':'经文摘读');
+      button.textContent=value==='numbers'?'章码':'摘句';button.setAttribute('aria-label',value==='numbers'?'章号格子':'经文摘读');
       listen(button,'click',event=>{stop(event);if(!opened||destroyed)return;setMode(value);button.focus?.({preventScroll:true});});return button;
     });
-    const opening=add(modes,'button','edge-chapters__opening');opening.type='button';opening.textContent='卷首';
-    const closeButton=add(header,'button','edge-chapters__close');closeButton.type='button';closeButton.textContent='×';closeButton.title='关闭章节菜单';closeButton.setAttribute('aria-label','关闭章节菜单');
-    const bookbar=add(panel,'div','edge-chapters__books');bookbar.setAttribute('role','group');bookbar.setAttribute('aria-label','选择书卷');
-    const grid=add(panel,'div','edge-chapters__grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','选择章节');
-    const footer=add(panel,'footer','edge-chapters__footer');footer.hidden=true;
-    const hint=add(footer,'span','edge-chapters__hint');hint.textContent='点纸外收起';hint.title='也可按 Esc 收起';
+    const closeButton=add(panel,'button','edge-chapters__close');closeButton.type='button';closeButton.textContent='收';closeButton.title='关闭章节菜单';closeButton.setAttribute('aria-label','关闭章节菜单');
+    const sheet=add(panel,'div','edge-chapters__sheet');
+    const header=add(sheet,'header','edge-chapters__header'),kicker=add(header,'div','edge-chapters__kicker');kicker.textContent='卷内目次';
+    const heading=add(header,'div','edge-chapters__heading'),title=add(heading,'h2','edge-chapters__title');title.id='edge-chapters-title-'+(++instance);panel.setAttribute('aria-labelledby',title.id);
+    const currentLabel=add(heading,'span','edge-chapters__current');currentLabel.hidden=true;
+    const bookbar=add(sheet,'div','edge-chapters__books');bookbar.setAttribute('role','group');bookbar.setAttribute('aria-label','选择书卷');
+    const rule=add(sheet,'div','edge-chapters__rule'),eyebrow=add(rule,'span','edge-chapters__eyebrow');
+    const grid=add(sheet,'div','edge-chapters__grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','选择章节');
+    const footer=add(sheet,'footer','edge-chapters__footer'),opening=add(footer,'button','edge-chapters__opening');opening.type='button';opening.textContent='卷首';
+    const hint=add(footer,'span','edge-chapters__hint');hint.textContent='点章码翻页';hint.title='也可按 Esc 收起';
+    const corner=add(panel,'i','edge-chapters__corner');corner.setAttribute('aria-hidden','true');
     for(const type of ['pointerdown','pointerup','pointercancel','click','dblclick'])listen(root,type,stop);
     listen(outside,'click',event=>{stop(event);close();});listen(closeButton,'click',event=>{stop(event);close();});
     listen(opening,'click',event=>{stop(event);if(opened&&selected>=0)choose(books[selected].first);});
@@ -102,7 +103,7 @@
         }
       }
       const cell=viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
-      const rect=panel.getBoundingClientRect?.(),estimate=40+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(viewport.width<560?40:38):cell+1);
+      const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(viewport.width<560?40:36):cell+1);
       const p=placeDock(dock,{width:size.width,height:Math.min(size.maxHeight,rect?.height||estimate)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
     }
@@ -116,7 +117,10 @@
       removeDynamic();clear(bookbar);clear(grid);bookButtons=[];chapterButtons=[];
       const book=books[selected],entries=chapterEntries(book),current=typeof getCurrent==='function'?getCurrent()||{}:{};
       root.dataset.book=String(selected);title.textContent=book.name;
-      eyebrow.textContent=`${entries.length} ${book.code==='PSA'?'篇':'章'}`;subtitle.hidden=true;
+      const chapterUnit=book.code==='PSA'?'篇':'章';eyebrow.textContent=`共${entries.length}${chapterUnit}`;
+      const activeChapter=Number(current.chapter),hasCurrent=current.bookIndex===selected&&entries.some(entry=>entry.chapter===activeChapter);
+      currentLabel.hidden=!hasCurrent;currentLabel.textContent=hasCurrent?`读至${activeChapter}${chapterUnit}`:'';
+      hint.textContent=mode==='preview'?'点摘句翻页':'点章码翻页';
       const size=entries.length<=3?'brief':entries.length<=25?'regular':'long';
       for(const node of [root,panel]){node.dataset.mode=mode;node.dataset.count=String(entries.length);node.dataset.size=size;}
       for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
@@ -179,7 +183,7 @@
       if(!opened||destroyed)return;
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();close();return;}
       if(event.key!=='Tab')return;
-      const focusables=[...modeButtons,opening,closeButton,...bookButtons,...chapterButtons].filter(button=>!button.hidden&&!button.disabled);
+      const focusables=[...modeButtons,closeButton,...bookButtons,...chapterButtons,opening].filter(button=>!button.hidden&&!button.disabled);
       const first=focusables[0],last=focusables[focusables.length-1],active=doc.activeElement;
       if(!focusables.includes(active)||event.shiftKey&&active===first||!event.shiftKey&&active===last){event.preventDefault();event.stopPropagation();(event.shiftKey?last:first)?.focus?.({preventScroll:true});}
     }
