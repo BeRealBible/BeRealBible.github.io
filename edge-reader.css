@@ -1,0 +1,43 @@
+/* The compact fore-edge reference: a warm dark table and a thin purple cover.
+   Only the book shell changes; the original page SVG remains authoritative. */
+html.paper-immersive,.paper-immersive body{background:#211e1a}
+.paper-immersive .stage{background:radial-gradient(ellipse at 50% 40%,#4a443c,#1a1815 75%)}
+.stage-wrap{perspective:none}
+.book{isolation:isolate;perspective:none;transform-style:flat;--edge-left-extent:24px;--edge-right-extent:24px}
+.book-volume{position:absolute;inset:0;width:960px;height:704px;transform-origin:0 0;transform-style:flat}
+#reference-cover{position:absolute;left:calc(-1 * var(--edge-left-extent) - 7px);right:calc(-1 * var(--edge-right-extent) - 7px);top:-6px;bottom:-10px;border-radius:7px;background:linear-gradient(#33263f,#22192c);box-shadow:0 28px 54px #0008,inset 0 0 0 1px #ffffff0c;z-index:0;pointer-events:none}
+.left-half,.right-half{position:absolute;top:0;width:480px;height:704px;transform:none;transform-style:flat}
+.left-half{left:0}
+.right-half{left:480px}
+.left-half .paper,.right-half .paper{left:0;top:0;transform:none;backface-visibility:visible;-webkit-backface-visibility:visible;background:transparent;box-shadow:0 .4px .8px #62543a20}
+.left-paper{border-radius:2px 0 0 3px}
+.right-paper{border-radius:0 2px 3px 0}
+.paper:after{display:none}
+.paper>svg{display:block;text-rendering:geometricPrecision}
+/* The index band owns the side thickness. Keep only a thin foot from PaperEdges,
+   so its existing SVG cannot add a second side block behind the compact band. */
+.left-half .cover,.right-half .cover,.left-half .page-stack,.right-half .page-stack{display:none}
+.natural-paper-edge{display:block;clip-path:inset(703px 0 -8px 0)}
+.gutter{left:473px;width:14px;background:linear-gradient(90deg,transparent,#6e60361a 42%,#f8eed84d 50%,#6e603617 58%,transparent)}
+#edge-index-host{position:absolute;left:0;top:0;width:960px;height:704px;z-index:6;pointer-events:none;overflow:visible;transform-style:flat}
+.paper-ribbons{transform-style:flat}
+.stage .paper{cursor:pointer}
+.stage.dragging .paper{cursor:grabbing}
+.paper-immersive .gesture-feedback{color:#705f4c}
+.reader-header .location{min-height:40px;flex:1;text-align:left}
+.reader-header .icon-button{min-width:34px;min-height:34px}
+
+/* A numeric picker remains available without changing the reading scene. */
+#book-picker{width:min(570px,calc(100% - 28px));max-height:calc(100dvh - 40px);padding:28px;background:#faf7ef;color:#514536;border-color:#d7ccba;touch-action:pan-y}
+#book-picker h2{margin:14px 0 18px;font-size:24px}
+#book-picker .dialog-close{width:40px;height:40px;right:8px;top:6px;color:#796a57}
+#book-picker [hidden]{display:none!important}
+#book-picker-books{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;max-height:57dvh;overflow-y:auto;overscroll-behavior:contain;padding:3px}
+#book-picker-books button,#book-picker-chapters button{min-height:44px;padding:7px 5px;border:1px solid #d9cfbc;border-radius:4px;background:#f0e9da;color:#514536;font:13px/1.35 var(--ui,sans-serif);touch-action:manipulation}
+#book-picker-books button:hover,#book-picker-chapters button:hover{background:#e8decb;color:#3e3225;border-color:#bba889}
+#book-picker-books button.current,#book-picker-books button[aria-current="true"],#book-picker-chapters button.current,#book-picker-chapters button[aria-current="true"]{background:#685a44;border-color:#685a44;color:#fff9eb}
+#book-picker-books button:focus-visible,#book-picker-chapters button:focus-visible{outline:2px solid #947044;outline-offset:1px}
+#book-picker-chapters{max-height:57dvh;overscroll-behavior:contain;padding:3px}
+#book-picker-back{min-height:40px;margin:0 0 12px;padding:4px 0;color:#7b6141;font-size:12px}
+@media(max-width:420px){#book-picker{padding:26px 18px 20px}#book-picker-books{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}#book-picker-books button{font-size:12px}.paper-immersive .immersion-extra{max-width:calc(100% - 28px);flex-wrap:wrap}.immersion-extra button{flex:1 0 auto;padding-inline:9px}}
+@media(prefers-reduced-motion:reduce){.gesture-feedback{transition:none}}
