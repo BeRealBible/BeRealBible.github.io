@@ -1,51 +1,51 @@
-/* A loose directory leaf, not a glass application dialog. Its ink, ruling and
-   paper stock belong to the same printed book; controls remain screen-sized. */
-.edge-chapters{position:fixed;inset:0;z-index:10000;pointer-events:none;color:#453b2c;font-family:var(--serif,PaperSerif,serif)}
+/* Dense, translucent paper index. The selected corner is a fixed hinge:
+   appearance and mode changes never translate the leaf away from its bookmark. */
+.edge-chapters{position:fixed;inset:0;z-index:10000;pointer-events:none;color:#433627;font-family:var(--serif,PaperSerif,serif)}
 .edge-chapters[hidden],.edge-chapters [hidden]{display:none!important}
-.edge-chapters button{appearance:none;-webkit-appearance:none;box-sizing:border-box;margin:0;min-width:44px;min-height:44px;border:0;border-radius:0;padding:0;color:inherit;background:transparent;font:inherit;line-height:1.4;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.edge-chapters__outside{position:absolute;inset:0;width:100%;height:100%;padding:0!important;border:0!important;background:transparent!important;pointer-events:auto}
-.edge-chapters__panel{position:fixed;display:flex;flex-direction:column;box-sizing:border-box;width:304px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 48px);margin:0;padding:23px 20px 13px;border:1px solid #c7b99b;border-radius:2px;background:linear-gradient(100deg,#e9e0cc70,transparent 15%,#fffdf21a 70%,#cfc09f25),rgba(247,242,226,.985);box-shadow:2px 2px 0 -1px #e9e0cc,3px 3px 0 -1px #b8aa8b,0 8px 20px #1e170d30,0 1px 4px #1e170d30;pointer-events:auto;overflow:hidden;overscroll-behavior:contain;touch-action:pan-y;animation:directory-leaf-in 160ms ease-out}
-.edge-chapters__panel:before{content:"";position:absolute;left:20px;top:0;width:19px;height:4px;background:#87483e;box-shadow:0 1px 1px #713f3322;pointer-events:none}
-.edge-chapters__panel[data-size="brief"]{padding:18px 17px 10px}
-.edge-chapters__header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex:none;margin:0 0 7px}
-.edge-chapters__heading{min-width:0}
-.edge-chapters__eyebrow{font-family:var(--ui,sans-serif);font-size:9px;letter-spacing:1.7px;color:#8e7d60;margin-bottom:7px}
-.edge-chapters__title{margin:0;color:#3f3527;font-size:24px;font-weight:400;letter-spacing:1px;line-height:1.5;text-wrap:balance}
-.edge-chapters__subtitle{margin-top:4px;color:#8a795e;font-size:10px;line-height:1.5}
-.edge-chapters .edge-chapters__close{flex:none;min-width:36px;margin:-8px -8px 0 0;color:#8a795e;font-size:11px;background:transparent}
-.edge-chapters__books{display:flex;flex-wrap:wrap;gap:0 12px;flex:none;padding:0 0 3px;border-bottom:1px solid #bfb18c55}
-.edge-chapters .edge-chapters__book{position:relative;flex:0 1 auto;min-height:36px;padding:4px 1px;color:#8b7b61;font-size:12px;text-align:left}
+.edge-chapters button{appearance:none;-webkit-appearance:none;box-sizing:border-box;margin:0;min-width:0;min-height:0;border:0;border-radius:0;padding:0;color:inherit;background:transparent;font:inherit;line-height:1.4;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.edge-chapters__outside{position:absolute;inset:0;width:100%;height:100%;padding:0!important;border:0!important;background:rgba(27,22,17,.12)!important;pointer-events:auto;animation:directory-leaf-in 140ms ease-out}
+.edge-chapters__panel{position:fixed;display:flex;flex-direction:column;box-sizing:border-box;width:240px;max-width:calc(100vw - 16px);margin:0;padding:10px 11px 5px;border:1px solid #bbaa87bd;border-radius:1px;background:linear-gradient(105deg,#e8dab72b,transparent 20%,#fffdf20c 70%,#bfa57516),rgba(250,245,230,.90);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);box-shadow:1px 1px 0 #f5edd8a6,0 5px 15px #1e170d33,0 1px 3px #1e170d29;pointer-events:auto;overflow:hidden;overscroll-behavior:contain;touch-action:pan-y;animation:directory-leaf-in 140ms ease-out}
+.edge-chapters__panel:after{content:"";position:absolute;width:3px;height:3px;background:#8f4d40;pointer-events:none}
+.edge-chapters__panel[data-dock-corner="top-left"]:after{top:0;left:0}.edge-chapters__panel[data-dock-corner="top-right"]:after{top:0;right:0}.edge-chapters__panel[data-dock-corner="bottom-left"]:after{bottom:0;left:0}.edge-chapters__panel[data-dock-corner="bottom-right"]:after{bottom:0;right:0}
+.edge-chapters__header{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:none;min-height:26px;margin:0 0 3px}
+.edge-chapters__heading{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;min-width:0}
+.edge-chapters__title{order:0;margin:0;color:#382b20;font-size:18px;font-weight:400;letter-spacing:.5px;line-height:1.4}
+.edge-chapters__eyebrow{order:1;white-space:nowrap;color:#887152;font:9px/1.4 var(--ui,sans-serif)}
+.edge-chapters__subtitle{display:none}
+.edge-chapters .edge-chapters__close{flex:none;min-width:26px;min-height:26px;color:#826d50;font-size:10px;background:transparent}
+.edge-chapters__books{display:flex;flex-wrap:wrap;gap:0 9px;flex:none;padding:0;border-bottom:1px solid #bfb18c50}
+.edge-chapters .edge-chapters__book{position:relative;flex:0 1 auto;min-height:26px;padding:2px 0;color:#7a6348;font-size:11px;text-align:left}
 .edge-chapters .edge-chapters__book[aria-pressed="true"]{color:#85473e;background:transparent}
-.edge-chapters .edge-chapters__book[aria-pressed="true"]:after{content:"";position:absolute;left:0;right:0;bottom:1px;height:1px;background:#925749}
-.edge-chapters__modes{display:flex;align-items:center;gap:18px;flex:none;margin:1px 0 10px;border-bottom:1px solid #bfb18c70}
-.edge-chapters .edge-chapters__mode{position:relative;min-width:0;min-height:38px;padding:0 1px;color:#958469;font-size:11px;letter-spacing:.5px}
+.edge-chapters .edge-chapters__book[aria-pressed="true"]:after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#925749}
+.edge-chapters__modes{display:flex;align-items:center;gap:15px;flex:none;margin:0 0 4px;border-bottom:1px solid #bfb18c70}
+.edge-chapters .edge-chapters__mode{position:relative;min-height:26px;padding:0 1px;color:#887252;font-size:10px;letter-spacing:.25px}
 .edge-chapters .edge-chapters__mode[aria-pressed="true"]{color:#58462f}
-.edge-chapters .edge-chapters__mode[aria-pressed="true"]:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#957b50}
-.edge-chapters__grid{display:grid;grid-template-columns:repeat(var(--columns,5),minmax(0,1fr));gap:0;grid-auto-rows:max-content;align-content:start;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#b9a784 transparent;padding:1px 2px 2px 0}
-.edge-chapters .edge-chapters__chapter{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:44px;min-height:46px;padding:3px;color:#514331;background:transparent;box-shadow:inset 0 -1px #bdad882e;isolation:isolate}
-.edge-chapters__number{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;border:1px solid transparent;border-radius:50%;font:18px/1 Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
+.edge-chapters .edge-chapters__mode[aria-pressed="true"]:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:#8b6f42}
+.edge-chapters__grid{display:grid;grid-template-columns:repeat(var(--columns,6),var(--cell,34px));justify-content:space-evenly;gap:2px;grid-auto-rows:max-content;align-content:start;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#a78c6266 transparent;padding:1px 0 2px}
+.edge-chapters .edge-chapters__chapter{position:relative;display:flex;align-items:center;justify-content:center;min-width:var(--cell,34px);min-height:var(--cell,34px);padding:0;color:#514331;background:transparent;isolation:isolate}
+.edge-chapters__number{display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;border:1px solid transparent;border-radius:50%;font:15px/1 Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .edge-chapters .edge-chapters__chapter[aria-current="page"]{color:#85473e;background:transparent}
 .edge-chapters .edge-chapters__chapter[aria-current="page"] .edge-chapters__number{border-color:#9a6651;background:#b9965e0a}
 .edge-chapters__number,.edge-chapters__preview,.edge-chapters__reference{flex:none}
 .edge-chapters__preview,.edge-chapters__reference{display:block}
-.edge-chapters__preview{color:#65553e;font-size:14px;line-height:1.85;text-align:left;word-break:normal;overflow-wrap:anywhere}
-.edge-chapters__reference{color:#9a8666;font:10px/1.5 var(--ui,sans-serif);letter-spacing:.7px;margin-top:9px;text-align:left}
+.edge-chapters__preview{color:#55432f;font-size:12px;line-height:1.6;text-align:left;word-break:normal;overflow-wrap:anywhere}
+.edge-chapters__reference{color:#8b7353;font:8px/1.25 var(--ui,sans-serif);letter-spacing:0;text-align:center}
 .edge-chapters [data-mode="numbers"] .edge-chapters__preview,.edge-chapters [data-mode="numbers"] .edge-chapters__reference{display:none}
-.edge-chapters [data-mode="preview"] .edge-chapters__grid{gap:0 20px}
-.edge-chapters [data-mode="preview"] .edge-chapters__chapter{align-items:flex-start;justify-content:flex-start;min-height:152px;padding:12px 6px 14px;text-align:left}
-.edge-chapters [data-mode="preview"] .edge-chapters__number{min-width:34px;height:34px;margin:0 0 9px -5px;font-size:23px}
-.edge-chapters [data-mode="preview"] .edge-chapters__reference{margin-top:auto;padding-top:9px}
-.edge-chapters [data-mode="preview"][data-count="1"] .edge-chapters__chapter{min-height:0}
-.edge-chapters__footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;margin-top:8px;border-top:1px solid #bfb18c65;padding-top:2px}
-.edge-chapters .edge-chapters__opening{min-height:38px;padding:0;color:#7e6344;font-size:11px;letter-spacing:.5px;background:transparent;text-decoration:underline;text-decoration-color:#ad97734d;text-underline-offset:4px}
-.edge-chapters__hint{color:#a09074;font-size:9px;line-height:1.6;text-align:right}
-.edge-chapters button:focus-visible{outline:1px solid #9e8258;outline-offset:-2px}
-@media(hover:hover){.edge-chapters .edge-chapters__chapter:hover{color:#85473e;background:#b8a06f16}.edge-chapters .edge-chapters__chapter:hover .edge-chapters__number{border-color:#b5a07d88}.edge-chapters .edge-chapters__book:hover,.edge-chapters .edge-chapters__mode:hover,.edge-chapters .edge-chapters__close:hover,.edge-chapters .edge-chapters__opening:hover{color:#85473e}}
-@keyframes directory-leaf-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:520px){.edge-chapters__panel{padding:21px 17px 11px}.edge-chapters__panel:before{left:17px}.edge-chapters__title{font-size:22px}.edge-chapters [data-mode="preview"] .edge-chapters__chapter{min-height:142px;padding:11px 5px 13px}.edge-chapters__preview{font-size:14px;line-height:1.85}}
-@media(prefers-reduced-motion:reduce){.edge-chapters__panel{animation:none}}
-@media(prefers-reduced-transparency:reduce){.edge-chapters__panel{background:#f7f2e2}}
-@media(forced-colors:active){.edge-chapters__panel{background:Canvas;border-color:CanvasText;box-shadow:none}.edge-chapters .edge-chapters__book,.edge-chapters .edge-chapters__chapter,.edge-chapters .edge-chapters__mode{color:ButtonText;background:ButtonFace}.edge-chapters .edge-chapters__book[aria-pressed="true"],.edge-chapters .edge-chapters__chapter[aria-current="page"],.edge-chapters .edge-chapters__mode[aria-pressed="true"]{color:HighlightText;background:Highlight}.edge-chapters .edge-chapters__chapter[aria-current="page"] .edge-chapters__number{border-color:HighlightText}.edge-chapters__preview,.edge-chapters__reference{color:inherit}}
-
-/* On short landscape screens scroll the entire leaf, never squeeze the chapter targets to zero height. */
-@media(max-height:520px){.edge-chapters__panel{display:block;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#b9a784 transparent}.edge-chapters__grid{overflow:visible;min-height:auto}.edge-chapters__header{margin-bottom:4px}.edge-chapters__eyebrow{margin-bottom:3px}.edge-chapters__panel{padding-top:16px}}
+.edge-chapters [data-mode="preview"] .edge-chapters__grid{grid-template-columns:repeat(var(--columns,2),minmax(0,1fr));gap:0 10px;justify-content:stretch}
+.edge-chapters [data-mode="preview"] .edge-chapters__chapter{display:grid;grid-template-columns:32px minmax(0,1fr);grid-template-rows:auto auto;column-gap:5px;align-items:center;align-content:center;justify-content:stretch;min-width:0;min-height:64px;padding:7px 3px;box-shadow:inset 0 -1px #bba67c38;text-align:left}
+.edge-chapters [data-mode="preview"] .edge-chapters__number{grid-column:1;grid-row:1;align-self:end;width:28px;height:28px;font-size:21px}
+.edge-chapters [data-mode="preview"] .edge-chapters__reference{grid-column:1;grid-row:2;align-self:start;padding-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edge-chapters [data-mode="preview"] .edge-chapters__preview{grid-column:2;grid-row:1 / span 2;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.edge-chapters__footer{display:none}
+.edge-chapters .edge-chapters__opening{min-height:26px;margin-left:auto;padding:0;white-space:nowrap;color:#7c6041;font-size:10px;background:transparent}
+.edge-chapters__hint{color:#8d795c;font-size:8px;line-height:1.4;text-align:right}
+.edge-chapters button:focus-visible{outline:1px solid #9e8258;outline-offset:-1px}
+@media(hover:hover){.edge-chapters .edge-chapters__chapter:hover{color:#85473e;background:#fff9e944}.edge-chapters .edge-chapters__chapter:hover .edge-chapters__number{border-color:#b5a07d88}.edge-chapters .edge-chapters__book:hover,.edge-chapters .edge-chapters__mode:hover,.edge-chapters .edge-chapters__close:hover,.edge-chapters .edge-chapters__opening:hover{color:#85473e}}
+@keyframes directory-leaf-in{from{opacity:0}to{opacity:1}}
+@media(max-width:559px),(pointer:coarse){.edge-chapters .edge-chapters__mode,.edge-chapters .edge-chapters__book,.edge-chapters .edge-chapters__opening{min-height:32px}.edge-chapters .edge-chapters__close{min-width:32px;min-height:32px}.edge-chapters__number{font-size:17px}.edge-chapters [data-mode="preview"] .edge-chapters__chapter{min-height:70px}.edge-chapters__preview{font-size:13px;line-height:1.6}}
+@media(prefers-reduced-motion:reduce){.edge-chapters__panel,.edge-chapters__outside{animation:none}}
+@media(prefers-reduced-transparency:reduce){.edge-chapters__panel{background:#f7f2e2;backdrop-filter:none;-webkit-backdrop-filter:none}}
+@media(forced-colors:active){.edge-chapters__panel{background:Canvas;border-color:CanvasText;box-shadow:none;backdrop-filter:none}.edge-chapters .edge-chapters__book,.edge-chapters .edge-chapters__chapter,.edge-chapters .edge-chapters__mode{color:ButtonText;background:ButtonFace}.edge-chapters .edge-chapters__book[aria-pressed="true"],.edge-chapters .edge-chapters__chapter[aria-current="page"],.edge-chapters .edge-chapters__mode[aria-pressed="true"]{color:HighlightText;background:Highlight}.edge-chapters .edge-chapters__chapter[aria-current="page"] .edge-chapters__number{border-color:HighlightText}.edge-chapters__preview,.edge-chapters__reference{color:inherit}}
+/* If the fixed corner has little vertical room, scroll the whole compact leaf
+   rather than shifting its corner or squeezing chapter targets to zero. */
+.edge-chapters__panel[data-tight="true"]{display:block;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#a78c6266 transparent}.edge-chapters__panel[data-tight="true"] .edge-chapters__grid{overflow:visible;min-height:auto}

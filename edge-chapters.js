@@ -5,7 +5,7 @@
   else root.PaperEdgeChapters=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const constants=Object.freeze({WIDTH:360,MARGIN:12,GAP:10,MIN_TARGET:44});
+  const constants=Object.freeze({WIDTH:360,MARGIN:12,MIN_TARGET:44,DESKTOP_CELL:34,MOBILE_BREAKPOINT:560,PADDING:24,NUMBER_GAP:2,NUMBER_GUTTER:12,PREVIEW_GAP:12});
   let instance=0;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,lo,hi)=>Math.max(lo,Math.min(hi,value));
@@ -13,38 +13,55 @@
     return (Array.isArray(book?.chapters)?book.chapters:[]).filter(entry=>Number.isInteger(entry.chapter)&&entry.chapter>0&&Number.isInteger(entry.page)&&entry.page>=0)
       .map(entry=>({chapter:entry.chapter,page:entry.page})).sort((a,b)=>a.chapter-b.chapter);
   }
-  function menuSize(count,mode='numbers',viewportWidth=360,viewportHeight=640,memberCount=1){
+  function menuSize(count,mode='numbers',viewportWidth=360,viewportHeight=640,memberCount=1,available={}){
     if(mode!=='numbers'&&mode!=='preview')throw new TypeError('Chapter menu mode must be numbers or preview');
     const chapters=Math.max(0,Math.floor(finite(count))),vw=Math.max(1,finite(viewportWidth,360)),vh=Math.max(1,finite(viewportHeight,640));
-    const availableWidth=Math.max(1,vw-2*constants.MARGIN);
+    const availableWidth=Math.max(1,Math.min(vw-2*constants.MARGIN,finite(available.width,Infinity)));
+    const availableHeight=Math.max(1,Math.min(vh-2*constants.MARGIN,finite(available.height,Infinity)));
     let width,columns;
     if(mode==='preview'){
-      width=chapters<=3?340:chapters<=8?520:620;columns=chapters<=3?1:2;
-      if(vw<520){width=availableWidth;columns=1;}
+      columns=chapters<=8?1:2;
+      if(availableWidth<2*210+constants.PADDING+constants.PREVIEW_GAP)columns=1;
+      width=Math.min(columns===1?310:520,availableWidth);
     }else{
-      width=chapters<=3?220:chapters<=9?252:chapters<=25?304:360;
-      columns=chapters<=9?3:chapters<=25?5:6;
+      const cell=vw<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
+      columns=chapters<=6?Math.max(1,chapters):chapters<=30?6:chapters<=70?8:10;
+      columns=Math.min(columns,Math.max(1,Math.floor((availableWidth-constants.PADDING-constants.NUMBER_GUTTER+constants.NUMBER_GAP)/(cell+constants.NUMBER_GAP))));
+      width=Math.min(availableWidth,Math.max(180,columns*cell+(columns-1)*constants.NUMBER_GAP+constants.PADDING+constants.NUMBER_GUTTER));
     }
-    width=Math.min(width,availableWidth);
-    // Only extremely narrow screens reduce number-grid columns. Short books
-    // retain their intentional empty cells rather than stretching one chapter.
-    if(mode==='numbers')columns=Math.min(columns,Math.max(1,Math.floor((width-28+6)/(constants.MIN_TARGET+6))));
-    return {width,columns,maxHeight:Math.max(1,Math.min(vh-48,mode==='preview'?620:500))};
+    return {width,columns,maxHeight:Math.min(availableHeight,mode==='preview'?420:360)};
+  }
+  function viewportRect(viewport={}){
+    const left=finite(viewport.left),top=finite(viewport.top),width=Math.max(1,finite(viewport.width,360)),height=Math.max(1,finite(viewport.height,640));
+    return {left,top,width,height,right:left+width,bottom:top+height};
+  }
+  function chooseDock(anchor,viewport){
+    const v=viewportRect(viewport),rawLeft=finite(anchor?.left??anchor?.x,v.left+v.width/2),rawTop=finite(anchor?.top??anchor?.y,v.top+v.height/2);
+    // A partially clipped target may touch the viewport boundary. Clip once at
+    // opening, never move the chosen contact point to accommodate a later mode.
+    const left=clamp(rawLeft,v.left,v.right),right=clamp(finite(anchor?.right,rawLeft+finite(anchor?.width)),v.left,v.right);
+    const top=clamp(rawTop,v.top,v.bottom),bottom=clamp(finite(anchor?.bottom,rawTop+finite(anchor?.height)),v.top,v.bottom);
+    const towardRight=(left+right)/2<=v.left+v.width/2,down=v.bottom-top>=bottom-v.top;
+    return Object.freeze({x:towardRight?right:left,y:down?top:bottom,corner:(down?'top-':'bottom-')+(towardRight?'left':'right')});
+  }
+  function dockBounds(dock,viewport){
+    const v=viewportRect(viewport),margin=Math.min(constants.MARGIN,v.width/4,v.height/4);
+    return {width:Math.max(1,dock.corner.endsWith('left')?v.right-margin-dock.x:dock.x-v.left-margin),
+      height:Math.max(1,dock.corner.startsWith('top')?v.bottom-margin-dock.y:dock.y-v.top-margin)};
+  }
+  function placeDock(dock,size){
+    const width=Math.max(1,finite(size.width,1)),height=Math.max(1,finite(size.height,1));
+    return {left:dock.corner.endsWith('left')?dock.x:dock.x-width,top:dock.corner.startsWith('top')?dock.y:dock.y-height,width,height};
   }
   function place(anchor,viewport,size){
-    const vx=finite(viewport.left),vy=finite(viewport.top),vw=Math.max(1,finite(viewport.width,360)),vh=Math.max(1,finite(viewport.height,640));
-    const margin=Math.min(constants.MARGIN,vw/4,vh/4),width=Math.min(finite(size.width,constants.WIDTH),vw-2*margin),height=Math.min(finite(size.height,400),vh-2*margin);
-    const left=finite(anchor?.left??anchor?.x,vx+vw/2),right=finite(anchor?.right,left+finite(anchor?.width));
-    const top=finite(anchor?.top??anchor?.y,vy+vh/2),preferLeft=(left+right)/2>vx+vw/2;
-    const candidates=preferLeft?[left-width-constants.GAP,right+constants.GAP]:[right+constants.GAP,left-width-constants.GAP];
-    const fitting=candidates.find(x=>x>=vx+margin&&x+width<=vx+vw-margin);
-    return {left:clamp(fitting??candidates[0],vx+margin,vx+vw-margin-width),top:clamp(top-24,vy+margin,vy+vh-margin-height),width,height};
+    const dock=chooseDock(anchor,viewport),available=dockBounds(dock,viewport);
+    return placeDock(dock,{width:Math.min(available.width,size.width),height:Math.min(available.height,size.height)});
   }
   function create(host,{books,onSelect,getCurrent,getPreview}={}){
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,win=doc.defaultView,portal=doc.body||host,staticListeners=[],dynamicListeners=[];
     const root=doc.createElement('div');root.className='edge-chapters';root.hidden=true;
-    let opened=false,destroyed=false,members=[],selected=-1,anchor=null,previousFocus=null,bookButtons=[],chapterButtons=[],mode='numbers';
+    let opened=false,destroyed=false,members=[],selected=-1,anchor=null,dock=null,previousFocus=null,bookButtons=[],chapterButtons=[],mode='numbers';
     const add=(parent,tag,className)=>{const node=doc.createElement(tag);node.className=className;parent.appendChild(node);return node;};
     const listen=(target,type,fn,capture=false,list=staticListeners)=>{target.addEventListener(type,fn,capture);list.push([target,type,fn,capture]);};
     const stop=event=>event.stopPropagation();
@@ -63,7 +80,8 @@
       listen(button,'click',event=>{stop(event);if(!opened||destroyed)return;setMode(value);button.focus?.({preventScroll:true});});return button;
     });
     const grid=add(panel,'div','edge-chapters__grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','选择章节');
-    const footer=add(panel,'footer','edge-chapters__footer'),opening=add(footer,'button','edge-chapters__opening');opening.type='button';opening.textContent='前往卷首';
+    const footer=add(panel,'footer','edge-chapters__footer');footer.hidden=true;
+    const opening=add(modes,'button','edge-chapters__opening');opening.type='button';opening.textContent='前往卷首';
     const hint=add(footer,'span','edge-chapters__hint');hint.textContent='点纸外收起';hint.title='也可按 Esc 收起';
     for(const type of ['pointerdown','pointerup','pointercancel','click','dblclick'])listen(root,type,stop);
     listen(outside,'click',event=>{stop(event);close();});listen(closeButton,'click',event=>{stop(event);close();});
@@ -74,13 +92,18 @@
     }
     function position(){
       if(!opened||destroyed)return;
-      const viewport=getViewport(),size=menuSize(chapterButtons.length,mode,viewport.width,viewport.height,members.length);
+      const viewport=getViewport(),available=dockBounds(dock,viewport),size=menuSize(chapterButtons.length,mode,viewport.width,viewport.height,members.length,available);
       panel.style.width=size.width+'px';panel.style.maxHeight=size.maxHeight+'px';
+      panel.dataset.tight=String(size.maxHeight<240);
       for(const node of [root,panel]){
-        if(node.style.setProperty)node.style.setProperty('--columns',String(size.columns));else node.style['--columns']=String(size.columns);
+        node.dataset.dockCorner=dock.corner;node.dataset.anchorX=String(dock.x);node.dataset.anchorY=String(dock.y);
+        for(const [key,value] of [['--columns',String(size.columns)],['--cell',(viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL)+'px'],['--anchor-x',dock.x+'px'],['--anchor-y',dock.y+'px']]){
+          if(node.style.setProperty)node.style.setProperty(key,value);else node.style[key]=value;
+        }
       }
-      const rect=panel.getBoundingClientRect?.(),estimate=160+(members.length>1?54:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?126:50);
-      const p=place(anchor,viewport,{width:size.width,height:Math.min(size.maxHeight,rect?.height||estimate)});
+      const cell=viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
+      const rect=panel.getBoundingClientRect?.(),estimate=96+(members.length>1?30:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(viewport.width<560?70:64):cell+2);
+      const p=placeDock(dock,{width:size.width,height:Math.min(size.maxHeight,rect?.height||estimate)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
     }
     function removeDynamic(){for(const [node,type,fn,capture] of dynamicListeners)node.removeEventListener(type,fn,capture);dynamicListeners.length=0;}
@@ -93,7 +116,7 @@
       removeDynamic();clear(bookbar);clear(grid);bookButtons=[];chapterButtons=[];
       const book=books[selected],entries=chapterEntries(book),current=typeof getCurrent==='function'?getCurrent()||{}:{};
       root.dataset.book=String(selected);title.textContent=book.name;
-      eyebrow.textContent=`卷内目录 · ${entries.length} ${book.code==='PSA'?'篇':'章'}`;subtitle.hidden=true;
+      eyebrow.textContent=`${entries.length} ${book.code==='PSA'?'篇':'章'}`;subtitle.hidden=true;
       const size=entries.length<=3?'brief':entries.length<=25?'regular':'long';
       for(const node of [root,panel]){node.dataset.mode=mode;node.dataset.count=String(entries.length);node.dataset.size=size;}
       for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
@@ -143,9 +166,9 @@
       const requested=Array.isArray(options.bookIndices)?options.bookIndices:[options.index];
       const valid=[...new Set(requested)].filter(index=>Number.isInteger(index)&&index>=0&&index<books.length);
       if(!valid.length)return false;
-      if(!opened)previousFocus=doc.activeElement;
+      if(!opened){previousFocus=doc.activeElement;anchor=options.anchor?{...options.anchor}:null;dock=chooseDock(anchor,getViewport());}
       members=valid;selected=members.includes(options.index)?options.index:members[0];
-      anchor=options.anchor?{...options.anchor}:null;opened=true;root.hidden=false;render();position();focusChapter();return true;
+      opened=true;root.hidden=false;render();position();focusChapter();return true;
     }
     function close(){
       if(!opened)return false;opened=false;root.hidden=true;
@@ -156,7 +179,7 @@
       if(!opened||destroyed)return;
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();close();return;}
       if(event.key!=='Tab')return;
-      const focusables=[closeButton,...bookButtons,...modeButtons,...chapterButtons,opening].filter(button=>!button.hidden&&!button.disabled);
+      const focusables=[closeButton,...bookButtons,...modeButtons,opening,...chapterButtons].filter(button=>!button.hidden&&!button.disabled);
       const first=focusables[0],last=focusables[focusables.length-1],active=doc.activeElement;
       if(!focusables.includes(active)||event.shiftKey&&active===first||!event.shiftKey&&active===last){event.preventDefault();event.stopPropagation();(event.shiftKey?last:first)?.focus?.({preventScroll:true});}
     }
@@ -164,13 +187,16 @@
     // Esc closes this dialog rather than also collapsing the book beneath it.
     listen(win?.addEventListener?win:doc,'keydown',keys,true);
     if(win?.addEventListener){listen(win,'resize',position);if(win.visualViewport?.addEventListener){listen(win.visualViewport,'resize',position);listen(win.visualViewport,'scroll',position);}}
+    const sizeObserver=typeof win?.ResizeObserver==='function'?new win.ResizeObserver(()=>position()):null;
+    sizeObserver?.observe(panel);
     root.dataset.mode=mode;panel.dataset.mode=mode;for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
     portal.appendChild(root);
     function destroy(){
       if(destroyed)return;close();destroyed=true;removeDynamic();
+      sizeObserver?.disconnect();
       for(const [node,type,fn,capture] of staticListeners)node.removeEventListener(type,fn,capture);root.remove();
     }
     return {open,close,isOpen:()=>opened,getMode:()=>mode,setMode,destroy,element:root};
   }
-  return {constants,chapterEntries,menuSize,place,create};
+  return {constants,chapterEntries,menuSize,chooseDock,dockBounds,placeDock,place,create};
 });

@@ -94,7 +94,20 @@ function fixture(startSpread = 2, options = {}) {
     closest(selector) { return this.matches(selector) ? this : this.parentElement?.closest(selector) || null; }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
     querySelectorAll(selector) { return this.children.flatMap(c => [...(c.matches?.(selector) ? [c] : []), ...(c.querySelectorAll?.(selector) || [])]); }
-    getBoundingClientRect() { return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight, right: this.clientWidth, bottom: this.clientHeight }; }
+    getBoundingClientRect() {
+      if (options.measureChapterPanel && this.classList.contains('edge-chapters__panel')) {
+        // Deterministic content-box measurements let controller integration
+        // exercise growing/shrinking menus without pretending to render CSS.
+        const count = Number(this.dataset.count) || 1, preview = this.dataset.mode === 'preview';
+        const columns = preview ? ((options.width || 980) < 520 ? 1 : 2) : count <= 9 ? 3 : 6;
+        const naturalHeight = 112 + (this.querySelectorAll('.edge-chapters__book').length > 1 ? 32 : 0) + Math.ceil(count / columns) * (preview ? 76 : 32);
+        const width = parseFloat(this.style.width) || this.clientWidth;
+        const height = Math.min(naturalHeight, parseFloat(this.style.maxHeight) || naturalHeight);
+        const left = parseFloat(this.style.left) || 0, top = parseFloat(this.style.top) || 0;
+        return { left, top, width, height, right: left + width, bottom: top + height };
+      }
+      return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight, right: this.clientWidth, bottom: this.clientHeight };
+    }
     setPointerCapture(id) { this.captured.add(id); }
     releasePointerCapture(id) { this.captured.delete(id); }
     hasPointerCapture(id) { return this.captured.has(id); }
@@ -827,6 +840,55 @@ test('all 150 Psalm preview chapters remain reachable and navigate to their real
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, entry.page);
   }
   assert.equal(f.chaptersOpen, false); assertUnchangedBookmarks(f);
+});
+test('real grouped-index metadata fixes all four menu corners through mode and book changes with zero gap', () => {
+  const data = currentRuleData();
+  for (const [width, height] of [[980, 720], [390, 844]]) for (const horizontal of ['left', 'right']) for (const vertical of ['top', 'bottom']) {
+    const f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true, width, height, measureChapterPanel: true });
+    const labelLeft = horizontal === 'left' ? 30 : width - 54, labelTop = vertical === 'top' ? 52 : height - 78;
+    const anchor = { left: labelLeft, top: labelTop, right: labelLeft + 24, bottom: labelTop + 26, width: 24, height: 26 };
+    const expected = { corner: `${vertical}-${horizontal}`, x: horizontal === 'left' ? anchor.right : anchor.left, y: vertical === 'top' ? anchor.top : anchor.bottom };
+    const group = f.indexElement.querySelectorAll('.edge-index__group').find(button => !button.hidden && button.dataset.members === '61,62,63');
+    assert.ok(group, 'real compact John-epistles group exists');
+    group.getBoundingClientRect = () => ({ ...anchor });
+    const stored = Object.fromEntries(f.storage), writes = f.saved.length;
+    group.dispatchEvent({ type: 'click' });
+    assert.equal(f.chaptersOpen, true); assert.equal(f.chapterElement.dataset.book, '61');
+    const panel = f.chapterElement.querySelector('.edge-chapters__panel');
+    function assertDock() {
+      for (const node of [f.chapterElement, panel]) {
+        assert.equal(node.dataset.dockCorner, expected.corner); assert.equal(Number(node.dataset.anchorX), expected.x); assert.equal(Number(node.dataset.anchorY), expected.y);
+      }
+      const rect = panel.getBoundingClientRect(), contactX = horizontal === 'left' ? rect.left : rect.right, contactY = vertical === 'top' ? rect.top : rect.bottom;
+      assert.ok(Math.abs(contactX - expected.x) < 1e-7, 'menu horizontal contact stays exactly on the label, without a gap');
+      assert.ok(Math.abs(contactY - expected.y) < 1e-7, 'menu vertical contact stays exactly on the label, without a gap');
+      assert.equal(f.jumpCalls.length, 0); assert.equal(spread(f), 20);
+      assert.deepEqual(Object.fromEntries(f.storage), stored); assert.equal(f.saved.length, writes);
+      return rect;
+    }
+    const numbers = assertDock(); clickChapterMode(f, 'preview'); const preview = assertDock();
+    assert.ok(numbers.width !== preview.width || numbers.height !== preview.height, 'mode switch genuinely changes the measured menu size');
+    f.chapterElement.querySelectorAll('.edge-chapters__book').find(button => button.dataset.book === '62').dispatchEvent({ type: 'click' });
+    assert.equal(f.chapterElement.dataset.book, '62'); assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 1); assertDock();
+    clickChapterMode(f, 'numbers'); assertDock();
+    f.chapterElement.querySelectorAll('.edge-chapters__book').find(button => button.dataset.book === '61').dispatchEvent({ type: 'click' });
+    assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 5); assertDock();
+    f.event('keydown', { key: 'Escape', target: f.context.document.activeElement }); assert.equal(f.chaptersOpen, false);
+    assert.deepEqual(Object.fromEntries(f.storage), stored); assertUnchangedBookmarks(f);
+  }
+});
+test('fixed-corner menu mode changes still block page gestures and cancel without changing reading state', () => {
+  const data = currentRuleData(), f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true, width: 390, height: 844, measureChapterPanel: true });
+  const group = f.indexElement.querySelectorAll('.edge-index__group').find(button => !button.hidden && button.dataset.members === '55,56');
+  assert.ok(group); group.getBoundingClientRect = () => ({ left: 336, top: 700, right: 360, bottom: 726, width: 24, height: 26 });
+  const stored = Object.fromEntries(f.storage), original = camera(f); group.dispatchEvent({ type: 'click' });
+  clickChapterMode(f, 'preview'); f.tap(); const p = f.hold(); f.drag(p, .8, 'pointercancel');
+  f.el('stage').dispatchEvent({ type: 'keydown', key: 'ArrowRight' }); f.click('next'); f.advance(1500);
+  assert.equal(f.jumpCalls.length, 0); assert.equal(f.rendered.length, 0); assert.equal(spread(f), 20);
+  assert.equal(f.chapterElement.dataset.dockCorner, 'bottom-right');
+  f.chapterElement.querySelector('.edge-chapters__outside').dispatchEvent({ type: 'click' });
+  assert.equal(f.chaptersOpen, false); assertCameraEqual(camera(f), original); assert.deepEqual(Object.fromEntries(f.storage), stored); assertUnchangedBookmarks(f);
+  f.tap(); f.advance(1500); assert.equal(spread(f), 22, 'reading resumes after dismissing the fixed-corner menu');
 });
 
 async function run() {
