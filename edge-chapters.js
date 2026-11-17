@@ -5,7 +5,7 @@
   else root.PaperEdgeChapters=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const constants=Object.freeze({WIDTH:360,MARGIN:12,MIN_TARGET:44,DESKTOP_CELL:34,MOBILE_BREAKPOINT:560,PADDING:24,NUMBER_GAP:2,NUMBER_GUTTER:12,PREVIEW_GAP:12});
+  const constants=Object.freeze({WIDTH:360,MARGIN:12,MIN_TARGET:28,DESKTOP_CELL:24,MOBILE_BREAKPOINT:560,PADDING:18,NUMBER_GAP:1,NUMBER_GUTTER:10,PREVIEW_GAP:12});
   let instance=0;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,lo,hi)=>Math.max(lo,Math.min(hi,value));
@@ -21,15 +21,15 @@
     let width,columns;
     if(mode==='preview'){
       columns=chapters<=8?1:2;
-      if(availableWidth<2*210+constants.PADDING+constants.PREVIEW_GAP)columns=1;
-      width=Math.min(columns===1?310:520,availableWidth);
+      if(availableWidth<400)columns=1;
+      width=Math.min(columns===1?260:440,availableWidth);
     }else{
       const cell=vw<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
-      columns=chapters<=6?Math.max(1,chapters):chapters<=30?6:chapters<=70?8:10;
+      columns=chapters<=8?Math.max(1,chapters):chapters<=80?8:10;
       columns=Math.min(columns,Math.max(1,Math.floor((availableWidth-constants.PADDING-constants.NUMBER_GUTTER+constants.NUMBER_GAP)/(cell+constants.NUMBER_GAP))));
-      width=Math.min(availableWidth,Math.max(180,columns*cell+(columns-1)*constants.NUMBER_GAP+constants.PADDING+constants.NUMBER_GUTTER));
+      width=Math.min(availableWidth,Math.max(220,columns*cell+(columns-1)*constants.NUMBER_GAP+constants.PADDING+constants.NUMBER_GUTTER));
     }
-    return {width,columns,maxHeight:Math.min(availableHeight,mode==='preview'?420:360)};
+    return {width,columns,maxHeight:Math.min(availableHeight,mode==='preview'?360:340)};
   }
   function viewportRect(viewport={}){
     const left=finite(viewport.left),top=finite(viewport.top),width=Math.max(1,finite(viewport.width,360)),height=Math.max(1,finite(viewport.height,640));
@@ -71,17 +71,17 @@
     const eyebrow=add(heading,'div','edge-chapters__eyebrow');eyebrow.textContent='卷内目录';
     const title=add(heading,'h2','edge-chapters__title');title.id='edge-chapters-title-'+(++instance);panel.setAttribute('aria-labelledby',title.id);
     const subtitle=add(heading,'div','edge-chapters__subtitle');subtitle.hidden=true;
-    const closeButton=add(header,'button','edge-chapters__close');closeButton.type='button';closeButton.textContent='收起';closeButton.title='关闭章节菜单';closeButton.setAttribute('aria-label','关闭章节菜单');
-    const bookbar=add(panel,'div','edge-chapters__books');bookbar.setAttribute('role','group');bookbar.setAttribute('aria-label','选择书卷');
-    const modes=add(panel,'div','edge-chapters__modes');modes.setAttribute('role','group');modes.setAttribute('aria-label','目录样式');
+    const modes=add(header,'div','edge-chapters__modes');modes.setAttribute('role','group');modes.setAttribute('aria-label','目录样式');
     const modeButtons=['numbers','preview'].map(value=>{
       const button=add(modes,'button','edge-chapters__mode');button.type='button';button.dataset.mode=value;
-      button.textContent=value==='numbers'?'章号格子':'经文摘读';button.setAttribute('aria-label',button.textContent);
+      button.textContent=value==='numbers'?'章号':'摘句';button.setAttribute('aria-label',value==='numbers'?'章号格子':'经文摘读');
       listen(button,'click',event=>{stop(event);if(!opened||destroyed)return;setMode(value);button.focus?.({preventScroll:true});});return button;
     });
+    const opening=add(modes,'button','edge-chapters__opening');opening.type='button';opening.textContent='卷首';
+    const closeButton=add(header,'button','edge-chapters__close');closeButton.type='button';closeButton.textContent='×';closeButton.title='关闭章节菜单';closeButton.setAttribute('aria-label','关闭章节菜单');
+    const bookbar=add(panel,'div','edge-chapters__books');bookbar.setAttribute('role','group');bookbar.setAttribute('aria-label','选择书卷');
     const grid=add(panel,'div','edge-chapters__grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','选择章节');
     const footer=add(panel,'footer','edge-chapters__footer');footer.hidden=true;
-    const opening=add(modes,'button','edge-chapters__opening');opening.type='button';opening.textContent='前往卷首';
     const hint=add(footer,'span','edge-chapters__hint');hint.textContent='点纸外收起';hint.title='也可按 Esc 收起';
     for(const type of ['pointerdown','pointerup','pointercancel','click','dblclick'])listen(root,type,stop);
     listen(outside,'click',event=>{stop(event);close();});listen(closeButton,'click',event=>{stop(event);close();});
@@ -102,7 +102,7 @@
         }
       }
       const cell=viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
-      const rect=panel.getBoundingClientRect?.(),estimate=96+(members.length>1?30:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(viewport.width<560?70:64):cell+2);
+      const rect=panel.getBoundingClientRect?.(),estimate=40+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(viewport.width<560?40:38):cell+1);
       const p=placeDock(dock,{width:size.width,height:Math.min(size.maxHeight,rect?.height||estimate)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
     }
@@ -179,7 +179,7 @@
       if(!opened||destroyed)return;
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();close();return;}
       if(event.key!=='Tab')return;
-      const focusables=[closeButton,...bookButtons,...modeButtons,opening,...chapterButtons].filter(button=>!button.hidden&&!button.disabled);
+      const focusables=[...modeButtons,opening,closeButton,...bookButtons,...chapterButtons].filter(button=>!button.hidden&&!button.disabled);
       const first=focusables[0],last=focusables[focusables.length-1],active=doc.activeElement;
       if(!focusables.includes(active)||event.shiftKey&&active===first||!event.shiftKey&&active===last){event.preventDefault();event.stopPropagation();(event.shiftKey?last:first)?.focus?.({preventScroll:true});}
     }
