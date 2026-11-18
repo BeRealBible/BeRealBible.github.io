@@ -198,6 +198,19 @@ test('tab focus opens only one row for keyboard; pointer focus is not an instruc
   ptr(chip(2),'pointerdown','touch');chip(2).focus();ptr(chip(2),'pointerup','touch');
   assert.deepEqual(reveal(),[null,null,null]);
 });
+test('tools stay above the original navigation centres, including partially clipped first and last chips',()=>{
+  const {s,entries,chip}=threeTabs(),track=s.host.querySelector('.rh-track');
+  const rail={left:32,right:192,width:160,top:640,bottom:682};track.getBoundingClientRect=()=>rail;
+  const boxes=[{left:14,right:77},{left:83,right:143},{left:149,right:212}].map(b=>({...b,top:646,bottom:678}));
+  for(let i=0;i<entries.length;i++){
+    const row=s.row(entries[i].id),vars=new Map();row.getBoundingClientRect=()=>boxes[i];
+    row.style={setProperty:(k,v)=>vars.set(k,parseFloat(v))};row.children[2].getBoundingClientRect=()=>({width:26});
+    ptr(chip(i),'pointerover','mouse');const x=vars.get('--rh-tools-left'),y=vars.get('--rh-tools-bottom');
+    assert.ok(x>=rail.left&&x+52<=rail.right);assert.ok(y<=boxes[i].top+1);
+    for(const b of boxes){const cx=(b.left+b.right)/2,cy=(b.top+b.bottom)/2;
+      assert.ok(!(cx>=x&&cx<x+52&&cy>=y-26&&cy<=y),'revealing tools must not cover any original label centre');}
+  }
+});
 test('quick touch jumps directly; a still touch held for 420ms opens only that tab and consumes its compatibility click',()=>{
   const {s,chip,reveal,entries}=threeTabs();
   ptr(chip(0),'pointerdown','touch');s.tick(80);ptr(chip(0),'pointerup','touch');compatibilityClick(chip(0));
@@ -247,6 +260,9 @@ test('untouched records hide both actions on every input device; a pinned record
   assert.ok(!show.some(s=>/\.rh-item\[data-pinned[^\]]*\]\s+\.rh-(action|delete)$/.test(s)),'pinned record must not expose delete at rest');
   assert.ok(!show.some(s=>/\.rh-item:(hover|focus-within|has)/.test(s)),'sticky CSS hover/focus cannot reveal ghost controls on a hybrid device');
   assert.doesNotMatch(css,/\.rh-(?:manage|panel)(?:[\s,{:.#\[]|$)/);
+  const floating=selectors.find(r=>r.selectors.includes('.rh-item[data-reveal] .rh-delete'));
+  assert.match(floating?.decl||'',/position\s*:\s*fixed/);
+  assert.match(floating.decl,/translateY\(-100%\)/,'delete is strictly above the navigation strip');
 });
 for(const [name,fn] of cases){fn();console.log('PASS '+name);}
 console.log(JSON.stringify({historyScenarios:cases.length}));

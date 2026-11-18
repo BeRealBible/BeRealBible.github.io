@@ -113,16 +113,13 @@
     function placeTools(row){
       const box=row.item.getBoundingClientRect?.(),rail=track.getBoundingClientRect?.();
       if(!box||!rail||!rail.width)return;
-      const w=row.pin.getBoundingClientRect().width||26,extra=w*(row.item.dataset.pinned?1:2);
-      const l=rail.left+2,r=rail.right-2;
-      // The temporary hit targets belong to the same row but do not consume
-      // layout space. Attach to the start edge when there is no room at the end.
-      let at=box.right-1;
-      if(at+extra>r){
-        if(box.left-extra+1>=l)at=box.left-extra+1;
-        else at=Math.max(l,Math.min(r-extra,row.item.dataset.pinned?box.right-2*w:box.right-extra));
-      }
-      row.item.style?.setProperty('--rh-tools-left',(at-box.left-1)+'px');
+      const w=row.del.getBoundingClientRect().width||26,extra=w*(row.item.dataset.pinned?1:2);
+      // Place the tools directly ABOVE this chip, never in the navigation
+      // strip. No reflow: even the original centre of the next short label
+      // remains a navigation target when a pointer arrives from its neighbour.
+      const at=Math.max(rail.left,Math.min(rail.right-extra,(box.left+box.right-extra)/2));
+      row.item.style?.setProperty('--rh-tools-left',at+'px');
+      row.item.style?.setProperty('--rh-tools-bottom',(box.top+1)+'px');
     }
     function reveal(id,reason){
       if(id===shown&&reason===via)return;

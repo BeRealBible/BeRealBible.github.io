@@ -317,4 +317,43 @@ test('menu forwards keyboard, Ctrl-wheel and two-touch zoom; one finger and plai
   assert.ok(f.win.dispatch('keydown',{key:'-'}).prevented);assert.equal(ratios.at(-1),1/1.2);
   const count=ratios.length;f.menu.close();assert.equal(f.win.dispatch('keydown',{key:'-'}).prevented,false);assert.equal(ratios.length,count);
 });
+test('only dismissing returns the captured book frame; chapter, opening and teardown never do',()=>{
+  const frame={x:41,y:50,scale:.8},restored=[];
+  const f=setup(undefined,undefined,undefined,{getBookFrame:()=>frame,onDismiss:pose=>{assert.equal(f.menu.isOpen(),false);restored.push(pose);}});
+  for(const via of ['Escape','edge-chapters__outside','edge-chapters__close']){
+    frame.x=41;f.menu.open({index:18,anchor});frame.x=27;f.menu.reposition();
+    if(via==='Escape')f.win.dispatch('keydown',{key:via});else find(f,via)[0].click();
+    assert.deepEqual(restored.at(-1),{x:41,y:50,scale:.8});
+  }
+  for(const item of ['edge-chapters__chapter','edge-chapters__opening']){f.menu.open({index:18,anchor});find(f,item)[0].click();}
+  f.menu.open({index:18,anchor});f.menu.destroy();assert.equal(restored.length,3);assert.equal(f.selected.length,2);
+});
+test('preserve a visible chapter when zoom exchanges scroll owners, columns wrap or mode rebuilds the buttons',()=>{
+  const frame={x:0,y:0,scale:1},f=setup(undefined,{width:1100,height:800},actualPreview,{getBookFrame:()=>frame});
+  f.menu.setMode('preview');f.menu.open({index:18,anchor:{left:100,right:120,top:370,bottom:395}});
+  const panel=find(f,'edge-chapters__panel')[0],grid=find(f,'edge-chapters__grid')[0],sheet=find(f,'edge-chapters__sheet')[0],original=Element.prototype.getBoundingClientRect;
+  const port=()=>panel.dataset.tight==='true'?sheet:grid;
+  const rect=(top,height)=>({top,bottom:top+height,height,left:0,width:210,right:210});
+  Element.prototype.getBoundingClientRect=function(){
+    const s=+panel.dataset.bookScale;
+    if(this===grid||this===sheet)return rect(100,288);
+    if(this.dataset.chapter){
+      const dy=panel.dataset.mode==='preview'?36:25,columns=+panel.style['--columns'];
+      const header=port()===sheet?76:0;
+      return rect(100+(Math.floor((+this.dataset.chapter-1)/columns)*dy+header-port().scrollTop)*s,dy*s);
+    }
+    return original.call(this);
+  };
+  const first=()=>+find(f,'edge-chapters__chapter').find(b=>b.getBoundingClientRect().bottom>172).dataset.chapter;
+  try{
+    grid.scrollTop=637;const before=first();assert.ok(before>20);
+    const dock=f.menu.getDock();frame.x=dock.x*(1-3.2);frame.y=dock.y*(1-3.2);frame.scale=3.2;f.menu.reposition();
+    assert.equal(port(),sheet);assert.ok(sheet.scrollTop>700);assert.equal(first(),before);
+    sheet.scrollTop+=6*36;const later=first();frame.x=frame.y=0;frame.scale=1;f.menu.reposition();
+    assert.equal(port(),grid);assert.ok(Math.abs(first()-later)<=1);
+    f.menu.setMode('numbers');
+    const cols=+panel.style['--columns'];assert.ok(first()<=later&&first()+cols>later,'same chapter is still on the reading line');
+    const offset=grid.scrollTop;f.menu.reposition();assert.equal(grid.scrollTop,offset,'no movement on redundant ResizeObserver callbacks');
+  }finally{Element.prototype.getBoundingClientRect=original;}
+});
 console.log(`Edge chapters: ${checks} checks passed (66 books / 1189 chapters).`);

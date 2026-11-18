@@ -116,13 +116,23 @@
     return out;
   }
   function create({stage,papers,getPage,commands,storage,feedback=()=>{}}){
-    const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),records=new Map();
+    const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map();
     let active=null,bar=null,brief=null,flashTimer=null,serial=0,observer=null,refreshFrame=null;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
-    function savedFor(key){
-      if(records.has(key))return records.get(key);
-      let ids;try{ids=JSON.parse(storage?.getItem(key)||'[]');}catch{}
-      const set=new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);records.set(key,set);return set;
+    // The old format is a page-wide array. Keep it as a read-only baseline;
+    // independent per-passage overrides prevent two tabs from overwriting
+    // unrelated edits, even when their writes land before either storage event.
+    // A cheap shared flag avoids mapping every glyph on unannotated pages.
+    const unitKey=(key,id)=>key+'~mark~'+id;
+    function pageMarks(key){
+      let legacy=[],used=false;
+      try{legacy=JSON.parse(storage?.getItem(key)||'[]');used=storage?.getItem(key+'~used')==='1';}catch{}
+      const baseline=new Set(Array.isArray(legacy)?legacy:[]),local=session.get(key);
+      return {possible:used||!!baseline.size||!!local?.size,has(id){
+        if(local?.has(id))return local.get(id);
+        let v;try{v=storage?.getItem(unitKey(key,id));}catch{}
+        return v==='1'||v!=='0'&&baseline.has(id);
+      }};
     }
     function model(side,svg){
       const {page,index,books}=getPage(side),prior=cache.get(svg);
@@ -173,8 +183,8 @@
         // A cancelled curl can restore a serialized SVG already containing
         // these groups. Rebuild rather than drawing a second translucent coat.
         for(const g of svg.querySelectorAll('.paper-ink-mark--saved'))g.remove();
-        const {page,index,books}=getPage(side),saved=savedFor(recordKey(page,index,books[page.b]));
-        if(!saved.size)return;
+        const {page,index,books}=getPage(side),saved=pageMarks(recordKey(page,index,books[page.b]));
+        if(!saved.possible)return;
         const entry=model(side,svg);if(!entry)return;
         for(const unit of entry.units)if(saved.has(unit.id))draw({entry,unit},'saved');
       });
@@ -202,22 +212,27 @@
     }
     function schedule(){if(active&&refreshFrame===null)refreshFrame=win.requestAnimationFrame(()=>{refreshFrame=null;anchorBar();});}
     function actionLabel(b,text){b.setAttribute('aria-label',text);b.setAttribute('title',text);}
-    function allSaved(){const saved=savedFor(active.anchor.entry.key);return !!active.marks.size&&Array.from(active.marks.keys()).every(u=>saved.has(u.id));}
+    function allSaved(){const saved=pageMarks(active.anchor.entry.key);return !!active.marks.size&&Array.from(active.marks.keys()).every(u=>saved.has(u.id));}
     function highlight(){
       if(!active?.marks.size)return;
-      const key=active.anchor.entry.key,ids=savedFor(key),remove=allSaved();
-      for(const unit of active.marks.keys())if(remove)ids.delete(unit.id);else ids.add(unit.id);
-      let durable=true;try{if(!storage)durable=false;else if(!ids.size&&storage.removeItem)storage.removeItem(key);
-        else storage.setItem(key,JSON.stringify([...ids]));}catch{durable=false;}
+      const key=active.anchor.entry.key,remove=bar.querySelector('[data-highlight]').getAttribute('aria-pressed')==='true';
+      let durable=true;
+      for(const {id} of active.marks.keys()){
+        try{storage.setItem(key+'~used','1');storage.setItem(unitKey(key,id),remove?'0':'1');session.get(key)?.delete(id);}
+        catch{durable=false;if(!session.has(key))session.set(key,new Map());session.get(key).set(id,!remove);}
+      }
       reset();refresh();feedback((remove?'已取消高亮':'已高亮')+(durable?'':'（仅本次阅读）'));
     }
     function toggle(t){
       const m=active.marks.get(t.unit);
       if(m){m.remove();active.marks.delete(t.unit);}else active.marks.set(t.unit,draw(t,'selected'));
-      active.anchor=t;const {size}=active.marks;
+      active.anchor=t;syncPen();anchorBar();
+    }
+    function syncPen(){
+      const {size}=active.marks;
       bar.querySelector('[data-copy]').disabled=!size;
       const pen=bar.querySelector('[data-highlight]'),marked=allSaved();
-      pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');anchorBar();
+      pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');
     }
     async function copy(){
       if(!active?.marks.size)return;
@@ -268,7 +283,20 @@
       // iOS can send contextmenu before a synthetic click after a touch hold.
       if((e.pointerType!=='mouse'||active)&&hit(e.clientX,e.clientY,e.target))e.preventDefault();
     });
-    return {hit,tap,hold,reset,refresh,isActive:()=>!!active};
+    let syncFrame=null;
+    function changed(e){
+      if(e.key!=null&&!e.key.startsWith('paper-bible-highlights-v1:'))return;
+      if(syncFrame!==null)return;
+      const sync=()=>{syncFrame=null;
+        // A turning surface temporarily contains the *destination* SVG.
+        // Normal finish/return already restores its marks after the handoff.
+        if(stage.dataset.foldProgress!==undefined||stage.dataset.jumpState==='running')return;
+        refresh();if(active)syncPen();
+      };
+      if(win.requestAnimationFrame)syncFrame=win.requestAnimationFrame(sync);else sync();
+    }
+    win.addEventListener?.('storage',changed);
+    return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
   return {create,indexFace,copyText,formatQuote,mergeRects,FLASH_MS};
 });

@@ -37,6 +37,7 @@ test('marks coalesce across characters but never across the second column or the
 class El{
   constructor(name,doc){this.tag=name;this.ownerDocument=doc;this.children=[];this.attrs={};this.dataset={};this.handlers={};this.classList={add(){}};this.style={setProperty(){}};}
   setAttribute(k,v){this.attrs[k]=v;}
+  getAttribute(k){return this.attrs[k]??null;}
   addEventListener(k,fn){(this.handlers[k]||=[]).push(fn);}
   appendChild(ch){this.append(ch);return ch;}
   append(...children){for(const ch of children){this.children.push(ch);ch.parent=this;}}
@@ -50,9 +51,10 @@ class El{
   getBoundingClientRect(){return this.rect||{left:0,top:0,width:130,height:30};}
 }
 function scene(storage){
-  const writes=[],timers=new Map(),messages=[];
+  const writes=[],timers=new Map(),messages=[],listeners=new Map();
   const win={navigator:{clipboard:{async writeText(t){writes.push(t);}}},setTimeout(fn,ms){timers.set(ms,fn);return ms;},clearTimeout(n){timers.delete(n);}};
   const doc={defaultView:win,createElement(n){return new El(n,this);},createElementNS(ns,n){return new El(n,this);}};
+  win.addEventListener=(type,fn)=>listeners.set(type,fn);win.removeEventListener=type=>listeners.delete(type);
   const stage=doc.createElement('div');stage.rect={left:0,top:0,width:390,height:844};
   const papers=[0,1].map(side=>{
     const paper=doc.createElement('article'),svg=doc.createElement('svg');stage.append(paper);paper.append(svg);
@@ -68,7 +70,7 @@ function scene(storage){
   const svg=side=>papers[side].querySelector('svg'),node=side=>svg(side).querySelectorAll('text[data-role]')[0];
   const hit=(side,n)=>ctrl.hit(side*480+(n+.5)*20,10,node(side));
   const bar=()=>stage.children.find(e=>e.attrs.role==='toolbar'),marks=(side=0)=>svg(side).children.filter(e=>e.tag==='g');
-  return {ctrl,bar,marks,hit,timers,writes,messages,stage,svg,papers};
+  return {ctrl,bar,marks,hit,timers,writes,messages,stage,svg,papers,storageEvent:key=>listeners.get('storage')?.({key})};
 }
 test('hit tests in transformed glyph coordinates; whitespace neither selects nor intercepts a swipe',()=>{
   const {hit,ctrl,papers}=scene();assert.equal(hit(0,1).unit.text,'ONE');assert.equal(hit(0,3),null);
@@ -122,11 +124,27 @@ test('unlabelled-on-screen tools have accessible icon names and no visible selec
 test('one-color annotation survives exit, repeated SVG redraw and a new reader; can be removed',()=>{
   const mem=new Map(),storage={getItem:k=>mem.get(k),setItem:(k,v)=>mem.set(k,v),removeItem:k=>mem.delete(k)};
   const s=scene(storage);s.ctrl.hold(s.hit(0,0));s.ctrl.tap(s.hit(0,5));s.bar().querySelector('[data-highlight]').handlers.click[0]();
-  assert.equal(s.ctrl.isActive(),false);assert.equal(mem.size,1);assert.equal(s.marks().length,2);assert.equal(s.marks(1).length,0);
+  assert.equal(s.ctrl.isActive(),false);assert.equal(s.marks().length,2);assert.equal(s.marks(1).length,0);
   s.ctrl.reset();s.ctrl.refresh();s.ctrl.refresh();assert.ok(s.marks().every(e=>e.attrs.class.includes('--saved')));assert.equal(s.marks().length,2);
   const t=scene(storage);t.ctrl.refresh();assert.equal(t.marks().length,2);t.ctrl.hold(t.hit(0,0));t.ctrl.tap(t.hit(0,5));
   const remove=t.bar().querySelector('[data-highlight]');assert.equal(remove.attrs['aria-label'],'取消高亮');assert.equal(remove.attrs['aria-pressed'],'true');
-  remove.handlers.click[0]();assert.equal(mem.size,0);t.ctrl.refresh();assert.equal(t.marks().length,0);
+  remove.handlers.click[0]();t.ctrl.refresh();assert.equal(t.marks().length,0);const reopened=scene(storage);reopened.ctrl.refresh();assert.equal(reopened.marks().length,0);
+});
+test('two tabs add or remove independent ink with undelivered storage events; receiving tabs redraw and keep their selection',()=>{
+  const mem=new Map(),store={getItem:k=>mem.get(k),setItem:(k,v)=>mem.set(k,v)};
+  const a=scene(store),b=scene(store),pen=s=>s.bar().querySelector('[data-highlight]'),apply=s=>pen(s).handlers.click[0]();
+  a.ctrl.refresh();b.ctrl.refresh();a.ctrl.hold(a.hit(0,0));b.ctrl.hold(b.hit(0,5));apply(a);apply(b);
+  const key=[...mem.keys()].find(k=>k.includes('~mark~'));a.storageEvent(key);assert.equal(a.marks().length,2);
+  a.ctrl.hold(a.hit(0,0));b.ctrl.hold(b.hit(0,0));assert.equal(pen(b).attrs['aria-pressed'],'true');
+  apply(a);b.storageEvent(key+':rules-3');assert.ok(b.ctrl.isActive());assert.equal(pen(b).attrs['aria-pressed'],'false');
+  b.ctrl.reset();const c=scene(store);c.ctrl.refresh();assert.equal(c.marks().length,1);
+});
+test('old page-wide marks survive; a targeted removal overrides legacy ink without changing other marks',()=>{
+  const m=new Map(),store={getItem:k=>m.get(k),setItem:(k,v)=>m.set(k,v)},s=scene(store),a=s.hit(0,0),b=s.hit(0,5);
+  m.set(a.entry.key,JSON.stringify([a.unit.id,b.unit.id]));s.ctrl.refresh();assert.equal(s.marks().length,2);
+  s.ctrl.hold(a);s.bar().querySelector('[data-highlight]').handlers.click[0]();assert.equal(s.marks().length,1);
+  assert.deepEqual(JSON.parse(m.get(a.entry.key)),[a.unit.id,b.unit.id]);
+  const t=scene(store);t.ctrl.refresh();assert.equal(t.marks().length,1);
 });
 test('mixed saved/unsaved selection fills remaining marks; unavailable store keeps session marks',()=>{
   const s=scene({getItem(){throw Error('denied');},setItem(){throw Error('quota');}});

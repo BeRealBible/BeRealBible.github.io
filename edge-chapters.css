@@ -55,7 +55,10 @@
 @media(hover:hover){.edge-chapters .edge-chapters__chapter:hover{color:#85473e;background:#fffaf064}.edge-chapters .edge-chapters__book:hover,.edge-chapters .edge-chapters__opening:hover{color:#85473e}.edge-chapters .edge-chapters__mode:hover{color:#fff0cf}.edge-chapters .edge-chapters__close:hover{background:#7d3a37}}
 @keyframes directory-leaf-in{from{opacity:0}to{opacity:1}}
 @media(max-width:559px){.edge-chapters .edge-chapters__mode{min-height:21px}.edge-chapters .edge-chapters__book{min-height:21px}.edge-chapters .edge-chapters__opening{min-height:20px}.edge-chapters [data-mode="preview"] .edge-chapters__chapter{min-height:40px}.edge-chapters__preview{font-size:11px;line-height:1.4}}
-@media(prefers-reduced-motion:reduce){.edge-chapters__panel,.edge-chapters__outside{animation:none}}
+/* The base reader sets a tiny transition duration on every element in
+   reduced-motion mode. Its default property is "all", including zoom:
+   remove that implicit transition so measured geometry is already final. */
+@media(prefers-reduced-motion:reduce){.edge-chapters,.edge-chapters *{transition-property:none}.edge-chapters__panel,.edge-chapters__outside{animation:none}}
 @media(prefers-reduced-transparency:reduce){.edge-chapters__sheet{background:#f6edd8;backdrop-filter:none;-webkit-backdrop-filter:none}}
 @media(forced-colors:active){.edge-chapters__sheet{background:Canvas;border-color:CanvasText;box-shadow:none;backdrop-filter:none}.edge-chapters__modes,.edge-chapters .edge-chapters__close{background:ButtonFace;color:ButtonText}.edge-chapters .edge-chapters__book,.edge-chapters .edge-chapters__chapter,.edge-chapters .edge-chapters__mode{color:ButtonText;background:ButtonFace}.edge-chapters .edge-chapters__book[aria-pressed="true"],.edge-chapters .edge-chapters__chapter[aria-current="page"],.edge-chapters .edge-chapters__mode[aria-pressed="true"]{color:HighlightText;background:Highlight}.edge-chapters .edge-chapters__chapter[aria-current="page"] .edge-chapters__number{color:HighlightText}.edge-chapters__preview,.edge-chapters__reference{color:inherit}}
 .edge-chapters__panel[data-tight="true"] .edge-chapters__sheet{display:block;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#a58a5a55 transparent}.edge-chapters__panel[data-tight="true"] .edge-chapters__grid{overflow:visible;min-height:auto}
@@ -64,6 +67,7 @@
    at the book's native scale. CSS zoom lays out text at its final size rather
    than stretching a cached bitmap. Only the viewport portal is exempt. */
 .edge-chapters__panel>*{zoom:var(--book-scale,1)}
+.edge-chapters__sheet,.edge-chapters__grid{overflow-anchor:none}
 .edge-chapters,.edge-chapters__outside,.edge-chapters__grid{touch-action:pan-y}
 .edge-chapters__panel[data-narrow="true"] .edge-chapters__sheet{padding:30px 8px 5px 10px}
 .edge-chapters__panel[data-narrow="true"] .edge-chapters__sheet:after{left:4px}

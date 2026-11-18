@@ -57,7 +57,7 @@
     const dock=chooseDock(anchor,viewport),available=dockBounds(dock,viewport);
     return placeDock(dock,{width:Math.min(available.width,size.width),height:Math.min(available.height,size.height)});
   }
-  function create(host,{books,onSelect,getCurrent,getPreview,getBookFrame,onZoom}={}){
+  function create(host,{books,onSelect,getCurrent,getPreview,getBookFrame,onZoom,onDismiss}={}){
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,win=doc.defaultView,portal=doc.body||host,staticListeners=[],dynamicListeners=[];
     const root=doc.createElement('div');root.className='edge-chapters';root.hidden=true;
@@ -95,7 +95,33 @@
       const f=getBookFrame?.();
       return {x:finite(f?.x),y:finite(f?.y),scale:finite(f?.scale)>0?Number(f.scale):1};
     }
-    function position(){
+    let layoutKey='';
+    const scrollPort=()=>panel.dataset.tight==='true'?sheet:grid;
+    // A pixel offset has no meaning when columns wrap or the scroll owner
+    // switches from the list to the whole sheet. Keep an actual chapter.
+    function visibleChapter(){
+      const scroller=scrollPort();
+      if(!chapterButtons.length||!(scroller.scrollTop>1))return null;
+      const view=scroller.getBoundingClientRect();
+      if(!view.height)return null;
+      // Sample within the viewport, not its clipped first row. This same line
+      // is used after reflow so successive pinch steps do not drift.
+      const line=view.top+view.height*.25;
+      let lo=0,hi=chapterButtons.length;
+      while(lo<hi){const m=(lo+hi)>>1;if(chapterButtons[m].getBoundingClientRect().bottom<=line)lo=m+1;else hi=m;}
+      const button=chapterButtons[lo];if(!button)return null;
+      const row=button.getBoundingClientRect();if(row.top>=view.bottom)return null;
+      return {book:selected,chapter:button.dataset.chapter,part:clamp((line-row.top)/Math.max(1,row.height),.03,.97)};
+    }
+    function restoreChapter(mark,scale){
+      if(!mark||mark.book!==selected)return;
+      const button=chapterButtons.find(b=>b.dataset.chapter===mark.chapter);if(!button)return;
+      const scroller=scrollPort(),view=scroller.getBoundingClientRect(),row=button.getBoundingClientRect();
+      // The DOM reports rects in screen pixels, but scrollTop in book units.
+      if(view.height&&row.height)scroller.scrollTop+=(row.top+mark.part*row.height-view.top-view.height*.25)/scale;
+    }
+    function position(){layout();}
+    function layout(savedChapter){
       if(!opened||destroyed)return;
       const f=bookFrame(),s=f.scale,known=openedFrame,ratio=s/known.scale,viewport=getViewport();
       // Reproject the original point on the physical bookmark; never choose a new
@@ -103,6 +129,8 @@
       dock={corner:hinge.corner,x:hinge.x+(f.x-known.x)+(hinge.x-known.x)*(ratio-1),y:hinge.y+(f.y-known.y)+(hinge.y-known.y)*(ratio-1)};
       const available=dockBounds(dock,viewport),mobile=viewport.width<constants.MOBILE_BREAKPOINT;
       const size=menuSize(chapterButtons.length,mode,viewport.width/s,viewport.height/s,members.length,{width:available.width/s,height:available.height/s,mobile});
+      const key=[selected,mode,s,size.width,size.maxHeight,size.columns,mobile].join('/');
+      const mark=savedChapter||(layoutKey&&layoutKey!==key?visibleChapter():null);
       panel.style.width=size.width*s+'px';panel.style.maxHeight=size.maxHeight*s+'px';sheet.style.maxHeight=size.maxHeight+'px';
       panel.dataset.tight=String(size.maxHeight<240);
       panel.dataset.narrow=String(size.width<180);
@@ -116,6 +144,7 @@
       const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(mobile?40:36):cell+1);
       const p=placeDock(dock,{width:size.width*s,height:Math.min(size.maxHeight*s,rect?.height||estimate*s)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
+      layoutKey=key;restoreChapter(mark,s);
     }
     function removeDynamic(){for(const [node,type,fn,capture] of dynamicListeners)node.removeEventListener(type,fn,capture);dynamicListeners.length=0;}
     function clear(node){for(const child of Array.from(node.children))child.remove();}
@@ -157,23 +186,23 @@
         if(current.bookIndex===selected&&Number(current.chapter)===entry.chapter)button.setAttribute('aria-current','page');
         listen(button,'click',event=>{stop(event);if(opened&&!destroyed)choose(entry.page,entry.chapter);},false,dynamicListeners);chapterButtons.push(button);
       }
-      grid.scrollTop=0;opening.dataset.page=String(book.first);opening.title=book.name+'卷首';opening.setAttribute('aria-label',`前往${book.name}卷首`);
+      layoutKey='';sheet.scrollTop=0;grid.scrollTop=0;opening.dataset.page=String(book.first);opening.title=book.name+'卷首';opening.setAttribute('aria-label',`前往${book.name}卷首`);
     }
     function setMode(value){
       if(value!=='numbers'&&value!=='preview')throw new TypeError('Chapter menu mode must be numbers or preview');
       if(destroyed||value===mode)return mode;
-      const active=doc.activeElement,chapter=chapterButtons.includes(active)?active.dataset.chapter:null,book=bookButtons.includes(active)?active.dataset.book:null;
+      const mark=opened?visibleChapter():null,active=doc.activeElement,chapter=chapterButtons.includes(active)?active.dataset.chapter:null,book=bookButtons.includes(active)?active.dataset.book:null;
       mode=value;root.dataset.mode=mode;panel.dataset.mode=mode;
       for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
       if(opened){
-        render();position();
+        render();layout(mark);
         const target=chapter!==null?chapterButtons.find(button=>button.dataset.chapter===chapter):book!==null?bookButtons.find(button=>button.dataset.book===book):null;
-        target?.focus?.({preventScroll:true});target?.scrollIntoView?.({block:'nearest',inline:'nearest'});
+        target?.focus?.({preventScroll:true});if(!mark)target?.scrollIntoView?.({block:'nearest',inline:'nearest'});
       }
       return mode;
     }
     function choose(page,chapter){
-      if(!Number.isInteger(page)||page<0)return;const book=books[selected];close();if(typeof onSelect==='function')onSelect(page,{bookCode:book.code,ref:chapter?chapter+':1':null});
+      if(!Number.isInteger(page)||page<0)return;const book=books[selected];close('select');if(typeof onSelect==='function')onSelect(page,{bookCode:book.code,ref:chapter?chapter+':1':null});
     }
     function open(options={}){
       if(destroyed)return false;
@@ -184,9 +213,10 @@
       members=valid;selected=members.includes(options.index)?options.index:members[0];
       opened=true;root.hidden=false;render();position();focusChapter();return true;
     }
-    function close(){
+    function close(reason='dismiss'){
       if(!opened)return false;opened=false;root.hidden=true;contacts.clear();pinchDistance=0;ignorePinchClick=false;
       const target=previousFocus;previousFocus=null;
+      if(reason==='dismiss')onDismiss?.({...openedFrame});
       if(target&&target!==doc.body&&target.isConnected!==false&&!target.disabled)target.focus?.({preventScroll:true});return true;
     }
     function keys(event){
@@ -240,7 +270,7 @@
     root.dataset.mode=mode;panel.dataset.mode=mode;for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
     portal.appendChild(root);
     function destroy(){
-      if(destroyed)return;close();destroyed=true;removeDynamic();
+      if(destroyed)return;close('destroy');destroyed=true;removeDynamic();
       sizeObserver?.disconnect();
       for(const [node,type,fn,capture] of staticListeners)node.removeEventListener(type,fn,capture);root.remove();
     }

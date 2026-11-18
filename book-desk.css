@@ -1,0 +1,14 @@
+/* Keep the table and all reader controls stationary. Clip zoomed books to the stage. */
+#desk-surface{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+#desk-surface>#book{pointer-events:auto}
+html[data-book-desk]{view-transition-name:none}
+html[data-book-desk] #desk-surface{view-transition-name:desk-book}
+html[data-book-desk]::view-transition{pointer-events:none}
+html[data-book-desk]::view-transition-group(desk-book){animation:none;overflow:hidden}
+html[data-book-desk]::view-transition-image-pair(desk-book){isolation:isolate}
+html[data-book-desk]::view-transition-old(desk-book),html[data-book-desk]::view-transition-new(desk-book){mix-blend-mode:normal;animation-duration:320ms;animation-timing-function:cubic-bezier(.35,.02,.2,1);animation-fill-mode:both}
+html[data-book-desk=forward]::view-transition-old(desk-book),html[data-book-desk=backward]::view-transition-new(desk-book){animation-name:desk-left}
+html[data-book-desk=backward]::view-transition-old(desk-book),html[data-book-desk=forward]::view-transition-new(desk-book){animation-name:desk-right}
+html[data-book-desk]::view-transition-new(desk-book){animation-direction:reverse;animation-timing-function:cubic-bezier(.8,0,.65,.98)}
+@keyframes desk-left{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+@keyframes desk-right{from{transform:translateX(0)}to{transform:translateX(100%)}}

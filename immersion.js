@@ -155,7 +155,7 @@
         <button id="immersion-directory" type="button" aria-label="选择书卷与章节">书卷章节</button>
         <button id="immersion-fullscreen" type="button" aria-pressed="false">全屏阅读</button>
         <button id="immersion-install" type="button">添加到主屏幕</button>
-        <button id="immersion-ribbons" type="button">丝带书签</button><button id="immersion-about" type="button">关于</button>
+        <button id="immersion-about" type="button">关于</button>
       </div>
       <dialog id="immersion-install-dialog" class="immersion-install-dialog" aria-labelledby="immersion-install-title">
         <button class="dialog-close" id="immersion-install-close" aria-label="关闭主屏幕说明">×</button>
@@ -187,7 +187,6 @@
     installButton.addEventListener('click', () => openInstallGuide());
     document.getElementById('immersion-install-close').addEventListener('click', () => installDialog.close());
     installDialog.addEventListener('close', () => scheduleHide());
-    document.getElementById('immersion-ribbons').addEventListener('click',()=>{hideChrome();window.dispatchEvent(new CustomEvent('paper-ribbons-request'));});
     document.getElementById('immersion-about').addEventListener('click', () => {
       document.getElementById('about-open')?.click();
     });

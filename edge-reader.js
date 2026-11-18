@@ -8,7 +8,7 @@
   const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,MAX_SPREAD=(D.pages.length-2)&~1;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
-  let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,ribbons=null,chapters=null,jumpState=null;
+  let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,edgePose=null,edgeSide=null,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
   let suppressBandClick=null;
@@ -21,6 +21,7 @@
   const chapterPreview=window.PaperChapterPreview.create(window.BIBLE_SOURCE);
   const renderer=window.PaperSheetRenderer.vector(book,svgPage,
     (canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
+  const desk=window.PaperBookDesk?.create(stage,$('desk-surface'));let deskKey=null;
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
   const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,onExpand:expandEdge});
   const readingPage=()=>{
@@ -67,7 +68,7 @@
       if(side==='left')x=Math.max(x,20+e.leftExtent*scale);
       else x=Math.min(x,view.w-20-(960+e.rightExtent)*scale);
       y=clamp(y,24,Math.max(24,view.h-24-704*scale));
-      transform();
+      constrain();transform();
     }else{
       const pose=edgePose;edgePose=null;edgeSide=null;delete stage.dataset.edgeExpanded;
       if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus;}
@@ -95,13 +96,25 @@
     $('read-block').style.width=progress*100+'%';$('position-pin').style.left=progress*100+'%';
     $('prev').disabled=spread===0;$('next').disabled=spread===MAX_SPREAD;
     stage.dataset.spread=String(spread);stage.dataset.book=b.code;
-    applyMaterial();updateIndex();ribbons?.update();
+    applyMaterial();updateIndex();
   }
   function envelope(normal=false){
     const e=index.getBounds();
     return {left:-Math.max(16,normal?e.normalLeftExtent:e.leftExtent),right:960+Math.max(16,normal?e.normalRightExtent:e.rightExtent),bottom:724};
   }
   function constrain(){
+    if(edgeSide){
+      const e=index.getBounds(),w=edgeSide==='left'?e.leftExtent:e.rightExtent,
+        offset=(edgeSide==='left'?-w:960)*scale;
+      // The open index, not the 960-wide spread, is the navigable surface.
+      // Small bands stay fully in view; overlarge bands can reach either end
+      // but cannot be dragged entirely offscreen, even at maximum zoom.
+      const bound=(start,size,viewport)=>{
+        const pad=Math.min(18,viewport/4),far=viewport-pad-size;
+        return clamp(start,Math.min(pad,far),Math.max(pad,far));
+      };
+      x=bound(x+offset,w*scale,view.w)-offset;y=bound(y,704*scale,view.h);return;
+    }
     const e=envelope(),w=(e.right-e.left)*scale,h=e.bottom*scale,pad=18;
     if(w<=view.w-pad*2)x=view.w/2-(e.left+e.right)*scale/2;
     else x=clamp(x,view.w-pad-e.right*scale,pad-e.left*scale);
@@ -119,12 +132,12 @@
     Object.assign($('map-window').style,{left:vx*mw+'px',top:vy*mh+'px',width:Math.min(1-vx,view.w/(960*scale))*mw+'px',height:Math.min(1-vy,view.h/(704*scale))*mh+'px'});
     map.style.opacity=scale>fitScale*1.2?'1':'0';
     $('surface-caption').style.opacity=scale>fitScale*1.2?'0':'1';
-    updateIndex();ribbons?.update({scale});chapters?.reposition?.();
+    updateIndex();chapters?.reposition?.();
   }
   function measureFit(){const e=envelope(true),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
   function fit(){closeEdge();interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
-  function focusPage(side){
-    closeEdge();interrupt();focus=side;readingSide=side==='left'?0:1;render();const e=envelope(),outer=side==='left'?-e.left:e.right-960;
+  function focusPage(side,arriving=false){
+    if(!arriving){closeEdge();interrupt();}focus=side;readingSide=side==='left'?0:1;render();const e=envelope(),outer=side==='left'?-e.left:e.right-960;
     scale=clamp((view.w-32)/(480+outer),fitScale,MAX_SCALE);
     // A fixed double-column page must not become 7 px text on a phone. Keep
     // its outer column and compact book index readable; pan to the inner column.
@@ -135,7 +148,7 @@
   function zoom(next,at={x:view.w/2,y:view.h/2}){
     closeEdge();interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
     x=at.x-(at.x-x)/scale*next;y=at.y-(at.y-y)/scale*next;
-    scale=next;focus='custom';constrain();transform();save();
+    scale=next;focus=scale===fitScale?'fit':'custom';constrain();transform();save();
   }
   function resize(){
     const pose=capturePose(),dock=chapters?.getDock?.();
@@ -147,7 +160,10 @@
       x=clamp(ax,8,view.w-8)-(ax-x)*next/scale;y=clamp(ay,8,view.h-8)-(ay-y)*next/scale;
       scale=next;transform();return;
     }
-    if(edgeSide){expandEdge(edgeSide);return;}
+    if(edgeSide){
+      scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;
+      constrain();transform();return;
+    }
     if(focus==='fit')scale=fitScale;
     else{scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;}
     constrain();transform();
@@ -216,13 +232,14 @@
     if(startFold(direction,count,source))settleFold();
   }
   function interrupt(keepSelection=false){
+    desk?.cancel();
     clearHold();queuedTurns=[];if(keepSelection!==true)selection?.reset();
     pointers.clear();gesture=null;stage.classList.remove('dragging','curl-dragging');
     chapters?.close();
     if(jumpState){jumpState=null;pageJump.cancel();render();stage.dataset.jumpState='cancelled';}
     if(fold)finishFold(false);
   }
-  function jump(page,pose,entryId,requested){
+  function jump(page,pose,entryId,requested,destinationKey=null){
     closeEdge();interrupt();$('book-picker').close();
     page=clamp(page,0,D.pages.length-1);
     const target=clamp(page&~1,0,MAX_SPREAD),transaction={from:spread,target,page,pose};
@@ -231,12 +248,18 @@
       if(jumpState!==transaction)return; // A cancelled/replaced animation cannot move the saved bookmark.
       jumpState=null;spread=target;readingSide=page&1;preciseRef=requested?.ref?{page,bookCode:requested.bookCode,ref:requested.ref}:null;render();fitScale=measureFit();
       if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus||'custom';}
-      else if(view.w<560&&focus!=='fit'){focusPage(page%2?'right':'left');}
+      else if(view.w<560&&focus!=='fit'){focusPage(page%2?'right':'left',true);}
       else if(focus==='fit')scale=fitScale;
-      constrain();transform();save();stage.dataset.lastGesture='directory';stage.dataset.jumpState='committed';
-      const location=readingLocation();history?.jump(location,entryId);
+      constrain();transform();save();stage.dataset.lastGesture=destinationKey?'book-switch':'directory';stage.dataset.jumpState='committed';
+      const location=readingLocation(),row=history?.jump(location,entryId);deskKey=destinationKey||row?.id||null;
       feedback(`${location.bookName} · ${location.ref||'卷首'}`);
     };
+    if(destinationKey){
+      if(destinationKey===deskKey&&target===spread){complete();return;}
+      stage.dataset.jumpState='switching';
+      if(desk){const rank=window.PaperBookDesk.rank;desk.start(rank(destinationKey)>=rank(deskKey)?1:-1,complete);}
+      else complete();return;
+    }
     if(target===spread){complete();return;}
     // The stationary page underneath the moving packet already belongs to the
     // destination. Reading metadata and persistence still belong to the source.
@@ -250,20 +273,19 @@
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
   history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,pageCount:D.pages.length,
-    onNavigate:(page,id,entry)=>jump(page,null,id,entry)});
+    onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
   selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:(page,requested)=>jump(page,null,null,requested),
     getBookFrame:bookFrame,onZoom:zoomWithChapterMenu,
+    onDismiss:frame=>{if(!edgeSide||!frame)return;const r=stage.getBoundingClientRect();
+      x=frame.x-r.left;y=frame.y-r.top;scale=frame.scale;constrain();transform();},
     getPreview:(index,chapter)=>chapterPreview(D.books[index]?.code,chapter),
     getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingLocation().ref,10)||1})});
   function openEdgeChapters(i,_book,metadata={}){
     interrupt();
     chapters.open({bookIndices:metadata.bookIndices||[i],index:i,anchor:metadata.anchor});
   }
-  ribbons=window.PaperRibbons.create({host:$('ribbon-bookmarks'),panelHost:document.querySelector('.stage-wrap'),storage,pageCount:D.pages.length,
-    getCurrent:()=>({spread,page:readingPage()===D.pages[spread+1]?spread+1:spread,bookName:currentBook().name,ref:readingLocation().ref,pose:edgePose||capturePose()}),onNavigate:jump});
-  ribbons.setScene(true);
   function openPicker(){
     closeEdge();interrupt();$('book-picker-books').hidden=false;$('book-picker-chapters').hidden=true;$('book-picker-back').hidden=true;
     $('book-picker-title').textContent='书卷与章节';$('book-picker').showModal();
@@ -279,16 +301,30 @@
   $('book-picker-close').onclick=()=>$('book-picker').close();
   $('location-button').onclick=openPicker;
   window.addEventListener('paper-directory-request',openPicker);
-  window.addEventListener('paper-ribbons-request',()=>{closeEdge();interrupt();ribbons.open(0);});
   window.addEventListener('paper-interrupt',()=>{closeEdge();interrupt();});
   const relative=e=>{const r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top,t:e.timeStamp??performance.now()};};
   const centroid=()=>{const a=[...pointers.values()];return {x:a.reduce((s,p)=>s+p.x,0)/a.length,y:a.reduce((s,p)=>s+p.y,0)/a.length,t:Math.max(...a.map(p=>p.t))};};
   const distance=()=>{const a=[...pointers.values()];return a.length<2?0:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);};
+  const onPaper=(bx,by)=>bx>=0&&bx<=960&&by>=0&&by<=704;
+  function inwardDirection(bx,by,band){
+    if(band?.dataset.side==='right')return 1;
+    if(band?.dataset.side==='left')return -1;
+    if(!onPaper(bx,by))return 0;
+    // A physical fore-edge, not a glyph-shaped hit test. The outer 28 paper
+    // units sit outside the two text columns, and never grow past 32 screen px.
+    const margin=Math.min(28,32/scale);
+    return bx<=margin?-1:bx>=960-margin?1:0;
+  }
+  function panTo(px,py){
+    const oldX=x,oldY=y;x=px;y=py;constrain();
+    if(Math.abs(x-oldX)<.00001&&Math.abs(y-oldY)<.00001)return false;
+    focus='custom';transform();return true;
+  }
   function pointerDown(e){
     const candidate=e.target?.closest?.('.edge-index__band'),
       band=candidate?.classList?.contains('edge-index__band')&&!candidate.disabled?candidate:null;
     suppressBandClick=null;
-    if(edgeSide||jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.paper-ribbons,.edge-index,.paper-selection-tools')))return;
+    if((edgeSide&&band?.dataset.side!==edgeSide)||jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
     clearHold();
     // Let a stationary press reach the actual band button (including native
     // focus/click). Transfer its capture to the stage only once a drag exists.
@@ -299,8 +335,9 @@
       const c=centroid();gesture={pinched:true,band:gesture?.band||band,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance()};return;
     }
     const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
+    const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
-      contact:{radius:clamp(Math.abs((start.x-x)/scale-480),12,480),grabY:clamp((start.y-y)/scale,0,704)},
+      edge:edgeSide?0:inwardDirection(bx,by,band),contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
       direction:0,trend:1,extreme:0};
     if(token&&!selection.isActive())holdTimer=setTimeout(()=>{
       holdTimer=null;if(gesture!==g||pointers.size!==1||g.kind!=='pending'||g.pinched)return;
@@ -321,7 +358,7 @@
     // A contact holds one leaf until release. Going past its origin can only
     // flatten that leaf; it cannot silently pick up the opposite page.
     if(!g.direction){
-      g.direction=dx<0?1:-1;
+      g.direction=g.edge;
       if(startFold(g.direction,1,'swipe',g.contact))stage.classList.add('curl-dragging');
     }
     if(!fold)return;
@@ -346,21 +383,21 @@
     if(!pointers.has(e.pointerId)||!gesture)return;pointers.set(e.pointerId,relative(e));
     const g=gesture,c=centroid();g.end=c;
     if(g.pinched){
-      if(pointers.size<2)return;
+      if(pointers.size===1){if(g.tail&&!g.cancelled)panTo(g.baseX+c.x-g.start.x,g.baseY+c.y-g.start.y);return;}
       scale=clamp(g.baseScale*distance()/Math.max(1,g.baseDistance),fitScale,MAX_SCALE);
       x=c.x-(g.start.x-g.baseX)/g.baseScale*scale;y=c.y-(g.start.y-g.baseY)/g.baseScale*scale;
-      focus='custom';constrain();transform();return;
+      focus=scale===fitScale?'fit':'custom';constrain();transform();return;
     }
     if(g.kind==='held'||g.wasTurning)return;
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
       clearHold();
-      g.kind=!g.token&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35?'swipe':'pan';
+      g.kind=g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35?'swipe':'pan';
       if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
     if(g.kind==='swipe')trackCurl(g,c,e);
-    else if(g.kind==='pan'&&!fold){x=g.baseX+dx;y=g.baseY+dy;focus='custom';constrain();transform();}
+    else if(g.kind==='pan'&&!fold){if(panTo(g.baseX+dx,g.baseY+dy))g.panned=true;}
   }
   function pointerUp(e,cancelled=false){
     if(!pointers.has(e.pointerId))return;
@@ -371,7 +408,10 @@
     const end=relative(e);pointers.delete(e.pointerId);
     if(cancelled&&g)g.cancelled=true;
     if(g?.band&&(g.kind!=='pending'||g.cancelled||g.pinched))suppressBandClick={band:g.band,until:performance.now()+700};
-    if(pointers.size)return;
+    if(pointers.size){
+      if(g?.pinched){g.start=centroid();g.baseX=x;g.baseY=y;g.baseScale=scale;g.baseDistance=distance();g.tail=pointers.size===1;}
+      return;
+    }
     gesture=null;stage.classList.remove('dragging','curl-dragging');try{stage.releasePointerCapture(e.pointerId);}catch{}
     if(!g)return;
     if(g.cancelled||g.pinched||g.wasTurning){
@@ -382,7 +422,7 @@
     if(g.kind==='swipe'&&fold){
       const commit=releaseCurl(g,end);stage.dataset.lastGesture=commit?'swipe-turn':'swipe-return';settleFold(commit);return;
     }
-    if(g.kind==='pan'){stage.dataset.lastGesture='pan';save();}
+    if(g.kind==='pan'){stage.dataset.lastGesture='pan';if(g.panned)save();}
   }
   // The index owns native button clicks. Capture pointer events before the
   // band's stopPropagation, but never handle book-label buttons or an open index.
@@ -400,13 +440,45 @@
   });
   window.addEventListener('blur',interrupt);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)interrupt();});
+  let wheelBurst=null;
   stage.addEventListener('wheel',e=>{
-    if(edgeSide||jumpState||chapters?.isOpen()){e.preventDefault();return;}
-    if(e.target?.closest?.('button,dialog'))return;e.preventDefault();if(fold||pointers.size)return;
-    if(e.ctrlKey||e.metaKey)zoom(scale*Math.exp(-e.deltaY*.003),relative(e));
-    else{x-=e.deltaX;y-=e.deltaY;focus='custom';constrain();transform();save();}
+    if(jumpState||chapters?.isOpen()){wheelBurst=null;e.preventDefault();return;}
+    const overIndex=!!e.target?.closest?.('.edge-index');
+    if(!overIndex&&e.target?.closest?.('button,dialog,.paper-selection-tools'))return;
+    const at=relative(e),unit=e.deltaMode===1?16:e.deltaMode===2?view.h:1,
+      dx=(e.deltaX||0)*unit,dy=(e.deltaY||0)*unit;
+    // A trackpad pinch (or Ctrl+wheel) belongs to the same book even when
+    // its focal point is a native book-index button. Never zoom the browser.
+    if(e.ctrlKey||e.metaKey){
+      e.preventDefault();wheelBurst=null;if(fold||pointers.size||!dy)return;
+      const next=clamp(scale*Math.exp(-dy*.003),fitScale,MAX_SCALE);
+      if(edgeSide){
+        x=at.x-(at.x-x)*next/scale;y=at.y-(at.y-y)*next/scale;scale=next;constrain();transform();
+      }else zoom(next,at);
+      return;
+    }
+    e.preventDefault();if(edgeSide||pointers.size){
+      wheelBurst=null;if(edgeSide&&!pointers.size&&!fold)panTo(x-dx,y-dy);return;
+    }
+    if(scale>fitScale+.00001){
+      wheelBurst=null;if(!fold&&panTo(x-dx,y-dy))save();return;
+    }
+    if(!overIndex&&!onPaper((at.x-x)/scale,(at.y-y)/scale))return;
+    // Wheel events have no cross-browser gesture-end signal. Include the
+    // inertia tail (even during settling) in the same single-turn burst.
+    const now=Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
+    if(!wheelBurst||now-wheelBurst.last>220)wheelBurst={dx:0,dy:0,axis:null,used:false};
+    const b=wheelBurst;b.last=now;b.dx+=dx;b.dy+=dy;
+    if(!b.axis&&Math.max(Math.abs(b.dx),Math.abs(b.dy))>=12){
+      if(Math.abs(b.dx)>=1.35*Math.abs(b.dy))b.axis='horizontal';
+      else if(Math.abs(b.dy)>=1.35*Math.abs(b.dx))b.axis='vertical';
+    }
+    if(!b.used&&b.axis==='horizontal'&&Math.abs(b.dx)>=48){
+      b.used=true;if(!fold&&!selection?.isActive())turn(b.dx>0?1:-1,1,'trackpad');
+    }
   },{passive:false});
   stage.addEventListener('keydown',e=>{
+    if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&(e.altKey||e.ctrlKey||e.metaKey))return;
     if(jumpState||chapters?.isOpen()){if(e.key==='Escape'){e.preventDefault();interrupt();}return;}
     if(edgeSide){if(e.key==='Escape'){e.preventDefault();closeEdge();}return;}
     if(e.target?.closest?.('button,input,dialog'))return;
@@ -424,7 +496,7 @@
   document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
   document.querySelector('.brand')?.addEventListener('click',e=>{e.preventDefault();fit();});
   $('demo-burst').onclick=()=>turn(1);
-  $('demo-pan').onclick=()=>{focusPage('right');feedback('拖动正文移动视野；在空白处左右滑动翻页');};
+  $('demo-pan').onclick=()=>{focusPage('right');feedback('拖动正文平移；从书页外缘向书心拖动翻页');};
   stage.dataset.scene='reading';stage.dataset.textHoldMs=String(TEXT_HOLD_MS);
   window.PaperImmersion?.setScene?.('reading');
   render();resize();
@@ -434,7 +506,7 @@
   // On a phone a single page is the useful initial reading window; whole-book
   // fit remains available, and both index bands stay reachable by pan.
   else if(view.w<560)focusPage(readingSide?'right':'left');
-  history?.start(readingLocation());
+  deskKey=history?.start(readingLocation())?.id||null;
   new ResizeObserver(resize).observe(stage);window.addEventListener('resize',resize);
   save();
 })();

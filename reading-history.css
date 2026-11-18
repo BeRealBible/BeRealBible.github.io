@@ -8,8 +8,8 @@
 .rh-caption{font-size:11px;letter-spacing:.1em;color:#d3c2a2}
 .rh-caption::before{content:"";display:inline-block;width:3px;height:10px;background:#b38759;margin-right:7px;vertical-align:-1px}
 .rh-track{display:flex;align-items:center;gap:6px;flex:1;overflow-x:auto;min-width:0;scrollbar-width:thin;scrollbar-color:#82705b transparent;padding:2px 4px;scroll-padding-inline:4px;overscroll-behavior-x:contain;touch-action:pan-x;min-height:30px}
-/* Each position occupies just its label (plus a pin if saved). The live
-   input row lends its tools adjacent space, without reflowing the hit target. */
+/* Each position occupies just its label (plus a pin if saved). Transient
+   controls open above their own label and never overwrite a neighbour. */
 .rh-item{--rh-action-width:26px;position:relative;flex:none;display:inline-flex;align-items:stretch;border:1px solid #bda7803d;border-radius:3px;background:#cfb78c09;color:#ebdfcd}
 .rh-item[data-reveal]{z-index:2}
 .rh-item[data-current]{border-color:#c2a06c8c;background:#bba2751c;color:#ffeac6}
@@ -18,8 +18,8 @@
 .rh-action{position:absolute;inset-block:0;left:0;width:var(--rh-action-width);padding:0;display:inline-grid;place-items:center;color:#d1c0a4;visibility:hidden;pointer-events:none;touch-action:pan-x}
 .rh-item[data-pinned] .rh-pin{position:relative;inset:auto;flex:0 0 var(--rh-action-width);visibility:visible;pointer-events:auto}
 .rh-item[data-reveal] .rh-action{visibility:visible;pointer-events:auto}
-.rh-item[data-reveal]:not([data-pinned]) .rh-pin,.rh-item[data-reveal] .rh-delete{left:var(--rh-tools-left,100%);z-index:1;background:#40382e;box-shadow:0 0 0 1px #aa957660}
-.rh-item[data-reveal]:not([data-pinned]) .rh-delete{left:calc(var(--rh-tools-left,100%) + var(--rh-action-width))}
+.rh-item[data-reveal]:not([data-pinned]) .rh-pin,.rh-item[data-reveal] .rh-delete{position:fixed;inset:auto;top:var(--rh-tools-bottom);left:var(--rh-tools-left);transform:translateY(-100%);z-index:1;background:#40382e;box-shadow:0 0 0 1px #aa957660}
+.rh-item[data-reveal]:not([data-pinned]) .rh-delete{left:calc(var(--rh-tools-left) + var(--rh-action-width))}
 .rh-action svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .rh-pin[aria-pressed=true]{color:#d8b783}
 .rh-pin[aria-pressed=true] .rh-pin-head{fill:currentColor}

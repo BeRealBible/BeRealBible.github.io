@@ -1,5 +1,5 @@
 /* Runs the real edge reader controller with deterministic input/timing.
- * Curl renderer, jump timing and ribbons are spies; scripture, physics and paper material are real.
+ * Curl renderer, jump timing and reading-history callbacks are spies; scripture, physics and paper material are real.
  * Integration scenarios also run the real EdgeIndex and chapter-popover DOM modules.
  * This does not replace browser rendering or physical-phone acceptance tests. */
 'use strict';
@@ -28,17 +28,14 @@ function currentRuleData() {
 }
 
 function fixture(startSpread = 2, options = {}) {
-  let now = 0, nextId = 1, observer, edgeOptions, ribbonOptions, readerIndex, chapterOptions, chapterOpenState = null;
+  let now = 0, nextId = 1, observer, edgeOptions, historyOptions, readerIndex, chapterOptions, chapterOpenState = null;
   let jumpActive = null, chapterReader;
   const timers = new Map(), elements = new Map(), events = {}, rendered = [], draws = [];
-  const saved = [], edgeCalls = [], ribbonCalls = [], sceneCalls = [], jumpCalls = [], chapterCalls = [], previewCalls = [], previewSources = [];
+  const saved = [], edgeCalls = [], sceneCalls = [], jumpCalls = [], chapterCalls = [], previewCalls = [], previewSources = [];
   const storage = new Map(Object.entries({
     'paper-bible-position-v1': JSON.stringify({ spread: startSpread, ...(options.pose || {}) }),
-    'paper-bible-ribbon-v1-0': JSON.stringify({ version: 1, page: 34, spread: 34, bookName: '创世记', ref: '40:1', pose: { zoom: 2, cx: 600, cy: 340, focus: 'custom' } }),
-    'paper-bible-ribbon-v1-1': JSON.stringify({ version: 1, page: 1174, spread: 1174, bookName: '提摩太后书', ref: '1:1' }),
     ...(options.storage || {})
   }));
-  const initialStorage = new Map(storage);
   const style = () => ({ setProperty(k, v) { this[k] = String(v); }, getPropertyValue(k) { return this[k] || ''; }, removeProperty(k) { delete this[k]; } });
   function listen(target, type, fn) { (target[type] ||= []).push(fn); }
   function dispatch(target, type, event = {}) {
@@ -203,7 +200,7 @@ function fixture(startSpread = 2, options = {}) {
   const context = {
     console, document: doc, navigator: {}, performance: { now: () => now },
     PaperPhysics: Physics, PaperGestures: Gestures, PaperBookMaterial: Material, PaperPage: Page, PaperEdges: Edges,
-    PaperSheetRenderer: Renderer, PaperTextSelection: options.selectionModule, PaperReadingHistory: options.historyModule,
+    PaperSheetRenderer: Renderer, PaperTextSelection: options.selectionModule, PaperReadingHistory: {create(args){historyOptions=args;return options.historyModule?.create(args)||{start(){},advance(){},jump(_loc,id){return id?{id}:null;}};}}, PaperBookDesk:options.deskModule,
     PaperJump: { create: () => jump },
     BIBLE_SOURCE: options.source || currentBibleSource(),
     PaperChapterPreview: { create: source => {
@@ -212,7 +209,6 @@ function fixture(startSpread = 2, options = {}) {
     } },
     PaperEdgeChapters: { create: (host, args) => { chapterOptions = args; chapterReader = options.realChaptersDom ? require('./edge-chapters.js').create(host, args) : chapters; return chapterReader; } },
     PaperEdgeIndex: { create: (host, args) => { edgeOptions = args || host; readerIndex = options.realIndexDom ? EdgeIndex.create(host, args) : edge; return readerIndex; } },
-    PaperRibbons: { create: args => { ribbonOptions = args; return { update: () => ribbonCalls.push({ type: 'update' }), setScene: (...args) => ribbonCalls.push({ type: 'scene', args }), open: slot => ribbonCalls.push({ type: 'open', slot }) }; } },
     PaperImmersion: { setScene: value => sceneCalls.push(value), showChrome() {}, hideChrome() {} },
     localStorage: options.customStorage ? { getItem() { throw Error('wrong storage read'); }, setItem() { throw Error('wrong storage write'); } } : store,
     matchMedia: () => ({ matches: !!options.reducedMotion, addEventListener() {}, removeEventListener() {} }),
@@ -248,7 +244,7 @@ function fixture(startSpread = 2, options = {}) {
     const event = { type, clientX: x, clientY: y, pointerId: id, pointerType, button: 0, timeStamp: now, target };
     el('stage').dispatchEvent(event); return event;
   }
-  function at(side = 'right', radius = 350, localY = 310) {
+  function at(side = 'right', radius = 467, localY = 310) {
     const stage = el('stage'), scale = Number(stage.dataset.scale);
     return { x: Number(stage.dataset.x) + (480 + (side === 'right' ? radius : -radius)) * scale, y: Number(stage.dataset.y) + localY * scale, scale, radius, side };
   }
@@ -282,8 +278,8 @@ function fixture(startSpread = 2, options = {}) {
     }
     chapters.close(); return chapterOptions.onSelect(page);
   }
-  return { el, advance, emit, at, tap, swipe, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls, jumpCalls, chapterCalls, previewCalls, previewSources,
-    get now() { return now; }, get ribbonOptions() { return ribbonOptions; }, get edgeItems() { return edgeItems; },
+  return { el, advance, emit, at, tap, swipe, hold, drag, click, context, rendered, draws, saved, storage, edgeCalls, sceneCalls, jumpCalls, chapterCalls, previewCalls, previewSources,
+    get now() { return now; }, get position() { return JSON.parse(storage.get('paper-bible-position-v1')); }, get edgeItems() { return edgeItems; },
     get edgeLayout() { return options.realIndexDom ? EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, Number(el('stage').dataset.spread), readerIndex.getExpanded()) : edgeLayout; },
     get expandedSide() { return readerIndex.getExpanded(); }, get indexElement() { return readerIndex.element; },
     get chapterState() { return chapterOpenState; }, get chapterElement() { return chapterReader.element; }, get chaptersOpen() { return chapterReader.isOpen(); }, get chapterOptions() { return chapterOptions; }, get jumpActive() { return jump.isActive(); },
@@ -294,20 +290,83 @@ function fixture(startSpread = 2, options = {}) {
     selectBook, chooseChapter,
     goBook: index => { selectBook(index); chooseChapter(context.BIBLE_DATA.books[index].first); },
     expand: side => { assert.ok(edgeOptions, 'edge index is installed'); return readerIndex.setExpanded(side); },
-    navigateRibbon: (page, pose) => ribbonOptions.onNavigate(page, pose) };
+    navigateDirectory:page=>chapterOptions.onSelect(page), navigateHistory:(page,id,entry)=>historyOptions.onNavigate(page,id,entry) };
 }
 
 const scenarios = [];
 const test = (name, fn) => scenarios.push({ name, fn });
 const spread = f => Number(f.el('stage').dataset.spread);
 const state = f => f.el('stage').dataset.foldState;
+function wheelAt(f,point,dx,dy,extra={}){
+  const event={type:'wheel',clientX:point.x,clientY:point.y,deltaX:dx,deltaY:dy,target:f.el('right-paper'),...extra};
+  f.el('stage').dispatchEvent(event);return event;
+}
 function assertReading(f) {
   assert.equal(f.el('stage').dataset.scene, 'reading');
   assert.ok(f.sceneCalls.every(s => s === 'reading'), 'no closing, edge-on or directory scene');
 }
-function assertUnchangedBookmarks(f) {
-  for (const key of ['paper-bible-ribbon-v1-0', 'paper-bible-ribbon-v1-1']) assert.equal(f.storage.get(key), f.initialStorage.get(key), key + ' must survive reader updates');
-}
+test('desk, two text columns, inter-column whitespace and outward edge drags never lift the opposite page',()=>{
+  for(const type of ['mouse','touch'])for(const [face,radius,y,dx] of [
+    ['right',105,195,-66],['right',240,480,-65],['left',310,280,65],['right',0,190,-65],
+    ['right',470,-8,-65],['right',494,660,-65],['right',469,660,65],['left',470,41,-65]
+  ]){
+    const f=fixture(20),p=f.at(face,radius,y),source=f.el(y<0||radius>480?'stage':face+'-paper');
+    f.emit('pointerdown',p.x,p.y,1,type,source);f.emit('pointermove',p.x+dx,p.y,1,type,source);
+    f.emit('pointerup',p.x+dx,p.y,1,type,source);f.advance(800);
+    assert.equal(spread(f),20);assert.equal(f.rendered.length,0);assert.equal(f.el('fit-book').classList.contains('active'),true);
+  }
+});
+test('same horizontal drag pans from a glyph and from an adjacent blank in the zoomed text column',()=>{
+  const word={},f=fixture(20,{selectionModule:{create:()=>({hit:(_x,_y,t)=>t===word?{}:null,isActive:()=>false,reset(){}})}});
+  function drag(target){
+    f.click('fit-book');f.click('zoom-in');f.click('zoom-in');
+    const p=f.at('right',280,240),before=Number(f.el('stage').dataset.x);
+    f.emit('pointerdown',p.x,p.y,1,'mouse',target);f.emit('pointermove',p.x-76,p.y+3,1,'mouse',target);
+    f.emit('pointerup',p.x-76,p.y+3,1,'mouse',target);
+    return Number(f.el('stage').dataset.x)-before;
+  }
+  const ink=drag(word),gap=drag(f.el('right-paper'));assert.ok(ink<-70);assert.equal(gap,ink);
+  assert.equal(spread(f),20);assert.equal(f.rendered.length,0);
+});
+test('horizontal wheel burst flips one spread at book-fit, ignores inertia and never interprets vertical wheel as navigation',()=>{
+  const f=fixture(20),p=f.at('right',310,330);
+  for(let i=0;i<5;i++){wheelAt(f,p,2,32);f.advance(22);}
+  f.advance(300);assert.equal(f.rendered.length,0);
+  for(let i=0;i<6;i++){wheelAt(f,{x:5,y:2},33,0,{target:f.el('stage')});f.advance(18);}
+  assert.equal(f.rendered.length,0,'no action in the table outside the book');
+  for(let i=0;i<14;i++){wheelAt(f,p,17,2);f.advance(43);}
+  f.advance(350);assert.equal(spread(f),22);assert.equal(f.rendered.length,1);
+  wheelAt(f,p,-4,0,{deltaMode:1});f.advance(500);assert.equal(spread(f),20);
+  assert.equal(f.el('fit-book').classList.contains('active'),true);
+});
+test('zoomed two-finger horizontal wheel only pans; strip and named book buttons keep Ctrl-wheel inside the reader',()=>{
+  const f=fixture(20,{realIndexDom:true}),p=f.at('right',260,340),band=f.indexElement.querySelectorAll('.edge-index__band')[1],
+    label=f.indexElement.querySelectorAll('.edge-index__group').find(b=>!b.hidden);
+  for(const button of [band,label])assert.equal(wheelAt(f,p,0,-90,{ctrlKey:true,target:button}).defaultPrevented,true);
+  assert.ok(parseInt(f.el('zoom-value').textContent)>155);
+  const before=Number(f.el('stage').dataset.x);wheelAt(f,p,-20,0);f.advance(500);
+  assert.notEqual(Number(f.el('stage').dataset.x),before);assert.equal(f.rendered.length,0);
+  f.click('fit-book');if(!f.expandedSide)f.expand('right');
+  const z=Number(f.el('stage').dataset.scale);assert.equal(wheelAt(f,p,0,-70,{ctrlKey:true,target:band}).defaultPrevented,true);
+  assert.equal(f.expandedSide,'right');assert.ok(Number(f.el('stage').dataset.scale)>z);
+  wheelAt(f,p,80,0,{target:band});assert.equal(f.rendered.length,0);f.expand(null);
+  assert.equal(f.el('zoom-value').textContent,'100%','looking at a zoomed edge has not overwritten the reading pose');
+});
+test('lifting one finger after a pinch allows immediate single-finger pan without selection or a page turn',()=>{
+  const f=fixture(20,{width:390,height:844}),p=f.at('right',300,300),s=f.el('stage');
+  f.emit('pointerdown',p.x-40,p.y,1,'touch');f.emit('pointerdown',p.x+40,p.y,2,'touch');
+  f.emit('pointermove',p.x+100,p.y+15,2,'touch');f.emit('pointerup',p.x+100,p.y+15,2,'touch');
+  const before=[+s.dataset.x,+s.dataset.y,+s.dataset.scale];
+  f.emit('pointermove',p.x-67,p.y-30,1,'touch');f.advance(550);f.emit('pointerup',p.x-67,p.y-30,1,'touch');
+  assert.ok(Math.abs(+s.dataset.x-before[0]+27)<.03);assert.ok(Math.abs(+s.dataset.y-before[1]+30)<.03);
+  assert.equal(+s.dataset.scale,before[2]);assert.equal(spread(f),20);assert.equal(f.rendered.length,0);
+});
+test('modified browser navigation arrows pass through without turning pages',()=>{
+  const f=fixture(20);
+  for(const key of ['ArrowLeft','ArrowRight']){const e={type:'keydown',key,altKey:true};f.el('stage').dispatchEvent(e);assert.ok(!e.defaultPrevented);}
+  f.advance(800);assert.equal(f.rendered.length,0);assert.equal(spread(f),20);
+  const e={type:'keydown',key:'ArrowRight'};f.el('stage').dispatchEvent(e);assert.ok(e.defaultPrevented);f.advance(800);assert.equal(spread(f),22);
+});
 
 for(const pointerType of ['mouse','touch'])for(const dir of [-1,1])test(pointerType+' horizontal blank swipe turns exactly one spread '+dir,()=>{
   const f=fixture(20),source=f.el(dir>0?'right-paper':'left-paper'),original=source.innerHTML;
@@ -338,7 +397,7 @@ test('text taps and long holds route through hit-tested tokens, never through th
   event('pointerdown');f.emit('pointerdown',p.x,p.y+40,2,'touch');f.advance(600);event('pointerup');f.emit('pointerup',p.x,p.y+40,2,'touch');assert.equal(calls.length,3);
 });
 for(const [dir,height] of [[1,660],[-1,42]])test('corner drag follows a held pointer before release and keeps its starting height '+dir,()=>{
-  const f=fixture(20),p=f.at(dir===1?'right':'left',453,height),paper=f.el(dir===1?'right-paper':'left-paper');
+  const f=fixture(20),p=f.at(dir===1?'right':'left',464,height),paper=f.el(dir===1?'right-paper':'left-paper');
   const send=(kind,d=0,dy=0)=>f.emit(kind,p.x-dir*d,p.y+dy,1,'touch',paper);
   send('pointerdown');f.advance(20);send('pointermove',52,4);
   assert.equal(state(f),'dragging');assert.equal(f.rendered.length,1);assert.equal(spread(f),20);
@@ -354,7 +413,7 @@ test('dragging back through the origin never starts an opposite turn within the 
   f.advance(1000);assert.equal(spread(f),20);assert.equal(f.rendered.length,1);
 });
 for(const dir of [-1,1])test('last intentional motion towards the source cancels even past the halfway mark and after a pause '+dir,()=>{
-  const f=fixture(20),p=f.at(dir>0?'right':'left',440,dir>0?652:50);
+  const f=fixture(20),p=f.at(dir>0?'right':'left',467,dir>0?652:50);
   const send=(t,dx)=>f.emit(t,p.x-dir*dx*p.scale,p.y,1,'mouse',f.el(dir>0?'right-paper':'left-paper'));
   send('pointerdown',0);f.advance(30);send('pointermove',600);f.advance(320);assert.equal(spread(f),20);
   assert.ok(f.draws.at(-1).progress>.5);send('pointermove',520);const partial=f.draws.at(-1).progress;
@@ -371,11 +430,11 @@ test('unexpanded striped edge distinguishes the index click from the page drag w
   const tab=f.el('demo-index-test');tab.className='edge-index__group';send('pointerdown',0,tab);send('pointermove',70,tab);send('pointerup',70,tab);f.advance(900);assert.equal(spread(f),22);
 });
 test('a deliberate short forward drag held stationary still commits on release without fling velocity',()=>{
-  const f=fixture(20),p=f.at('right',435,610);f.emit('pointerdown',p.x,p.y);f.advance(350);f.emit('pointermove',p.x-60,p.y);
+  const f=fixture(20),p=f.at('right',467,610);f.emit('pointerdown',p.x,p.y);f.advance(350);f.emit('pointermove',p.x-60,p.y);
   f.advance(700);assert.equal(spread(f),20);assert.equal(state(f),'dragging');f.emit('pointerup',p.x-60,p.y);f.advance(800);assert.equal(spread(f),22);
 });
 test('a long held forward pull does not commit early and a tiny release wobble does not cancel it',()=>{
-  const f=fixture(20),p=f.at('right',430,640);
+  const f=fixture(20),p=f.at('right',467,640);
   f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x-520*p.scale,p.y-21);f.advance(900);assert.equal(state(f),'dragging');assert.equal(spread(f),20);
   f.emit('pointerup',p.x-520*p.scale+1,p.y-21);f.advance(900);assert.equal(spread(f),22);
 });
@@ -418,9 +477,9 @@ test('multiple next-button requests remain queued but gestures during a flip do 
 test('choosing an edge chapter navigates while the book stays open', () => {
   const f = fixture(20), target = f.context.BIBLE_DATA.books[65].first & ~1;
   f.goBook(65); f.advance(4000); assert.equal(spread(f), target); assertReading(f);
-  assert.ok(f.edgeCalls.length); assertUnchangedBookmarks(f);
+  assert.ok(f.edgeCalls.length);
 });
-for (const code of ['PHM', '2JN']) test(`${code} even-page edge keeps its own title, ribbon page and saved anchor after reload`, () => {
+for (const code of ['PHM', '2JN']) test(`${code} even-page edge keeps its own title, saved face and precise anchor after reload`, () => {
   const data = currentRuleData(), index = data.books.findIndex(book => book.code === code), selected = data.books[index], page = selected.first;
   assert.equal(page % 2, 0, 'regression requires the selected book to open on the left');
   assert.notEqual(data.pages[page + 1].b, index, 'right page belongs to the following short book');
@@ -430,12 +489,10 @@ for (const code of ['PHM', '2JN']) test(`${code} even-page edge keeps its own ti
     function assertSelected(reader) {
       assert.equal(spread(reader), page); assert.equal(reader.el('book-name').textContent, selected.name);
       assert.equal(reader.el('stage').dataset.book, selected.code);
-      const bookmark = reader.ribbonOptions.getCurrent();
-      assert.equal(bookmark.page, page); assert.equal(bookmark.bookName, selected.name); assert.equal(bookmark.ref, data.pages[page].start);
       const saved = JSON.parse(reader.storage.get('paper-bible-position-v1'));
       assert.equal(saved.page, page); assert.equal(saved.spread, page); assert.equal(saved.bookName, selected.name); assert.equal(saved.ref, data.pages[page].start);
       if (width === 390) assert.equal(saved.focus, 'left', 'phone camera follows the selected left page');
-      assertReading(reader); assertUnchangedBookmarks(reader);
+      assertReading(reader);
     }
     assertSelected(f);
     const reloaded = fixture(0, { ...options, storage: Object.fromEntries(f.storage) });
@@ -449,22 +506,21 @@ test('explicit reference page overrides saved face as well as saved spread', () 
       pose: { page: page ^ 1 }, initialSpread: page & ~1, initialPage: page });
     const expected = data.books[data.pages[page].b], saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
     assert.equal(f.el('book-name').textContent, expected.name); assert.equal(saved.page, page);
-    assert.equal(f.ribbonOptions.getCurrent().page, page); assert.equal(saved.focus, page % 2 ? 'right' : 'left');
+    assert.equal(saved.focus, page % 2 ? 'right' : 'left');
   }
 });
-test('left-page ribbon navigation preserves its exact short-book anchor', () => {
+test('left-page reading-history return preserves the exact short-book anchor', () => {
   const data = currentRuleData(), selected = data.books.find(book => book.code === 'PHM');
   const f = fixture(20, { data });
-  f.navigateRibbon(selected.first, { zoom: 2, cx: 250, cy: 340, focus: 'left' });
-  assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
-  assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, selected.first); assertUnchangedBookmarks(f);
+  f.navigateHistory(selected.first,'r1',{bookCode:selected.code,ref:'1:1'});
+  assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.position.page, selected.first);
+  assert.equal(f.position.ref,'1:1');
 });
 test('explicit left/right focus changes the displayed book and persisted face together', () => {
   const data = currentRuleData(), page = data.books.find(book => book.code === 'PHM').first, f = fixture(page, { data });
   for (const [side, index] of [['left', page], ['right', page + 1]]) {
     f.click('focus-' + side);
     assert.equal(f.el('book-name').textContent, data.books[data.pages[index].b].name);
-    assert.equal(f.ribbonOptions.getCurrent().page, index);
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, index);
   }
 });
@@ -514,25 +570,24 @@ test('390x844 phone starts at readable scale with all right edges inside viewpor
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).focus, 'right');
   }
 });
-test('position persistence does not overwrite either ribbon and custom storage is respected', () => {
-  const f = fixture(20, { customStorage: true }); f.swipe(); f.advance(1500);
-  assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).spread, 22); assertUnchangedBookmarks(f);
-  assert.ok(f.ribbonOptions.storage); assert.equal(f.ribbonOptions.storage.getItem('paper-bible-ribbon-v1-0'), f.initialStorage.get('paper-bible-ribbon-v1-0'));
+test('page turns use the injected storage and preserve unrelated local reading preferences', () => {
+  const f = fixture(20, { customStorage: true,storage:{'user-preference':'preserve me'} }); f.swipe(); f.advance(1500);
+  assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).spread, 22);
+  assert.equal(f.storage.get('user-preference'),'preserve me');
 });
 test('saved custom reading zoom and center survive initial load', () => {
   const f = fixture(20, { pose: { zoom: 2, centerX: 600, centerY: 340, focus: 'custom' } });
   const saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
   assert.equal(saved.spread, 20); assert.equal(saved.focus, 'custom');
   assert.ok(Math.abs(saved.zoom - 2) < 1e-8); assert.ok(Math.abs(saved.centerX - 600) < 1e-8); assert.ok(Math.abs(saved.centerY - 340) < 1e-8);
-  assertUnchangedBookmarks(f);
 });
 test('explicit initial page overrides stored position and is normalized to a spread', () => {
   const f = fixture(20, { initialSpread: 101 });
-  assert.equal(spread(f), 100); assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).spread, 100); assertUnchangedBookmarks(f);
+  assert.equal(spread(f), 100); assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).spread, 100);
 });
-test('ribbon navigation restores its spread without entering an index scene', () => {
-  const f = fixture(20); f.navigateRibbon(34, { zoom: 2, cx: 600, cy: 340, focus: 'custom' }); f.advance(4000);
-  assert.equal(spread(f), 34); assertReading(f); assertUnchangedBookmarks(f);
+test('reading-history navigation restores its spread without opening an index or a page packet', () => {
+  const f = fixture(20); f.navigateHistory(34,'r4',{bookCode:'GEN',ref:'40:1'}); f.advance(4000);
+  assert.equal(spread(f),34);assert.equal(f.position.page,34);assert.equal(f.jumpCalls.length,0);assertReading(f);
 });
 test('current rules edition retains exact scripture SVG and last-book navigation', () => {
   const data = currentRuleData();
@@ -541,7 +596,7 @@ test('current rules edition retains exact scripture SVG and last-book navigation
   assert.equal(f.el('right-paper').innerHTML, Page.svg(data.pages[21], 21, data.books));
   f.goBook(65); f.advance(4000);
   const target = data.books[65].first & ~1;
-  assert.equal(spread(f), target); assertReading(f); assertUnchangedBookmarks(f);
+  assert.equal(spread(f), target); assertReading(f);
   assert.equal(f.el('right-paper').innerHTML, Page.svg(data.pages[target + 1], target + 1, data.books));
   assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).edition, data.edition);
 });
@@ -558,7 +613,36 @@ test('expanded edge restores exact custom camera and never persists its temporar
   assert.equal(f.storage.get('paper-bible-position-v1'), saved, 'temporary index camera must not overwrite reading position');
   f.expand('left'); assert.equal(f.expandedSide, 'left');
   f.expand(null); assert.equal(f.expandedSide, null); assertCameraEqual(camera(f), original);
-  assert.equal(f.storage.get('paper-bible-position-v1'), saved); assertReading(f); assertUnchangedBookmarks(f);
+  assert.equal(f.storage.get('paper-bible-position-v1'), saved); assertReading(f);
+});
+for(const side of ['left','right'])test('zoomed '+side+' index pans to all four bounds, returns from its chooser, and never turns a page',()=>{
+  const f=fixture(600,{width:390,height:844,data:currentRuleData(),realIndexDom:true,realChaptersDom:true}),stage=f.el('stage');
+  const original=camera(f),saved=f.storage.get('paper-bible-position-v1');f.expand(side);
+  const band=f.indexElement.querySelectorAll('.edge-index__band').find(b=>b.dataset.side===side),box=f.edgeLayout.bands[side];
+  function rect(){const [x,y,s]=camera(f);return {left:x+box.x*s,top:y,right:x+(box.x+box.width)*s,bottom:y+704*s};}
+  const center=()=>{const r=rect();return {x:(Math.max(0,r.left)+Math.min(390,r.right))/2,y:(Math.max(0,r.top)+Math.min(844,r.bottom))/2};};
+  wheelAt(f,center(),0,-600,{ctrlKey:true,target:band});assert.ok(rect().bottom-rect().top>1800);
+  for(const sign of [1,-1]){
+    wheelAt(f,center(),sign*1e5,sign*1e5,{target:band});const r=rect();
+    if(sign>0){assert.ok(Math.abs(r.right-372)<.15);assert.ok(Math.abs(r.bottom-826)<.15);}
+    else{assert.ok(Math.abs(r.left-18)<.15);assert.ok(Math.abs(r.top-18)<.15);}
+    assert.ok(r.right>=372&&r.left<=18.1,'horizontal pan always leaves the broad open index in view');
+  }
+  const nativeClick=()=>{const e={type:'click',target:band,detail:1};stage.dispatchEvent(e);if(!e.defaultPrevented)band.dispatchEvent({type:'click'});};
+  for(const type of ['mouse','touch']){
+    const before=camera(f),p=center();
+    f.emit('pointerdown',p.x,p.y,1,type,band);f.emit('pointermove',p.x-20,p.y-70,1,type,band);
+    f.emit('pointerup',p.x-20,p.y-70,1,type,band);nativeClick();
+    assert.ok(Math.abs(camera(f)[0]-before[0]+20)<.1);assert.ok(Math.abs(camera(f)[1]-before[1]+70)<.1);
+    assert.equal(f.expandedSide,side);assert.equal(f.rendered.length,0);assert.equal(spread(f),600);
+  }
+  const pose=camera(f),button=f.indexElement.querySelectorAll('.edge-index__book').find(b=>!b.hidden);
+  button.dispatchEvent({type:'click'});assert.equal(f.chaptersOpen,true);
+  f.chapterOptions.onZoom(.8);f.chapterElement.querySelector('.edge-chapters__close').dispatchEvent({type:'click'});
+  assert.equal(f.expandedSide,side);assertCameraEqual(camera(f),pose);
+  const p=center();f.emit('pointerdown',p.x,p.y,1,'touch',band);f.emit('pointerup',p.x,p.y,1,'touch',band);nativeClick();
+  assert.equal(f.expandedSide,null);assertCameraEqual(camera(f),original);assert.equal(f.storage.get('paper-bible-position-v1'),saved);
+  assert.equal(f.jumpCalls.length,0);
 });
 test('expanded edge consumes page tap, hold, pointercancel and keyboard arrows without page turns', () => {
   const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }); f.expand('right');
@@ -594,10 +678,9 @@ test('every one of 66 books remains individually reachable in expanded edges wit
     assert.equal(f.chaptersOpen, true); assert.equal(spread(f), before, 'book label opens chapters before navigation');
     f.chooseChapter(selected.first);
     assert.equal(f.expandedSide, null); assert.equal(spread(f), selected.first & ~1);
-    assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
+    assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.position.page, selected.first);
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, selected.first); assertReading(f);
   }
-  assertUnchangedBookmarks(f);
 });
 test('390x844 expanded edge shows every selected-side label inside the viewport', () => {
   const data = currentRuleData(), f = fixture(600, { data, width: 390, height: 844, realEdgeGeometry: true });
@@ -641,10 +724,9 @@ test('real edge and chapter DOM choose all 66 books then commit packets and resu
     f.chooseChapter(selected.chapters[0].page);
     if ((selected.first & ~1) !== before) { assert.equal(f.jumpActive, true); assert.equal(spread(f), before); f.finishJump(); }
     assert.equal(f.expandedSide, null); assert.equal(f.el('book-name').textContent, selected.name);
-    assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
+    assert.equal(f.position.page, selected.first);
   }
   f.swipe(); f.advance(1500); assert.equal(spread(f), (data.books[65].first & ~1) + 2);
-  assertUnchangedBookmarks(f);
 });
 test('book index click opens anchored chapter selector without changing the page or closing the edge', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), anchor = { left: 300, top: 250, right: 344, bottom: 276, width: 44, height: 26 };
@@ -672,17 +754,17 @@ test('far chapter jump keeps source metadata and storage until packet completion
   assert.equal(f.expandedSide, null); assert.equal(f.chaptersOpen, false); assert.equal(f.jumpActive, true);
   assert.equal(f.jumpCalls.length, 1); assert.equal(f.jumpCalls[0].from, 20); assert.equal(f.jumpCalls[0].to, selected.first);
   assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
-  assert.notEqual(f.ribbonOptions.getCurrent().page, selected.first); f.advance(10000);
+  assert.notEqual(f.position.page, selected.first); f.advance(10000);
   assert.equal(spread(f), 20, 'time alone cannot commit an unfinished packet');
   f.finishJump(); const saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
   assert.equal(f.jumpActive, false); assert.equal(spread(f), selected.first); assert.equal(saved.page, selected.first);
-  assert.equal(saved.focus, 'left'); assert.equal(saved.bookName, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
+  assert.equal(saved.focus, 'left'); assert.equal(saved.bookName, selected.name); assert.equal(f.position.page, selected.first);
   assert.equal(f.el('left-paper').innerHTML, Page.svg(data.pages[selected.first], selected.first, data.books));
-  assert.equal(f.el('stage').dataset.jumpState, 'committed'); assertUnchangedBookmarks(f);
+  assert.equal(f.el('stage').dataset.jumpState, 'committed');
 });
 test('backward packet commits the odd target page rather than losing its right-face anchor', () => {
   const data = currentRuleData(), f = fixture(1200, { data, width: 390, height: 844, manualJump: true }), target = data.books[0].first;
-  assert.equal(target % 2, 1); f.navigateRibbon(target); assert.equal(spread(f), 1200);
+  assert.equal(target % 2, 1); f.navigateDirectory(target); assert.equal(spread(f), 1200);
   assert.equal(f.jumpCalls[0].from, 1200); assert.equal(f.jumpCalls[0].to, target & ~1);
   f.finishJump(); const saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
   assert.equal(saved.page, target); assert.equal(saved.focus, 'right'); assert.equal(f.el('book-name').textContent, data.books[0].name);
@@ -690,7 +772,7 @@ test('backward packet commits the odd target page rather than losing its right-f
 test('cancelled jump restores source SVG and cannot save target even if its old finish callback arrives', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true });
   const stored = f.storage.get('paper-bible-position-v1'), original = ['left-paper', 'right-paper'].map(id => f.el(id).innerHTML);
-  f.navigateRibbon(data.books[65].first); f.cancelJump(); f.invokeJumpFinish(0);
+  f.navigateDirectory(data.books[65].first); f.cancelJump(); f.invokeJumpFinish(0);
   assert.equal(spread(f), 20); assert.equal(f.jumpActive, false); assert.equal(f.el('stage').dataset.jumpState, 'cancelled');
   assert.equal(f.storage.get('paper-bible-position-v1'), stored);
   assert.deepEqual(['left-paper', 'right-paper'].map(id => f.el(id).innerHTML), original);
@@ -699,7 +781,7 @@ test('cancelled jump restores source SVG and cannot save target even if its old 
 test('new jump replaces the previous packet and ignores its stale finish and cancel callbacks', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), first = data.books[65].first, second = data.books[23].first;
   const stored = f.storage.get('paper-bible-position-v1');
-  f.navigateRibbon(first); f.navigateRibbon(second);
+  f.navigateDirectory(first); f.navigateDirectory(second);
   assert.equal(f.jumpCalls.length, 2); assert.equal(f.jumpCalls[0].cancelled, true); assert.equal(f.jumpCalls[1].from, 20);
   f.invokeJumpFinish(0); f.invokeJumpCancel(0);
   assert.equal(spread(f), 20); assert.equal(f.jumpActive, true); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
@@ -708,20 +790,20 @@ test('new jump replaces the previous packet and ignores its stale finish and can
 });
 test('pending packet excludes taps, held curls, arrows and queued ordinary page turns', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), target = data.books[65].first;
-  f.navigateRibbon(target); f.tap(); const p = f.hold(); f.drag(p, .8, 'pointerup');
+  f.navigateDirectory(target); f.tap(); const p = f.hold(); f.drag(p, .8, 'pointerup');
   f.el('stage').dispatchEvent({ type: 'keydown', key: 'ArrowRight' }); f.click('next'); f.advance(1500);
   assert.equal(spread(f), 20); assert.equal(f.rendered.length, 0); assert.equal(f.jumpCalls.length, 1);
   f.finishJump(); f.advance(1500); assert.equal(spread(f), target & ~1); assert.equal(f.rendered.length, 0);
 });
 test('starting packet navigation interrupts an ordinary flip before committing the destination', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), target = data.books[65].first;
-  f.swipe(); f.navigateRibbon(target); f.advance(1500);
+  f.swipe(); f.navigateDirectory(target); f.advance(1500);
   assert.equal(state(f), 'returned'); assert.equal(f.jumpActive, true); assert.equal(spread(f), 20); assert.equal(f.rendered.length, 1);
   f.finishJump(); assert.equal(spread(f), target & ~1); assert.equal(f.rendered.length, 1);
 });
 for (const reason of ['blur', 'Escape', 'resize']) test(`${reason} cancels pending packet without persisting destination`, () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), stored = f.storage.get('paper-bible-position-v1');
-  f.navigateRibbon(data.books[65].first);
+  f.navigateDirectory(data.books[65].first);
   if (reason === 'Escape') f.el('stage').dispatchEvent({ type: 'keydown', key: 'Escape' });
   else if (reason === 'resize') f.resize(); else f.event(reason);
   assert.equal(f.jumpActive, false); assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
@@ -729,8 +811,8 @@ for (const reason of ['blur', 'Escape', 'resize']) test(`${reason} cancels pendi
 });
 test('same-spread chapter selection updates exact face without manufacturing a packet', () => {
   const data = currentRuleData(), left = data.books.find(book => book.code === 'PHM').first, f = fixture(left, { data, manualJump: true });
-  f.navigateRibbon(left); assert.equal(f.jumpCalls.length, 0); assert.equal(f.ribbonOptions.getCurrent().page, left);
-  f.navigateRibbon(left + 1); assert.equal(f.jumpCalls.length, 0); assert.equal(f.ribbonOptions.getCurrent().page, left + 1);
+  f.navigateHistory(left,'r1'); assert.equal(f.jumpCalls.length, 0); assert.equal(f.position.page, left);
+  f.navigateHistory(left+1,'r4'); assert.equal(f.jumpCalls.length, 0); assert.equal(f.position.page, left + 1);
   assert.equal(f.el('book-name').textContent, data.books[data.pages[left + 1].b].name);
 });
 test('normal grouped edge opens all member books and lets a later member choose its chapter', () => {
@@ -745,7 +827,7 @@ test('normal grouped edge opens all member books and lets a later member choose 
     memberButtons.find(button => Number(button.dataset.book) === index).dispatchEvent({ type: 'click' });
     assert.equal(f.chapterElement.dataset.book, String(index));
     f.chooseChapter(selected.chapters[0].page); assert.equal(spread(f), 20); f.finishJump();
-    assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.ribbonOptions.getCurrent().page, selected.chapters[0].page);
+    assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.position.page, selected.chapters[0].page);
   }
 });
 test('actual chapter 150 button requests its real page instead of the first page of Psalms', () => {
@@ -755,7 +837,7 @@ test('actual chapter 150 button requests its real page instead of the first page
   assert.ok(button); button.dispatchEvent({ type: 'click' });
   const target = selected.chapters.find(chapter => chapter.chapter === 150).page;
   assert.notEqual(target, selected.first); assert.equal(f.jumpCalls[0].to, target & ~1); assert.equal(spread(f), 20);
-  f.finishJump(); assert.equal(f.ribbonOptions.getCurrent().page, target);
+  f.finishJump(); assert.equal(f.position.page, target);
   assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, target);
 });
 test('real chapter Escape closes only the popover before a second Escape closes the expanded edge', () => {
@@ -832,7 +914,7 @@ test('single-chapter short books keep one real preview and commit the exact even
     const original = f.storage.get('paper-bible-position-v1'); clickChapterMode(f, 'preview');
     const button = assertPreviewButton(f, book, book.chapters[0]); button.dispatchEvent({ type: 'click' });
     assert.equal(f.chaptersOpen, false); assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), original);
-    f.finishJump(); assert.equal(f.el('book-name').textContent, book.name); assert.equal(f.ribbonOptions.getCurrent().page, book.chapters[0].page);
+    f.finishJump(); assert.equal(f.el('book-name').textContent, book.name); assert.equal(f.position.page, book.chapters[0].page);
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, book.chapters[0].page);
   }
 });
@@ -846,10 +928,10 @@ test('all 150 Psalm preview chapters remain reachable and navigate to their real
     assert.equal(f.chapterMode, 'preview');
     const button = assertPreviewButton(f, book, entry), before = spread(f); button.dispatchEvent({ type: 'click' });
     if ((entry.page & ~1) !== before) { assert.equal(spread(f), before); assert.equal(f.jumpActive, true); f.finishJump(); }
-    assert.equal(f.ribbonOptions.getCurrent().page, entry.page);
+    assert.equal(f.position.page, entry.page);
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, entry.page);
   }
-  assert.equal(f.chaptersOpen, false); assertUnchangedBookmarks(f);
+  assert.equal(f.chaptersOpen, false);
 });
 test('real grouped-index metadata fixes all four menu corners through mode and book changes with zero gap', () => {
   const data = currentRuleData();
@@ -884,7 +966,7 @@ test('real grouped-index metadata fixes all four menu corners through mode and b
     f.chapterElement.querySelectorAll('.edge-chapters__book').find(button => button.dataset.book === '61').dispatchEvent({ type: 'click' });
     assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 5); assertDock();
     f.event('keydown', { key: 'Escape', target: f.context.document.activeElement }); assert.equal(f.chaptersOpen, false);
-    assert.deepEqual(Object.fromEntries(f.storage), stored); assertUnchangedBookmarks(f);
+    assert.deepEqual(Object.fromEntries(f.storage), stored);
   }
 });
 test('fixed-corner menu mode changes still block page gestures and cancel without changing reading state', () => {
@@ -897,7 +979,7 @@ test('fixed-corner menu mode changes still block page gestures and cancel withou
   assert.equal(f.jumpCalls.length, 0); assert.equal(f.rendered.length, 0); assert.equal(spread(f), 20);
   assert.equal(f.chapterElement.dataset.dockCorner, 'bottom-right');
   f.chapterElement.querySelector('.edge-chapters__outside').dispatchEvent({ type: 'click' });
-  assert.equal(f.chaptersOpen, false); assertCameraEqual(camera(f), original); assert.deepEqual(Object.fromEntries(f.storage), stored); assertUnchangedBookmarks(f);
+  assert.equal(f.chaptersOpen, false); assertCameraEqual(camera(f), original); assert.deepEqual(Object.fromEntries(f.storage), stored);
   f.swipe(); f.advance(1500); assert.equal(spread(f), 22, 'reading resumes after dismissing the fixed-corner menu');
 });
 
@@ -918,6 +1000,20 @@ test('reading trails commit requested references even when a chapter starts belo
   assert.equal(calls.at(-1).id,'saved-row');assert.equal(calls.at(-1).ref,ref);
 });
 
+test('reading-history returns slide by stable slot and restore the exact verse; directory jumps still turn a packet',()=>{
+  const dirs=[],data=currentRuleData();let historyGo;
+  const deskModule={rank:require('./book-desk.js').rank,create:()=>({start:(d,fn)=>{dirs.push(d);fn();},cancel(){}})};
+  const historyModule={create(opts){historyGo=opts.onNavigate;return {start(){},advance(){},jump(loc,id){return {id:id||'r22'};}};}};
+  const f=fixture(20,{data,deskModule,historyModule}),gen=data.books.find(b=>b.code==='GEN'),rom=data.books.find(b=>b.code==='ROM');
+  const pg=gen.chapters.find(c=>c.chapter===3).page;
+  historyGo(rom.first,'r4',{bookCode:'ROM',ref:'1:1'});
+  historyGo(pg,'r1',{bookCode:'GEN',ref:'3:1'});
+  historyGo(rom.first,'r4',{bookCode:'ROM',ref:'1:1'});assert.deepEqual(dirs,[1,-1,1]);
+  f.navigateHistory(pg,'r1',{bookCode:gen.code,ref:'3:1'});
+  assert.equal(f.position.page,pg);assert.equal(f.position.ref,'3:1');assert.deepEqual(dirs,[1,-1,1,-1]);
+  assert.equal(f.el('stage').dataset.lastGesture,'book-switch');assert.equal(f.jumpCalls.length,0);
+  f.navigateDirectory(rom.first);assert.equal(f.jumpCalls.length,1);assert.equal(f.el('stage').dataset.lastGesture,'directory');
+});
 async function run() {
   for (const { name, fn } of scenarios) { await fn(); console.log('PASS ' + name); }
   console.log(JSON.stringify({ edgeReaderScenarios: scenarios.length }));

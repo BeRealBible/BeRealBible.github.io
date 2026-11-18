@@ -1,23 +1,21 @@
-/* Explicit refresh only: never interrupt reading or erase the saved paper position. */
+/* The test reader has one permanent public address. Only its assets are fingerprinted. */
 (function(root,factory){
   const api=factory();
-  if(typeof module==='object'&&module.exports)module.exports=api;
-  else api.init(root.document,root.location);
+  if(typeof module==='object'&&module.exports)module.exports=api;else api.init(root.document,root.location);
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const VERSION='index-25';
-  function refreshURL(href,nonce){
-    const url=new URL(href);
-    url.searchParams.set('v',VERSION);
-    url.searchParams.set('_refresh',String(nonce));
-    return url.href;
+  function refreshURL(href){
+    const url=new URL(href);url.searchParams.set('v',VERSION);url.searchParams.delete('_refresh');return url.href;
   }
   function init(document,location){
     const link=document.getElementById('reader-reload');
-    // A unique entry URL obtains fresh HTML; its versioned scripts/styles then
-    // load as one release. Keep renderer options, hash and localStorage intact.
-    link?.addEventListener('click',()=>{
-      link.href=refreshURL(location.href,Date.now());
+    if(!link)return;
+    link.href=refreshURL(location.href);
+    link.addEventListener('click',e=>{
+      if(e.button>0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
+      e.preventDefault();const same=refreshURL(location.href);
+      if(location.href===same)location.reload();else location.replace(same);
     });
   }
   return {VERSION,refreshURL,init};
