@@ -143,7 +143,7 @@ function fixture(startSpread = 2, options = {}) {
     static vector() { return new Renderer(); }
     constructor() { this.last = null; }
     prepare(front, back, direction, count) { rendered.push({ front, back, direction, count, at: now }); }
-    draw(frame) { this.last = frame; draws.push({ ...frame, at: now }); return Math.max(0,480*(1-2*frame.progress)); }
+    draw(frame) { this.last = frame; draws.push({ ...frame, at: now }); return 'polygon(480px 0px, 480px 704px, '+(480*(1-frame.progress)).toFixed(2)+'px 704px)'; }
     hide() { this.last = null; }
   }
   let edgeBounds = { leftExtent: 52, rightExtent: 52, normalLeftExtent: 52, normalRightExtent: 52 };
@@ -313,7 +313,7 @@ for(const pointerType of ['mouse','touch'])for(const dir of [-1,1])test(pointerT
   const f=fixture(20),source=f.el(dir>0?'right-paper':'left-paper'),original=source.innerHTML;
   f.swipe(dir,pointerType);assert.equal(spread(f),20);assert.equal(f.rendered.length,1);assert.equal(f.rendered[0].direction,dir);
   assert.equal(source.classList.contains('under-curl'),true);assert.notEqual(source.innerHTML,original);
-  assert.match(source.style['--under-sheet-clip'],/480px/,'destination text completely clipped under opaque first frame');
+  assert.match(source.style['--under-sheet-clip'],/^polygon\(/,'uses the moving sheet’s angled occlusion mask');
   f.advance(600);assert.equal(spread(f),20+2*dir);assert.equal(source.classList.contains('under-curl'),false);assert.equal(source.style['--under-sheet-clip'],undefined);assertReading(f);
 });
 for(const ms of [1,40,159,360,1500])test('stationary blank contact never grabs or flips even after '+ms+'ms',()=>{
@@ -337,9 +337,47 @@ test('text taps and long holds route through hit-tested tokens, never through th
   event('pointerdown');event('pointermove',-42);f.advance(800);event('pointerup',-80);assert.equal(f.rendered.length,0);assert.equal(calls.length,3);
   event('pointerdown');f.emit('pointerdown',p.x,p.y+40,2,'touch');f.advance(600);event('pointerup');f.emit('pointerup',p.x,p.y+40,2,'touch');assert.equal(calls.length,3);
 });
-test('swiping direction is independent of touched face and can reverse before release',()=>{
+for(const [dir,height] of [[1,660],[-1,42]])test('corner drag follows a held pointer before release and keeps its starting height '+dir,()=>{
+  const f=fixture(20),p=f.at(dir===1?'right':'left',453,height),paper=f.el(dir===1?'right-paper':'left-paper');
+  const send=(kind,d=0,dy=0)=>f.emit(kind,p.x-dir*d,p.y+dy,1,'touch',paper);
+  send('pointerdown');f.advance(20);send('pointermove',52,4);
+  assert.equal(state(f),'dragging');assert.equal(f.rendered.length,1);assert.equal(spread(f),20);
+  const a=f.draws.at(-1);assert.ok(a.progress>0);assert.ok(Math.abs(a.grabY-height)<2);assert.ok(a.radius>400);
+  f.advance(450);assert.equal(f.draws.at(-1).progress,a.progress,'held corner does not travel without the finger');
+  send('pointermove',120,20);const b=f.draws.at(-1);assert.ok(b.progress>a.progress);assert.notEqual(b.vertical,a.vertical);
+  assert.match(paper.style['--under-sheet-clip'],/^polygon/);
+  send('pointermove',14,1);assert.ok(f.draws.at(-1).progress<b.progress);f.advance(250);send('pointerup',14,1);f.advance(800);
+  assert.equal(spread(f),20);assert.equal(state(f),'returned');assert.equal(paper.style['--under-sheet-clip'],undefined);
+});
+test('dragging back through the origin never starts an opposite turn within the original contact',()=>{
   const f=fixture(20),p=f.at('left');f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x+40,p.y);f.emit('pointerup',p.x-65,p.y);
-  f.advance(1000);assert.equal(spread(f),22);
+  f.advance(1000);assert.equal(spread(f),20);assert.equal(f.rendered.length,1);
+});
+for(const dir of [-1,1])test('last intentional motion towards the source cancels even past the halfway mark and after a pause '+dir,()=>{
+  const f=fixture(20),p=f.at(dir>0?'right':'left',440,dir>0?652:50);
+  const send=(t,dx)=>f.emit(t,p.x-dir*dx*p.scale,p.y,1,'mouse',f.el(dir>0?'right-paper':'left-paper'));
+  send('pointerdown',0);f.advance(30);send('pointermove',600);f.advance(320);assert.equal(spread(f),20);
+  assert.ok(f.draws.at(-1).progress>.5);send('pointermove',520);const partial=f.draws.at(-1).progress;
+  f.advance(600);assert.equal(f.draws.at(-1).progress,partial);assert.equal(spread(f),20);
+  send('pointerup',521);f.advance(1000);assert.equal(spread(f),20);assert.equal(state(f),'returned');assert.equal(f.rendered.length,1);
+});
+test('unexpanded striped edge distinguishes the index click from the page drag without swallowing named tabs',()=>{
+  const f=fixture(20),stage=f.el('stage'),p=f.at('right',478,625),band=f.el('edge-band-probe');band.className='edge-index__band';
+  const send=(t,dx,target=band)=>f.emit(t,p.x-dx,p.y,1,'touch',target);
+  const nativeClick=()=>{const e={type:'click',target:band,detail:1};stage.dispatchEvent(e);return !e.defaultPrevented;};
+  send('pointerdown',0);send('pointerup',0);assert.ok(nativeClick(),'tap can reach the native index handler');assert.equal(f.rendered.length,0);
+  send('pointerdown',0);send('pointermove',55);assert.equal(state(f),'dragging');f.advance(520);assert.equal(spread(f),20);
+  send('pointerup',55);assert.ok(!nativeClick(),'trailing synthetic click cannot reopen the index');f.advance(900);assert.equal(spread(f),22);
+  const tab=f.el('demo-index-test');tab.className='edge-index__group';send('pointerdown',0,tab);send('pointermove',70,tab);send('pointerup',70,tab);f.advance(900);assert.equal(spread(f),22);
+});
+test('a deliberate short forward drag held stationary still commits on release without fling velocity',()=>{
+  const f=fixture(20),p=f.at('right',435,610);f.emit('pointerdown',p.x,p.y);f.advance(350);f.emit('pointermove',p.x-60,p.y);
+  f.advance(700);assert.equal(spread(f),20);assert.equal(state(f),'dragging');f.emit('pointerup',p.x-60,p.y);f.advance(800);assert.equal(spread(f),22);
+});
+test('a long held forward pull does not commit early and a tiny release wobble does not cancel it',()=>{
+  const f=fixture(20),p=f.at('right',430,640);
+  f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x-520*p.scale,p.y-21);f.advance(900);assert.equal(state(f),'dragging');assert.equal(spread(f),20);
+  f.emit('pointerup',p.x-520*p.scale+1,p.y-21);f.advance(900);assert.equal(spread(f),22);
 });
 test('micro swipe, reversal to origin, vertical pan and diagonal pan do not turn pages',()=>{
   const f=fixture(20,{width:390,height:844}),p=f.at();
@@ -347,12 +385,12 @@ test('micro swipe, reversal to origin, vertical pan and diagonal pan do not turn
     f.emit('pointerdown',p.x,p.y);f.emit('pointerup',p.x+dx,p.y+dy);f.advance(500);
   }
   f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x-70,p.y);f.emit('pointerup',p.x,p.y);
-  f.advance(500);assert.equal(spread(f),20);assert.equal(f.rendered.length,0);
+  f.advance(500);assert.equal(spread(f),20);assert.equal(state(f),'returned');assert.equal(f.el('right-paper').classList.contains('under-curl'),false);
 });
 test('cancelled pointer and lost capture cannot commit a pending swipe',()=>{
   for(const type of ['pointercancel','lostpointercapture']){
     const f=fixture(20),p=f.at();f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x-120,p.y);
-    f.el('stage').dispatchEvent({type,pointerId:1});f.advance(600);assert.equal(spread(f),20);assert.equal(f.rendered.length,0);
+    f.el('stage').dispatchEvent({type,pointerId:1});f.advance(600);assert.equal(spread(f),20);assert.equal(f.rendered.length,1);assert.equal(state(f),'returned');
     for(const key of ['x','y','scale'])assert.ok(Number.isFinite(Number(f.el('stage').dataset[key])));
   }
 });
@@ -360,7 +398,7 @@ test('second finger cancels an uncommitted swipe and pinch only changes camera',
   const f=fixture(20),p=f.at();f.emit('pointerdown',p.x,p.y,1,'touch');f.emit('pointermove',p.x-40,p.y,1,'touch');
   f.emit('pointerdown',p.x,p.y+60,2,'touch');f.emit('pointermove',p.x+100,p.y+120,2,'touch');
   f.emit('pointerup',p.x-40,p.y,1,'touch');f.emit('pointerup',p.x+100,p.y+120,2,'touch');f.advance(1200);
-  assert.equal(spread(f),20);assert.equal(f.rendered.length,0);assert.ok(Number(f.el('stage').dataset.scale)>p.scale);
+  assert.equal(spread(f),20);assert.equal(f.rendered.length,1);assert.equal(state(f),'returned');assert.ok(Number(f.el('stage').dataset.scale)>p.scale);
 });
 for(const reason of ['blur','paper-interrupt','document:visibilitychange','resize','Escape'])test(reason+' restores source and unwinds the opaque clip',()=>{
   const f=fixture(20),paper=f.el('right-paper'),original=paper.innerHTML;f.swipe();f.advance(95);

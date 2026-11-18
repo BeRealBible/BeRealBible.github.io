@@ -11,6 +11,7 @@
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,ribbons=null,chapters=null,jumpState=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,edgePose=null,edgeSide=null,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
+  let suppressBandClick=null;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
   if(saved&&Number.isFinite(saved.spread))spread=clamp(saved.spread&~1,0,MAX_SPREAD);
   if(saved?.page===spread)readingSide=0;
@@ -18,7 +19,8 @@
   if(Number.isInteger(window.PAPER_INITIAL_PAGE))readingSide=window.PAPER_INITIAL_PAGE&1;
   const svgPage=index=>Page.svg(D.pages[index],index,D.books);
   const chapterPreview=window.PaperChapterPreview.create(window.BIBLE_SOURCE);
-  const renderer=window.PaperSheetRenderer.vector(book,svgPage);
+  const renderer=window.PaperSheetRenderer.vector(book,svgPage,
+    (canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
   const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,onExpand:expandEdge});
   const readingPage=()=>{
@@ -156,13 +158,15 @@
     x=ax-(ax-x)*next/scale;y=ay-(ay-y)*next/scale;scale=next;focus='custom';transform();save();
   }
   function clearHold(){clearTimeout(holdTimer);holdTimer=null;}
-  function startFold(direction,count=1,source='swipe'){
+  function startFold(direction,count=1,source='control',contact=null){
     if(fold||jumpState)return false;
     const target=clamp(spread+direction*count*2,0,MAX_SPREAD);
     if(target===spread){feedback(direction>0?'已经到最后一页':'已经到第一页');return false;}
     const side=direction>0?1:0;
     selection?.reset();
+    const grabY=contact?.grabY??628;
     fold={from:spread,target,direction,side,count:Math.abs(target-spread)/2,source,
+      radius:contact?.radius??450,grabY,corner:grabY<352?'top':'bottom',vertical:0,
       progress:0,settling:false,original:papers[side].innerHTML};
     renderer.prepare(spread+side,direction>0?target:target+1,direction,fold.count);
     papers[side].classList.add('under-curl');book.classList.add('curl-active');
@@ -170,15 +174,18 @@
     // The opaque source leaf is already in place; only the portion uncovered
     // by its projected outer edge may paint ink from the destination page.
     papers[side].innerHTML=svgPage(direction>0?target+1:target);
-    stage.dataset.foldState='automatic';updateIndex();return true;
+    stage.dataset.foldState=contact?'dragging':'automatic';updateIndex();return true;
   }
-  function updateFold(progress){
-    if(!fold)return;const f=fold;f.progress=clamp(progress,0,1);
-    const covered=renderer.draw({progress:f.progress,radius:392,grabY:352,vertical:0});
-    const mask=f.direction>0?'inset(0 0 0 '+covered+'px)':'inset(0 '+covered+'px 0 0)';
+  function updateFold(progress,vertical=0){
+    if(!fold)return;const f=fold;f.progress=clamp(progress,0,1);f.vertical=clamp(vertical,-210,210);
+    const covered=renderer.draw({progress:f.progress,radius:f.radius,grabY:f.grabY,vertical:f.vertical,corner:f.corner});
+    const mask=typeof covered==='string'?covered:f.direction>0?'inset(0 0 0 '+covered+'px)':'inset(0 '+covered+'px 0 0)';
     papers[f.side].style.setProperty('--under-sheet-clip',mask);
     stage.dataset.foldProgress=f.progress.toFixed(4);
-    applyMaterial(Material.sampleTurn(f.from,f.direction,f.count,f.progress,D.pages.length,D.books));
+    // A single leaf transfers a fraction of a pixel of stack thickness.
+    // Keep the fixed edge SVGs intact while scrubbing; render() refreshes
+    // them on commit, leaving the input frame budget for the moving sheet.
+    if(f.count>1)applyMaterial(Material.sampleTurn(f.from,f.direction,f.count,f.progress,D.pages.length,D.books));
   }
   function finishFold(commit){
     if(!fold)return;const f=fold;cancelAnimationFrame(foldFrame);foldFrame=0;
@@ -188,15 +195,17 @@
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     if(queuedTurns.length)turn(...queuedTurns.shift());
   }
-  function settleFold(){
+  function settleFold(commit=true){
     if(!fold||fold.settling)return;const f=fold;f.settling=true;
-    stage.dataset.foldState='settling-forward';
-    if(matchMedia('(prefers-reduced-motion: reduce)').matches){finishFold(true);return;}
-    const started=performance.now(),duration=300;
+    stage.dataset.foldState=commit?'settling-forward':'settling-back';
+    const start=f.progress,target=commit?1:0,vertical=f.vertical,remaining=Math.abs(target-start);
+    if(remaining<.0001||matchMedia('(prefers-reduced-motion: reduce)').matches){finishFold(commit);return;}
+    const started=performance.now(),duration=120+180*remaining;
     function frame(now){
       if(fold!==f)return;const t=clamp((now-started)/duration,0,1);
-      updateFold((1-Math.cos(t*Math.PI))/2);
-      if(t===1)finishFold(true);else foldFrame=requestAnimationFrame(frame);
+      const eased=(1-Math.cos(t*Math.PI))/2;
+      updateFold(start+(target-start)*eased,vertical*(1-eased));
+      if(t===1)finishFold(commit);else foldFrame=requestAnimationFrame(frame);
     }
     foldFrame=requestAnimationFrame(frame);
   }
@@ -208,7 +217,7 @@
   }
   function interrupt(keepSelection=false){
     clearHold();queuedTurns=[];if(keepSelection!==true)selection?.reset();
-    pointers.clear();gesture=null;stage.classList.remove('dragging');
+    pointers.clear();gesture=null;stage.classList.remove('dragging','curl-dragging');
     chapters?.close();
     if(jumpState){jumpState=null;pageJump.cancel();render();stage.dataset.jumpState='cancelled';}
     if(fold)finishFold(false);
@@ -276,19 +285,62 @@
   const centroid=()=>{const a=[...pointers.values()];return {x:a.reduce((s,p)=>s+p.x,0)/a.length,y:a.reduce((s,p)=>s+p.y,0)/a.length,t:Math.max(...a.map(p=>p.t))};};
   const distance=()=>{const a=[...pointers.values()];return a.length<2?0:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);};
   function pointerDown(e){
-    if(edgeSide||jumpState||chapters?.isOpen()||e.button>0||e.target?.closest?.('button,a,input,dialog,.paper-ribbons,.edge-index,.paper-selection-tools'))return;
+    const candidate=e.target?.closest?.('.edge-index__band'),
+      band=candidate?.classList?.contains('edge-index__band')&&!candidate.disabled?candidate:null;
+    suppressBandClick=null;
+    if(edgeSide||jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.paper-ribbons,.edge-index,.paper-selection-tools')))return;
     clearHold();
-    pointers.set(e.pointerId,relative(e));try{stage.setPointerCapture(e.pointerId);}catch{}
+    // Let a stationary press reach the actual band button (including native
+    // focus/click). Transfer its capture to the stage only once a drag exists.
+    pointers.set(e.pointerId,relative(e));try{(band||stage).setPointerCapture(e.pointerId);}catch{}
     if(pointers.size>1){
       if(fold){queuedTurns=[];finishFold(false);}
-      const c=centroid();gesture={pinched:true,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance()};return;
+      stage.classList.remove('curl-dragging');
+      const c=centroid();gesture={pinched:true,band:gesture?.band||band,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance()};return;
     }
-    const start=relative(e),token=fold?null:selection?.hit(e.clientX,e.clientY,e.target);
-    const g=gesture={start,end:start,token,wasTurning:!!fold,baseX:x,baseY:y,kind:'pending',pinched:false};
+    const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
+    const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
+      contact:{radius:clamp(Math.abs((start.x-x)/scale-480),12,480),grabY:clamp((start.y-y)/scale,0,704)},
+      direction:0,trend:1,extreme:0};
     if(token&&!selection.isActive())holdTimer=setTimeout(()=>{
       holdTimer=null;if(gesture!==g||pointers.size!==1||g.kind!=='pending'||g.pinched)return;
       g.kind='held';selection.hold(token);stage.dataset.lastGesture='text-hold';
     },TEXT_HOLD_MS);
+  }
+  function rememberStroke(g,out){
+    // Remember the latest deliberate stroke, not release-time velocity.
+    // Holding still after pulling back still means return. Ignore hand jitter.
+    if(g.trend>0){
+      if(out>=g.extreme)g.extreme=out;
+      else if(g.extreme-out>=6){g.trend=-1;g.extreme=out;}
+    }else if(out<=g.extreme)g.extreme=out;
+    else if(out-g.extreme>=6){g.trend=1;g.extreme=out;}
+  }
+  function trackCurl(g,c,e){
+    const dx=c.x-g.start.x;
+    // A contact holds one leaf until release. Going past its origin can only
+    // flatten that leaf; it cannot silently pick up the opposite page.
+    if(!g.direction){
+      g.direction=dx<0?1:-1;
+      if(startFold(g.direction,1,'swipe',g.contact))stage.classList.add('curl-dragging');
+    }
+    if(!fold)return;
+    const out=Math.max(0,-g.direction*dx);
+    // A mobile browser may batch a peak and a reversal into the same frame.
+    // Read all the samples for intent, but paint just the latest position.
+    for(const sample of e.getCoalescedEvents?.()||[]){
+      rememberStroke(g,Math.max(0,-g.direction*(dx+sample.clientX-e.clientX)));
+    }
+    rememberStroke(g,out);
+    const progress=clamp(out/Math.max(1,2*fold.radius*g.baseScale),0,1),
+      vertical=out?clamp((c.y-g.start.y)/g.baseScale,-210,210):0;
+    if(fold.progress!==progress||fold.vertical!==vertical)updateFold(progress,vertical);
+  }
+  function releaseCurl(g,end){
+    const out=-fold.direction*(end.x-g.start.x);
+    // After a deliberate stroke, resting the finger never changes the intent.
+    // Speed, hold duration and crossing halfway are not release requirements.
+    return g.trend>0&&out>=SWIPE_MIN;
   }
   function pointerMove(e){
     if(!pointers.has(e.pointerId)||!gesture)return;pointers.set(e.pointerId,relative(e));
@@ -304,9 +356,11 @@
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
       clearHold();
       g.kind=!g.token&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35?'swipe':'pan';
+      if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
-    if(g.kind==='pan'&&!fold){x=g.baseX+dx;y=g.baseY+dy;focus='custom';constrain();transform();}
+    if(g.kind==='swipe')trackCurl(g,c,e);
+    else if(g.kind==='pan'&&!fold){x=g.baseX+dx;y=g.baseY+dy;focus='custom';constrain();transform();}
   }
   function pointerUp(e,cancelled=false){
     if(!pointers.has(e.pointerId))return;
@@ -316,22 +370,34 @@
     clearHold();const g=gesture;
     const end=relative(e);pointers.delete(e.pointerId);
     if(cancelled&&g)g.cancelled=true;
+    if(g?.band&&(g.kind!=='pending'||g.cancelled||g.pinched))suppressBandClick={band:g.band,until:performance.now()+700};
     if(pointers.size)return;
-    gesture=null;stage.classList.remove('dragging');try{stage.releasePointerCapture(e.pointerId);}catch{}
+    gesture=null;stage.classList.remove('dragging','curl-dragging');try{stage.releasePointerCapture(e.pointerId);}catch{}
     if(!g)return;
-    if(g.cancelled||g.pinched||g.wasTurning){stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';if(g.pinched)save();return;}
+    if(g.cancelled||g.pinched||g.wasTurning){
+      if(g.cancelled&&g.kind==='swipe'&&fold&&!fold.settling)settleFold(false);
+      stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';if(g.pinched)save();return;
+    }
     if(g.kind==='pending'&&g.token){selection.tap(g.token);stage.dataset.lastGesture='text-tap';return;}
-    if(g.kind==='swipe'){
-      const dx=end.x-g.start.x,dy=end.y-g.start.y;
-      if(Math.abs(dx)>=SWIPE_MIN&&Math.abs(dx)>=Math.abs(dy)*1.35){
-        stage.dataset.lastGesture='swipe-turn';turn(dx<0?1:-1,1,'swipe');return;
-      }
+    if(g.kind==='swipe'&&fold){
+      const commit=releaseCurl(g,end);stage.dataset.lastGesture=commit?'swipe-turn':'swipe-return';settleFold(commit);return;
     }
     if(g.kind==='pan'){stage.dataset.lastGesture='pan';save();}
   }
-  stage.addEventListener('pointerdown',pointerDown);stage.addEventListener('pointermove',pointerMove);
-  stage.addEventListener('pointerup',e=>pointerUp(e));stage.addEventListener('pointercancel',e=>pointerUp(e,true));
-  stage.addEventListener('lostpointercapture',e=>{if(pointers.has(e.pointerId))pointerUp(e,true);});
+  // The index owns native button clicks. Capture pointer events before the
+  // band's stopPropagation, but never handle book-label buttons or an open index.
+  stage.addEventListener('pointerdown',pointerDown,true);stage.addEventListener('pointermove',pointerMove);
+  stage.addEventListener('pointerup',e=>pointerUp(e),true);stage.addEventListener('pointercancel',e=>pointerUp(e,true),true);
+  stage.addEventListener('click',e=>{
+    if(suppressBandClick&&e.detail!==0&&performance.now()<=suppressBandClick.until&&e.target?.closest?.('.edge-index__band')===suppressBandClick.band){
+      suppressBandClick=null;e.preventDefault();e.stopPropagation();
+    }
+  },true);
+  stage.addEventListener('lostpointercapture',e=>{
+    // A band handing off capture to this stage has not lost the gesture.
+    if(e.target!==stage&&stage.hasPointerCapture?.(e.pointerId))return;
+    if(pointers.has(e.pointerId))pointerUp(e,true);
+  });
   window.addEventListener('blur',interrupt);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)interrupt();});
   stage.addEventListener('wheel',e=>{

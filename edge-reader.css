@@ -26,6 +26,8 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
 .book .paper.under-curl{background:#fffdf1;filter:none}
 .paper.under-curl>svg{clip-path:var(--under-sheet-clip)}
 .stage.dragging .paper{cursor:grabbing}
+.stage.curl-dragging,.stage.curl-dragging .paper{cursor:grabbing}
+.stage .edge-index__band:not([data-expanded=true]){touch-action:none;-webkit-touch-callout:none}
 .paper-immersive .gesture-feedback{color:#705f4c}
 .reader-header .location{min-height:40px;flex:1;text-align:left}
 .reader-header .icon-button{min-width:34px;min-height:34px}
