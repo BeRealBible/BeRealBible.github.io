@@ -105,7 +105,71 @@
     const shelf=el('div','rh-rail'),caption=el('span','rh-caption','最近跳转'),track=el('div','rh-track');
     track.setAttribute('role','group');track.setAttribute('aria-label','最近阅读位置');
     const status=el('span','rh-sr');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-    let controls=new Map(),removedId=null;
+    let controls=new Map(),removedId=null,shown=null,via=null,modality=null,pending=null,blocked=null;
+    const HOLD_MS=420,DRIFT=8,contacts=new Set(),listeners=[];
+    const listen=(n,type,fn,opts)=>{if(!n?.addEventListener)return;n.addEventListener(type,fn,opts);listeners.push(()=>n.removeEventListener?.(type,fn,opts));};
+    const rowOf=node=>node?.closest?.('.rh-item')?.dataset.id;
+    function cancelHold(){if(pending){win.clearTimeout(pending.timer);pending=null;}}
+    function placeTools(row){
+      const box=row.item.getBoundingClientRect?.(),rail=track.getBoundingClientRect?.();
+      if(!box||!rail||!rail.width)return;
+      const w=row.pin.getBoundingClientRect().width||26,extra=w*(row.item.dataset.pinned?1:2);
+      const l=rail.left+2,r=rail.right-2;
+      // The temporary hit targets belong to the same row but do not consume
+      // layout space. Attach to the start edge when there is no room at the end.
+      let at=box.right-1;
+      if(at+extra>r){
+        if(box.left-extra+1>=l)at=box.left-extra+1;
+        else at=Math.max(l,Math.min(r-extra,row.item.dataset.pinned?box.right-2*w:box.right-extra));
+      }
+      row.item.style?.setProperty('--rh-tools-left',(at-box.left-1)+'px');
+    }
+    function reveal(id,reason){
+      if(id===shown&&reason===via)return;
+      const prev=controls.get(shown);if(prev){delete prev.item.dataset.reveal;prev.pin.tabIndex=prev.item.dataset.pinned?0:-1;prev.del.tabIndex=-1;}
+      const row=controls.get(id);shown=row?id:null;via=row?reason:null;
+      if(row){row.item.dataset.reveal=reason;row.pin.tabIndex=row.del.tabIndex=0;placeTools(row);}
+    }
+    function clearShown(){reveal(null,null);}
+    const touch=e=>e.pointerType==='touch'||e.pointerType==='pen';
+    listen(track,'pointerover',e=>{if(e.pointerType==='mouse'){const id=rowOf(e.target);if(id)reveal(id,'mouse');}});
+    listen(track,'pointerout',e=>{if(e.pointerType==='mouse'&&via==='mouse'&&rowOf(e.relatedTarget)!==shown)clearShown();});
+    // Actual pointer type matters: a Windows touchscreen laptop can also have
+    // a mouse. Touch-generated hover must not briefly expose another label.
+    listen(doc,'pointerdown',e=>{
+      modality='pointer';blocked=null;
+      if(touch(e)){contacts.add(e.pointerId);if(contacts.size>1&&pending){blocked=pending.id;cancelHold();}}
+      if(via!=='mouse'||e.pointerType!=='mouse'||rowOf(e.target)!==shown){
+        if(!(via==='touch'&&rowOf(e.target)===shown))clearShown();
+      }
+    },true);
+    listen(track,'pointerdown',e=>{
+      if(!touch(e)||contacts.size>1||e.button>0)return;
+      const target=e.target?.closest?.('.rh-chip')||e.target?.closest?.('.rh-pin'),id=rowOf(target);if(!id)return;
+      cancelHold();
+      const p=pending={id,pointer:e.pointerId,x:e.clientX,y:e.clientY};
+      p.timer=win.setTimeout(()=>{
+        if(pending!==p)return;pending=null;blocked=id;reveal(id,'touch');
+      },HOLD_MS);
+    });
+    listen(track,'pointermove',e=>{
+      if(e.pointerType==='mouse'){const id=rowOf(e.target);if(id)reveal(id,'mouse');return;}
+      if(pending?.pointer===e.pointerId&&Math.hypot(e.clientX-pending.x,e.clientY-pending.y)>=DRIFT){blocked=pending.id;cancelHold();}
+    });
+    const finishPointer=(e,cancelled)=>{contacts.delete(e.pointerId);if(pending?.pointer===e.pointerId){if(cancelled)blocked=pending.id;cancelHold();}};
+    for(const type of ['pointerup','pointercancel','lostpointercapture'])listen(doc,type,e=>finishPointer(e,type!=='pointerup'),true);
+    listen(track,'scroll',()=>{if(pending){blocked=pending.id;cancelHold();}if(via==='touch')clearShown();else if(shown)placeTools(controls.get(shown));},{passive:true});
+    listen(track,'contextmenu',e=>{if(pending||via==='touch')e.preventDefault();});
+    listen(doc,'keydown',e=>{
+      if(e.key==='Escape'){clearShown();cancelHold();return;}
+      if(e.key==='Tab'||e.key?.startsWith('Arrow')){
+        modality='keyboard';blocked=null;const id=rowOf(e.target);if(id)reveal(id,'keyboard');
+      }
+    },true);
+    listen(track,'focusin',e=>{const id=rowOf(e.target);if(id&&(modality==='keyboard'||(!modality&&e.target.matches?.(':focus-visible'))))reveal(id,'keyboard');});
+    listen(track,'focusout',e=>{if(via==='keyboard'&&rowOf(e.relatedTarget)!==shown)clearShown();});
+    listen(win,'resize',()=>{if(shown)placeTools(controls.get(shown));});
+    listen(win,'blur',()=>{clearShown();cancelHold();contacts.clear();blocked=null;});
     const undoButton=button('rh-undo','撤销','撤销上一次删除',()=>{
       const id=removedId;removedId=null;const ok=model.undo();render();
       if(ok){status.textContent='已恢复记录';focusControl(id,'chip');}
@@ -115,6 +179,10 @@
     function navigate(id){
       const e=model.get(id);if(!e){render();return;}
       onNavigate(e.page,e.id,e);
+    }
+    function consumed(id,event){
+      if(blocked!==id||event.detail===0&&!touch(event))return false;
+      blocked=null;event.preventDefault();event.stopPropagation();return true;
     }
     function focusControl(id,action){
       const ctl=controls.get(id)?.[action];if(!ctl)return;
@@ -127,41 +195,49 @@
       else if(box.left<viewport.left)track.scrollLeft+=box.left-viewport.left-2;
     }
     function render(){
-      const items=model.list(),active=model.current(),scroll=track.scrollLeft;
+      const items=model.list(),active=model.current(),scroll=track.scrollLeft,keep=via==='mouse'?null:shown,how=via;
       const prev=doc.activeElement;let restore=null;
       if(prev)for(const [id,row] of controls)for(const key of ['chip','pin','del'])if(prev===row[key])restore=[id,key];
-      track.replaceChildren();controls=new Map();
+      cancelHold();clearShown();track.replaceChildren();controls=new Map();
       if(!items.length)track.appendChild(el('span','rh-empty','暂无记录'));
       for(const e of items){
         const name=label(e),item=el('div','rh-item');item.dataset.id=e.id;
         item.setAttribute('role','group');item.setAttribute('aria-label',name);
-        const chip=button('rh-chip',name,'返回 '+name,()=>navigate(e.id));chip.dataset.id=e.id;
+        const chip=button('rh-chip',name,'返回 '+name,event=>{
+          if(consumed(e.id,event))return;
+          navigate(e.id);
+        });chip.dataset.id=e.id;
         if(e.pinned){item.dataset.pinned='true';chip.title='已置顶 · '+name;}
         if(e.id===active){item.dataset.current='true';chip.setAttribute('aria-current','page');}
-        const pin=button('rh-action rh-pin','',(e.pinned?'取消置顶 ':'置顶 ')+name,()=>{
+        const pin=button('rh-action rh-pin','',(e.pinned?'取消置顶 ':'置顶 ')+name,event=>{
+          if(consumed(e.id,event))return;
           if(!model.pin(e.id,!e.pinned)){render();return;}
           status.textContent=(e.pinned?'已取消置顶 ':'已置顶 ')+name;render();focusControl(e.id,'pin');
         });
         // Icons are fixed local markup, never interpolated scripture/storage.
         pin.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g transform="rotate(32 8 8)"><path class="rh-pin-head" d="M5 2.1h6l-1 1.4v3.2l1.8 2H4.2l1.8-2V3.5z"/><path d="M8 8.9v5.2"/></g></svg>';
         pin.setAttribute('aria-pressed',String(e.pinned));
-        const del=button('rh-action rh-delete','','删除 '+name,()=>{
+        pin.tabIndex=e.pinned?0:-1;
+        const del=button('rh-action rh-delete','','删除 '+name,event=>{
+          if(consumed(e.id,event))return;
           if(model.remove(e.id)){
             removedId=e.id;status.textContent='已删除 '+name+'，可撤销';render();undoButton.focus({preventScroll:true});
           }
         });
         del.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4.3 4.3 7.4 7.4m0-7.4-7.4 7.4"/></svg>';
+        del.tabIndex=-1;
         item.append(chip,pin,del);track.appendChild(item);controls.set(e.id,{item,chip,pin,del});
       }
       track.scrollLeft=scroll;undoButton.hidden=!model.canUndo();
       if(restore)focusControl(...restore);
+      if(keep)reveal(keep,how);
     }
     const sync=e=>{if(!e.key||e.key===KEY||e.key.startsWith(KEY+':'))render();};
     win?.addEventListener('storage',sync);render();
     const apply=(name,...args)=>{const result=model[name](...args);render();return result;};
     return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),jump:(loc,id)=>apply('jump',loc,id),
       list:model.list,element:host,
-      destroy(){win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
+      destroy(){cancelHold();contacts.clear();for(const off of listeners)off();win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
   }
   return {KEY,MAX_RECENT,createModel,create,label};
 });

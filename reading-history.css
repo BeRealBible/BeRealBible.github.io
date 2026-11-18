@@ -8,13 +8,18 @@
 .rh-caption{font-size:11px;letter-spacing:.1em;color:#d3c2a2}
 .rh-caption::before{content:"";display:inline-block;width:3px;height:10px;background:#b38759;margin-right:7px;vertical-align:-1px}
 .rh-track{display:flex;align-items:center;gap:6px;flex:1;overflow-x:auto;min-width:0;scrollbar-width:thin;scrollbar-color:#82705b transparent;padding:2px 4px;scroll-padding-inline:4px;overscroll-behavior-x:contain;touch-action:pan-x;min-height:30px}
-/* Reserve the two small action slots. Revealing them changes paint only:
-   no shifting targets under a stationary mouse and no out-of-track overlays. */
-.rh-item{--rh-action-width:24px;flex:none;display:inline-flex;align-items:stretch;border:1px solid #bda7803d;border-radius:3px;background:#cfb78c09;color:#ebdfcd}
+/* Each position occupies just its label (plus a pin if saved). The live
+   input row lends its tools adjacent space, without reflowing the hit target. */
+.rh-item{--rh-action-width:26px;position:relative;flex:none;display:inline-flex;align-items:stretch;border:1px solid #bda7803d;border-radius:3px;background:#cfb78c09;color:#ebdfcd}
+.rh-item[data-reveal]{z-index:2}
 .rh-item[data-current]{border-color:#c2a06c8c;background:#bba2751c;color:#ffeac6}
 .rh-chip,.rh-action{border:0;border-radius:2px;background:transparent;color:inherit;min-height:26px}
-.rh-chip{padding:3px 5px 3px 8px;max-width:min(26ch,40vw);overflow:hidden;text-overflow:ellipsis;font:12px/1.35 var(--serif,serif)}
-.rh-action{flex:0 0 var(--rh-action-width);width:var(--rh-action-width);padding:0;display:inline-grid;place-items:center;color:#d1c0a4}
+.rh-chip{padding:3px 8px;max-width:min(26ch,40vw);overflow:hidden;text-overflow:ellipsis;font:12px/1.35 var(--serif,serif);-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
+.rh-action{position:absolute;inset-block:0;left:0;width:var(--rh-action-width);padding:0;display:inline-grid;place-items:center;color:#d1c0a4;visibility:hidden;pointer-events:none;touch-action:pan-x}
+.rh-item[data-pinned] .rh-pin{position:relative;inset:auto;flex:0 0 var(--rh-action-width);visibility:visible;pointer-events:auto}
+.rh-item[data-reveal] .rh-action{visibility:visible;pointer-events:auto}
+.rh-item[data-reveal]:not([data-pinned]) .rh-pin,.rh-item[data-reveal] .rh-delete{left:var(--rh-tools-left,100%);z-index:1;background:#40382e;box-shadow:0 0 0 1px #aa957660}
+.rh-item[data-reveal]:not([data-pinned]) .rh-delete{left:calc(var(--rh-tools-left,100%) + var(--rh-action-width))}
 .rh-action svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .rh-pin[aria-pressed=true]{color:#d8b783}
 .rh-pin[aria-pressed=true] .rh-pin-head{fill:currentColor}
@@ -26,23 +31,12 @@
 .rh-undo[hidden]{display:none}
 .rh-sr{position:absolute;width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .rh-track .rh-empty{font-size:11px;color:#b2a48b}
-@media(hover:hover) and (pointer:fine){
-  .rh-action{opacity:0;pointer-events:none}
-  .rh-item:hover .rh-action,.rh-item[data-pinned] .rh-pin{opacity:1;pointer-events:auto}
-  /* Clicking a record focuses its button but should not leave its cross
-     showing after the mouse has moved to a different record. */
-  @supports selector(:has(:focus-visible)){
-    .rh-item:has(:focus-visible) .rh-action{opacity:1;pointer-events:auto}
-  }
-  @supports not selector(:has(:focus-visible)){
-    .rh-item:focus-within .rh-action{opacity:1;pointer-events:auto}
-  }
-}
-/* Hybrid touch laptops must not require a mouse to reveal a button either. */
-@media(hover:none),(any-pointer:coarse){
+/* Device media queries adjust ergonomics, never visibility. A touch-capable
+   Windows laptop may be operated with a mouse, a pen, or a finger. */
+@media(pointer:coarse){
   .rh-item{--rh-action-width:34px}
-  .rh-action{opacity:1;pointer-events:auto}
   .rh-chip,.rh-action,.rh-undo{min-height:35px}
 }
+.rh-item[data-reveal=touch]{--rh-action-width:34px}
 @media(max-width:560px){.rh-rail{gap:6px}.rh-caption{font-size:10px}.rh-caption::before{margin-right:4px}.rh-chip{max-width:min(23ch,30vw)}}
 @media (forced-colors:active){.rh-item,.rh-track{border:1px solid CanvasText}.rh-chip[aria-current=page]{outline:2px solid Highlight}.rh-pin[aria-pressed=true]{color:Highlight}}
