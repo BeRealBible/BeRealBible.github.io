@@ -21,7 +21,10 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
 .gutter{left:473px;width:14px;background:linear-gradient(90deg,transparent,#6e60361a 42%,#f8eed84d 50%,#6e603617 58%,transparent)}
 #edge-index-host{position:absolute;left:0;top:0;width:960px;height:704px;z-index:6;pointer-events:none;overflow:visible;transform-style:flat}
 .paper-ribbons{transform-style:flat}
-.stage .paper{cursor:pointer}
+.stage .paper{cursor:default}
+.paper-vector-turn{position:absolute;left:0;top:0;width:960px;height:704px;z-index:8;overflow:visible;pointer-events:none;font-family:var(--serif);text-rendering:geometricPrecision}
+.book .paper.under-curl{background:#fffdf1;filter:none}
+.paper.under-curl>svg{clip-path:var(--under-sheet-clip)}
 .stage.dragging .paper{cursor:grabbing}
 .paper-immersive .gesture-feedback{color:#705f4c}
 .reader-header .location{min-height:40px;flex:1;text-align:left}

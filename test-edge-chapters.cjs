@@ -25,16 +25,16 @@ class Element extends Target {
   getBoundingClientRect(){
     const width=parseFloat(this.style.width)||28,cell=parseFloat(this.style['--cell'])||28,columns=+this.style['--columns']||1,count=+this.dataset.count||1;
     const natural=this._height??(this.className==='edge-chapters__panel'?74+Math.ceil(count/columns)*(this.dataset.mode==='preview'?(cell===28?40:36):cell+1):28);
-    const height=Math.min(natural,parseFloat(this.style.maxHeight)||natural),left=parseFloat(this.style.left)||0,top=parseFloat(this.style.top)||0;
+    const scaled=natural*(Number(this.style['--book-scale'])||1),height=Math.min(scaled,parseFloat(this.style.maxHeight)||scaled),left=parseFloat(this.style.left)||0,top=parseFloat(this.style.top)||0;
     return {left,top,right:left+width,bottom:top+height,width,height};
   }
 }
 function walk(node){return [node,...node.children.flatMap(walk)];}
 function find(f,name){return walk(f.menu.element).filter(node=>String(node.className||'').split(' ').includes(name));}
-function setup(current={bookIndex:0,chapter:1},size={width:390,height:720},getPreview){
+function setup(current={bookIndex:0,chapter:1},size={width:390,height:720},getPreview,options={}){
   const doc=new Target(),win=new Target();doc.defaultView=win;win.innerWidth=size.width;win.innerHeight=size.height;doc.createElement=tag=>new Element(tag,doc);
   doc.body=new Element('body',doc);const host=new Element('div',doc);doc.body.appendChild(host);const launcher=new Element('button',doc);doc.body.appendChild(launcher);launcher.focus();
-  const selected=[],menu=C.create(host,{books,onSelect:page=>selected.push(page),getCurrent:()=>current,getPreview});
+  const selected=[],menu=C.create(host,{books,onSelect:page=>selected.push(page),getCurrent:()=>current,getPreview,...options});
   return {doc,win,host,launcher,menu,selected};
 }
 const anchor={x:350,y:320,left:350,top:320,right:365,bottom:344,width:15,height:24};
@@ -274,5 +274,47 @@ test('invalid members are filtered, duplicate members collapse and repeated clos
 test('destroy removes portal and listeners but leaves host and neighboring content intact',()=>{
   const f=setup();f.menu.open({bookIndices:[18],index:18,anchor});const stale=find(f,'edge-chapters__chapter')[0];f.menu.destroy();f.menu.destroy();stale.click();
   assert.equal(f.selected.length,0);assert.deepEqual(f.doc.body.children,[f.host,f.launcher]);assert.equal(f.win.events.get('keydown').size,0);assert.equal(f.win.events.get('resize').size,0);assert.equal(f.menu.open({index:0}),false);
+});
+test('the four physical corners and printed dimensions follow the book through fractional zoom and pan',()=>{
+  for(const [x,y,corner] of [[110,120,'top-left'],[2350,120,'top-right'],[110,1530,'bottom-left'],[2350,1530,'bottom-right']]){
+    const frame={x:7.5,y:3.5,scale:.75},f=setup(undefined,{width:2480,height:1660},undefined,{getBookFrame:()=>frame});
+    f.menu.open({index:64,anchor:{left:x,right:x+15.25,top:y,bottom:y+23.375}});
+    const panel=find(f,'edge-chapters__panel')[0],sheet=find(f,'edge-chapters__sheet')[0];
+    const first=f.menu.getDock(),r1=panel.getBoundingClientRect();
+    // Increase the book's absolute scale around the fixed hinge, then pan it.
+    frame.x=first.x+(frame.x-first.x)*2+9.125;frame.y=first.y+(frame.y-first.y)*2-4.625;frame.scale=1.5;f.menu.reposition();
+    const r2=panel.getBoundingClientRect(),second=f.menu.getDock();
+    assert.equal(second.corner,corner);assert.equal(second.x,first.x+9.125);assert.equal(second.y,first.y-4.625);
+    assert.equal(r2.width,2*r1.width);assert.equal(r2.height,2*r1.height);assert.equal(panel.dataset.bookScale,'1.5');
+    assert.equal(parseFloat(sheet.style.maxHeight)*1.5,parseFloat(panel.style.maxHeight));
+    f.menu.setMode('preview');const r3=panel.getBoundingClientRect();
+    assert.equal(corner.endsWith('left')?r3.left:r3.right,second.x);
+    assert.equal(corner.startsWith('top')?r3.top:r3.bottom,second.y);
+    f.menu.close();assert.equal(f.menu.getDock(),null);
+  }
+  const css=fs.readFileSync(require.resolve('./edge-chapters.css'),'utf8');assert.match(css,/\.edge-chapters__panel>\*\{zoom:var\(--book-scale,1\)\}/);
+});
+test('a highly zoomed phone reflows the paper, not its type or scale, and still reaches chapter 150',()=>{
+  const f=setup(undefined,{width:320,height:568},actualPreview,{getBookFrame:()=>({x:-300,y:-500,scale:3.2})});
+  f.menu.open({index:18,anchor:{left:281,top:400,right:314,bottom:413}});
+  for(const mode of ['numbers','preview']){
+    f.menu.setMode(mode);const panel=find(f,'edge-chapters__panel')[0],rect=panel.getBoundingClientRect();
+    assert.ok(rect.left>=11.99&&rect.top>=11.99);assert.equal(rect.right,281);assert.equal(rect.bottom,413);
+    assert.equal(panel.dataset.bookScale,'3.2');assert.equal(panel.dataset.tight,'true');assert.equal(panel.dataset.narrow,'true');
+    assert.equal(panel.style['--columns'],'1');assert.equal(find(f,'edge-chapters__chapter').length,150);
+  }
+  find(f,'edge-chapters__chapter').at(-1).click();assert.deepEqual(f.selected,[books[18].chapters.at(-1).page]);
+});
+test('menu forwards keyboard, Ctrl-wheel and two-touch zoom; one finger and plain wheel remain native scrolling',()=>{
+  const ratios=[],f=setup(undefined,undefined,undefined,{onZoom:factor=>ratios.push(factor)}),root=f.menu.element;
+  f.menu.open({index:18,anchor});assert.equal(root.dispatch('wheel',{deltaY:40}).prevented,false);
+  const pointer=(type,id,x,y)=>root.dispatch(type,{pointerId:id,pointerType:'touch',clientX:x,clientY:y});
+  pointer('pointerdown',1,20,15);pointer('pointermove',1,20,20);assert.deepEqual(ratios,[]);
+  pointer('pointerdown',2,20,60);pointer('pointermove',2,20,100);assert.deepEqual(ratios,[2]);
+  pointer('pointercancel',2,20,100);pointer('pointermove',1,20,30);assert.equal(ratios.length,1);
+  pointer('pointerup',1,20,30);assert.ok(root.dispatch('click').prevented,'a pinch never activates a chapter');
+  assert.ok(root.dispatch('wheel',{ctrlKey:true,deltaY:-25,deltaMode:0}).prevented);assert.ok(ratios.at(-1)>1);
+  assert.ok(f.win.dispatch('keydown',{key:'-'}).prevented);assert.equal(ratios.at(-1),1/1.2);
+  const count=ratios.length;f.menu.close();assert.equal(f.win.dispatch('keydown',{key:'-'}).prevented,false);assert.equal(ratios.length,count);
 });
 console.log(`Edge chapters: ${checks} checks passed (66 books / 1189 chapters).`);

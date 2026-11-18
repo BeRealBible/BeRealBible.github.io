@@ -1,4 +1,4 @@
-/* Screen-space chapter chooser. Geometry remains independent of book zoom. */
+/* A chapter leaf measured in book units, hinged to a bookmark in the fixed portal. */
 (function(root,factory){
   const api=factory();
   if(typeof module==='object'&&module.exports)module.exports=api;
@@ -24,7 +24,7 @@
       if(availableWidth<410)columns=1;
       width=Math.min(columns===1?274:460,availableWidth);
     }else{
-      const cell=vw<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
+      const cell=(available.mobile??(vw<constants.MOBILE_BREAKPOINT))?constants.MIN_TARGET:constants.DESKTOP_CELL;
       columns=chapters<=8?Math.max(1,chapters):chapters<=80?8:10;
       columns=Math.min(columns,Math.max(1,Math.floor((availableWidth-constants.PADDING-constants.NUMBER_GUTTER+constants.NUMBER_GAP)/(cell+constants.NUMBER_GAP))));
       width=Math.min(availableWidth,Math.max(220,columns*cell+(columns-1)*constants.NUMBER_GAP+constants.PADDING+constants.NUMBER_GUTTER));
@@ -57,11 +57,11 @@
     const dock=chooseDock(anchor,viewport),available=dockBounds(dock,viewport);
     return placeDock(dock,{width:Math.min(available.width,size.width),height:Math.min(available.height,size.height)});
   }
-  function create(host,{books,onSelect,getCurrent,getPreview}={}){
+  function create(host,{books,onSelect,getCurrent,getPreview,getBookFrame,onZoom}={}){
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,win=doc.defaultView,portal=doc.body||host,staticListeners=[],dynamicListeners=[];
     const root=doc.createElement('div');root.className='edge-chapters';root.hidden=true;
-    let opened=false,destroyed=false,members=[],selected=-1,anchor=null,dock=null,previousFocus=null,bookButtons=[],chapterButtons=[],mode='numbers';
+    let opened=false,destroyed=false,members=[],selected=-1,hinge=null,openedFrame=null,dock=null,previousFocus=null,bookButtons=[],chapterButtons=[],mode='numbers';
     const add=(parent,tag,className)=>{const node=doc.createElement(tag);node.className=className;parent.appendChild(node);return node;};
     const listen=(target,type,fn,capture=false,list=staticListeners)=>{target.addEventListener(type,fn,capture);list.push([target,type,fn,capture]);};
     const stop=event=>event.stopPropagation();
@@ -91,20 +91,30 @@
       const visual=win?.visualViewport;
       return {left:finite(visual?.offsetLeft),top:finite(visual?.offsetTop),width:finite(visual?.width,finite(win?.innerWidth,doc.documentElement?.clientWidth||360)),height:finite(visual?.height,finite(win?.innerHeight,doc.documentElement?.clientHeight||640))};
     }
+    function bookFrame(){
+      const f=getBookFrame?.();
+      return {x:finite(f?.x),y:finite(f?.y),scale:finite(f?.scale)>0?Number(f.scale):1};
+    }
     function position(){
       if(!opened||destroyed)return;
-      const viewport=getViewport(),available=dockBounds(dock,viewport),size=menuSize(chapterButtons.length,mode,viewport.width,viewport.height,members.length,available);
-      panel.style.width=size.width+'px';panel.style.maxHeight=size.maxHeight+'px';
+      const f=bookFrame(),s=f.scale,known=openedFrame,ratio=s/known.scale,viewport=getViewport();
+      // Reproject the original point on the physical bookmark; never choose a new
+      // corner in response to zoom, pan, mode changes, or the chapter count.
+      dock={corner:hinge.corner,x:hinge.x+(f.x-known.x)+(hinge.x-known.x)*(ratio-1),y:hinge.y+(f.y-known.y)+(hinge.y-known.y)*(ratio-1)};
+      const available=dockBounds(dock,viewport),mobile=viewport.width<constants.MOBILE_BREAKPOINT;
+      const size=menuSize(chapterButtons.length,mode,viewport.width/s,viewport.height/s,members.length,{width:available.width/s,height:available.height/s,mobile});
+      panel.style.width=size.width*s+'px';panel.style.maxHeight=size.maxHeight*s+'px';sheet.style.maxHeight=size.maxHeight+'px';
       panel.dataset.tight=String(size.maxHeight<240);
+      panel.dataset.narrow=String(size.width<180);
       for(const node of [root,panel]){
-        node.dataset.dockCorner=dock.corner;node.dataset.anchorX=String(dock.x);node.dataset.anchorY=String(dock.y);
-        for(const [key,value] of [['--columns',String(size.columns)],['--cell',(viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL)+'px'],['--anchor-x',dock.x+'px'],['--anchor-y',dock.y+'px']]){
+        node.dataset.dockCorner=dock.corner;node.dataset.anchorX=String(dock.x);node.dataset.anchorY=String(dock.y);node.dataset.bookScale=String(s);
+        for(const [key,value] of [['--book-scale',String(s)],['--columns',String(size.columns)],['--cell',(mobile?constants.MIN_TARGET:constants.DESKTOP_CELL)+'px'],['--anchor-x',dock.x+'px'],['--anchor-y',dock.y+'px']]){
           if(node.style.setProperty)node.style.setProperty(key,value);else node.style[key]=value;
         }
       }
       const cell=viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
-      const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(viewport.width<560?40:36):cell+1);
-      const p=placeDock(dock,{width:size.width,height:Math.min(size.maxHeight,rect?.height||estimate)});
+      const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(mobile?40:36):cell+1);
+      const p=placeDock(dock,{width:size.width*s,height:Math.min(size.maxHeight*s,rect?.height||estimate*s)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
     }
     function removeDynamic(){for(const [node,type,fn,capture] of dynamicListeners)node.removeEventListener(type,fn,capture);dynamicListeners.length=0;}
@@ -170,18 +180,21 @@
       const requested=Array.isArray(options.bookIndices)?options.bookIndices:[options.index];
       const valid=[...new Set(requested)].filter(index=>Number.isInteger(index)&&index>=0&&index<books.length);
       if(!valid.length)return false;
-      if(!opened){previousFocus=doc.activeElement;anchor=options.anchor?{...options.anchor}:null;dock=chooseDock(anchor,getViewport());}
+      if(!opened){previousFocus=doc.activeElement;hinge=chooseDock(options.anchor,getViewport());openedFrame=bookFrame();}
       members=valid;selected=members.includes(options.index)?options.index:members[0];
       opened=true;root.hidden=false;render();position();focusChapter();return true;
     }
     function close(){
-      if(!opened)return false;opened=false;root.hidden=true;
+      if(!opened)return false;opened=false;root.hidden=true;contacts.clear();pinchDistance=0;ignorePinchClick=false;
       const target=previousFocus;previousFocus=null;
       if(target&&target!==doc.body&&target.isConnected!==false&&!target.disabled)target.focus?.({preventScroll:true});return true;
     }
     function keys(event){
       if(!opened||destroyed)return;
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();close();return;}
+      if(onZoom&&!event.ctrlKey&&!event.metaKey&&['+','=','-'].includes(event.key)){
+        event.preventDefault();event.stopPropagation();onZoom(event.key==='-'?1/1.2:1.2);return;
+      }
       if(event.key!=='Tab')return;
       const focusables=[...modeButtons,closeButton,...bookButtons,...chapterButtons,opening].filter(button=>!button.hidden&&!button.disabled);
       const first=focusables[0],last=focusables[focusables.length-1],active=doc.activeElement;
@@ -190,6 +203,37 @@
     // Window capture precedes the book index's document Escape handler, so one
     // Esc closes this dialog rather than also collapsing the book beneath it.
     listen(win?.addEventListener?win:doc,'keydown',keys,true);
+    // The modal covers the stage. Forward only genuine zoom here, leaving an
+    // ordinary wheel / one-finger vertical scroll to the list of chapters.
+    const contacts=new Map();let pinchDistance=0,ignorePinchClick=false;
+    if(typeof onZoom==='function'){
+      listen(root,'wheel',e=>{
+        if(!opened||!(e.ctrlKey||e.metaKey))return;
+        e.preventDefault();e.stopPropagation();const delta=finite(e.deltaY)*(e.deltaMode===1?16:e.deltaMode===2?getViewport().height:1);
+        onZoom(Math.exp(clamp(-delta*.003,-2,2)));
+      },{passive:false});
+      const distance=()=>{const [a,b]=contacts.values();return a&&b?Math.hypot(a.x-b.x,a.y-b.y):0;};
+      listen(root,'pointerdown',e=>{
+        if(!opened)return;
+        if(!contacts.size)ignorePinchClick=false;
+        if(e.pointerType!=='touch')return;
+        contacts.set(e.pointerId,{x:e.clientX,y:e.clientY});pinchDistance=distance();
+        if(contacts.size>=2)ignorePinchClick=true;
+      },true);
+      listen(root,'pointermove',e=>{
+        if(!opened||!contacts.has(e.pointerId))return;
+        contacts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(contacts.size!==2)return;
+        const old=pinchDistance;pinchDistance=distance();
+        if(old>2&&pinchDistance>2){e.preventDefault();e.stopPropagation();onZoom(pinchDistance/old);}
+      });
+      const release=e=>{contacts.delete(e.pointerId);pinchDistance=distance();};
+      for(const type of ['pointerup','pointercancel'])listen(root,type,release,true);
+      // Suppress native two-finger browser zoom/scroll without consuming a
+      // single-finger chapter scroll or the OS's ordinary accessibility zoom.
+      for(const type of ['touchstart','touchmove'])listen(root,type,e=>{if(opened&&e.touches.length>1)e.preventDefault();},{passive:false});
+      listen(root,'click',e=>{if(ignorePinchClick&&e.detail!==0){ignorePinchClick=false;e.preventDefault();e.stopImmediatePropagation();}},true);
+    }
     if(win?.addEventListener){listen(win,'resize',position);if(win.visualViewport?.addEventListener){listen(win.visualViewport,'resize',position);listen(win.visualViewport,'scroll',position);}}
     const sizeObserver=typeof win?.ResizeObserver==='function'?new win.ResizeObserver(()=>position()):null;
     sizeObserver?.observe(panel);
@@ -200,7 +244,7 @@
       sizeObserver?.disconnect();
       for(const [node,type,fn,capture] of staticListeners)node.removeEventListener(type,fn,capture);root.remove();
     }
-    return {open,close,isOpen:()=>opened,getMode:()=>mode,setMode,destroy,element:root};
+    return {open,close,isOpen:()=>opened,getMode:()=>mode,setMode,reposition:position,getDock:()=>opened?{...dock}:null,destroy,element:root};
   }
   return {constants,chapterEntries,menuSize,chooseDock,dockBounds,placeDock,place,create};
 });

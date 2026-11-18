@@ -173,6 +173,74 @@
     }
     hide(){this.canvas.hidden=true;this.shadow.hidden=true;delete this.host.dataset.curlProgress;delete this.host.dataset.curlHeight;}
   }
+  // The flat reader may be zoomed until a page is several phone screens wide.
+  // Rendering its turning ink in a separate transparent GPU surface can expose
+  // newly swapped DOM ink before the mobile compositor presents the texture.
+  // Use the same SVG surface for the opaque sheet, its shadow and real glyphs.
+  function strips(options,n=10){
+    const step=480/n,points=[];
+    for(let i=0;i<=n;i++){
+      const p=P.point({...options,vertical:0},i*step,0);
+      points.push({x:p.x,y:p.y-p.z*P.SLOPE,z:p.z});
+    }
+    const bands=Array.from({length:n},(_,i)=>{
+      const a=points[i],b=points[i+1],front=(b.x-a.x)*options.direction>=0;
+      const ascending=b.x>=a.x,[l,r]=ascending?[a,b]:[b,a];
+      return {front,offset:ascending?i*step:480-(i+1)*step,
+        x:l.x,y:l.y,xx:(r.x-l.x)/step,yx:(r.y-l.y)/step,z:(a.z+b.z)/2};
+    });
+    const covered=Math.max(0,...points.map(p=>(p.x-480)*options.direction));
+    return {points,bands,covered:Math.min(480,covered)};
+  }
+  let vectorSerial=0;
+  Renderer.vector=function(host,renderPage){
+    const n=10,w=480/n,doc=host.ownerDocument,ns='http://www.w3.org/2000/svg';
+    const make=(type,attrs={})=>{
+      const node=doc.createElementNS(ns,type);
+      for(const [k,v] of Object.entries(attrs))node.setAttribute(k,v);return node;
+    };
+    let layer,shadow,stock,group,nodes,ids,dir,lastOrder='';
+    function hide(){layer?.remove();layer=null;nodes=null;lastOrder='';delete host.dataset.curlProgress;}
+    function prepare(front,back,direction){
+      hide();dir=direction;const prefix='turn-leaf-'+(++vectorSerial)+'-';
+      layer=make('svg',{class:'paper-vector-turn',viewBox:'0 0 960 704','aria-hidden':'true'});
+      const defs=make('defs');layer.appendChild(defs);
+      ids=[front,back].map((page,i)=>{
+        const id=prefix+i,g=make('g',{id}),nested=make('svg',{width:480,height:704,viewBox:'0 0 480 704'});
+        // Each private copy gets distinct paint-server IDs from the static page.
+        nested.innerHTML=renderPage(page).replace(/^<svg\b[^>]*>|<\/svg>$/g,'').replaceAll('paper-'+page+'"',prefix+'paint-'+i+'"').replaceAll('#paper-'+page+')','#'+prefix+'paint-'+i+')');
+        g.appendChild(make('rect',{width:480,height:704,fill:'#fffdf1'}));g.appendChild(nested);defs.appendChild(g);
+        return '#'+id;
+      });
+      shadow=make('path',{fill:'#4d3c2b'});stock=make('path',{fill:'#f8f3e4'});group=make('g');
+      layer.append(shadow,stock,group);
+      nodes=Array.from({length:n},()=>{
+        const g=make('g'),slice=make('svg',{width:w,height:704,overflow:'hidden',preserveAspectRatio:'none'});
+        const ink=make('use'),shade=make('rect',{x:0,y:0,width:w,height:704,fill:'#38260f'});
+        slice.appendChild(ink);g.append(slice,shade);group.appendChild(g);
+        return {g,slice,ink,shade,last:null};
+      });
+      host.appendChild(layer);host.dataset.renderer='svg-curved-sheet';
+    }
+    function draw(options){
+      const s=strips({...options,direction:dir},n),p=options.progress;
+      const d='M'+s.points.map(pt=>pt.x+' '+pt.y).join('L')+'L'+s.points.slice().reverse().map(pt=>pt.x+' '+(pt.y+704)).join('L')+'Z';
+      stock.setAttribute('d',d);shadow.setAttribute('d',d);const arc=Math.sin(Math.PI*p);
+      shadow.setAttribute('opacity',String(.13*arc));shadow.setAttribute('transform','translate('+dir*arc*15+' '+arc*6+')');
+      const order=s.bands.map((_,i)=>i).sort((i,j)=>s.bands[i].z-s.bands[j].z);
+      if(order.join()!==lastOrder){for(const i of order)group.appendChild(nodes[i].g);lastOrder=order.join();}
+      s.bands.forEach((b,i)=>{
+        const row=nodes[i];row.g.setAttribute('transform','matrix('+[b.xx,b.yx,0,1,b.x,b.y].join(' ')+')');
+        if(row.last!==b.front){
+          row.ink.setAttribute('href',ids[b.front?0:1]);row.slice.setAttribute('viewBox',[b.offset,0,w,704].join(' '));row.last=b.front;
+        }
+        row.shade.setAttribute('opacity',String(.13*(1-Math.min(1,b.xx))*arc));
+      });
+      host.dataset.curlProgress=p.toFixed(4);return s.covered;
+    }
+    return {prepare,draw,hide};
+  };
+  Renderer.strips=strips;
   Renderer.projectBoundPoint=projectBoundPoint;
   Renderer.originWeight=originWeight;
   Renderer.originProfile=originProfile;

@@ -140,9 +140,10 @@ function fixture(startSpread = 2, options = {}) {
     removeItem: key => { storage.delete(key); saved.push({ at: now, key, removed: true }); }
   };
   class Renderer {
+    static vector() { return new Renderer(); }
     constructor() { this.last = null; }
     prepare(front, back, direction, count) { rendered.push({ front, back, direction, count, at: now }); }
-    draw(frame) { this.last = frame; draws.push({ ...frame, at: now }); }
+    draw(frame) { this.last = frame; draws.push({ ...frame, at: now }); return Math.max(0,480*(1-2*frame.progress)); }
     hide() { this.last = null; }
   }
   let edgeBounds = { leftExtent: 52, rightExtent: 52, normalLeftExtent: 52, normalRightExtent: 52 };
@@ -202,7 +203,7 @@ function fixture(startSpread = 2, options = {}) {
   const context = {
     console, document: doc, navigator: {}, performance: { now: () => now },
     PaperPhysics: Physics, PaperGestures: Gestures, PaperBookMaterial: Material, PaperPage: Page, PaperEdges: Edges,
-    PaperSheetRenderer: Renderer,
+    PaperSheetRenderer: Renderer, PaperTextSelection: options.selectionModule,
     PaperJump: { create: () => jump },
     BIBLE_SOURCE: options.source || currentBibleSource(),
     PaperChapterPreview: { create: source => {
@@ -254,6 +255,10 @@ function fixture(startSpread = 2, options = {}) {
   function tap(side = 'right', duration = 1, pointerType = 'mouse', localY = 310) {
     const p = at(side, 350, localY); emit('pointerdown', p.x, p.y, 1, pointerType, el(side + '-paper')); advance(duration); emit('pointerup', p.x, p.y, 1, pointerType, el(side + '-paper')); return p;
   }
+  function swipe(direction = 1, pointerType = 'touch', duration = 60) {
+    const p=at(direction>0?'right':'left'); emit('pointerdown',p.x,p.y,1,pointerType);
+    advance(duration); emit('pointerup',p.x-64*direction,p.y+2,1,pointerType); return p;
+  }
   function hold(side = 'right', pointerType = 'mouse') {
     const p = at(side); emit('pointerdown', p.x, p.y, 1, pointerType, el(side + '-paper')); advance(160); return p;
   }
@@ -277,7 +282,7 @@ function fixture(startSpread = 2, options = {}) {
     }
     chapters.close(); return chapterOptions.onSelect(page);
   }
-  return { el, advance, emit, at, tap, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls, jumpCalls, chapterCalls, previewCalls, previewSources,
+  return { el, advance, emit, at, tap, swipe, hold, drag, click, context, rendered, draws, saved, storage, initialStorage, edgeCalls, ribbonCalls, sceneCalls, jumpCalls, chapterCalls, previewCalls, previewSources,
     get now() { return now; }, get ribbonOptions() { return ribbonOptions; }, get edgeItems() { return edgeItems; },
     get edgeLayout() { return options.realIndexDom ? EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, Number(el('stage').dataset.spread), readerIndex.getExpanded()) : edgeLayout; },
     get expandedSide() { return readerIndex.getExpanded(); }, get indexElement() { return readerIndex.element; },
@@ -304,112 +309,73 @@ function assertUnchangedBookmarks(f) {
   for (const key of ['paper-bible-ribbon-v1-0', 'paper-bible-ribbon-v1-1']) assert.equal(f.storage.get(key), f.initialStorage.get(key), key + ' must survive reader updates');
 }
 
-for (const pointerType of ['mouse', 'touch']) for (const side of ['left', 'right']) for (const duration of [1, 40]) {
-  test(`${pointerType} ${side} ${duration}ms tap starts immediately on release`, () => {
-    const f = fixture(20), direction = side === 'right' ? 1 : -1;
-    f.tap(side, duration, pointerType);
-    assert.equal(f.rendered.length, 1, 'no minimum duration or delayed double-click timer');
-    assert.equal(f.rendered[0].at, duration, 'animation starts in the release dispatch');
-    assert.equal(f.rendered[0].direction, direction);
-    assert.equal(spread(f), 20, 'animation starts immediately, not an instant content jump');
-    f.advance(1200); assert.equal(spread(f), 20 + direction * 2); assertReading(f);
-  });
-}
-test('page-number taps are not a separate slow path', () => {
-  const f = fixture(20); f.tap('right', 1, 'touch', 29);
-  assert.equal(f.rendered.length, 1); f.advance(1200); assert.equal(spread(f), 22);
+for(const pointerType of ['mouse','touch'])for(const dir of [-1,1])test(pointerType+' horizontal blank swipe turns exactly one spread '+dir,()=>{
+  const f=fixture(20),source=f.el(dir>0?'right-paper':'left-paper'),original=source.innerHTML;
+  f.swipe(dir,pointerType);assert.equal(spread(f),20);assert.equal(f.rendered.length,1);assert.equal(f.rendered[0].direction,dir);
+  assert.equal(source.classList.contains('under-curl'),true);assert.notEqual(source.innerHTML,original);
+  assert.match(source.style['--under-sheet-clip'],/480px/,'destination text completely clipped under opaque first frame');
+  f.advance(600);assert.equal(spread(f),20+2*dir);assert.equal(source.classList.contains('under-curl'),false);assert.equal(source.style['--under-sheet-clip'],undefined);assertReading(f);
 });
-test('159ms release is a click; exactly 160ms acquires paper once', () => {
-  const quick = fixture(); quick.tap('right', 159); assert.equal(quick.rendered.length, 1); assert.notEqual(state(quick), 'held');
-  const held = fixture(), p = held.at(); held.emit('pointerdown', p.x, p.y); held.advance(159); assert.equal(held.rendered.length, 0);
-  held.advance(1); assert.equal(state(held), 'held'); assert.equal(held.rendered.length, 1);
-  held.advance(1000); assert.equal(held.rendered.length, 1, 'long hold cannot repeatedly acquire sheets');
-  held.drag(p, 0, 'pointerup'); held.advance(1200); assert.equal(spread(held), 2); assert.equal(state(held), 'returned');
+for(const ms of [1,40,159,360,1500])test('stationary blank contact never grabs or flips even after '+ms+'ms',()=>{
+  const f=fixture(20);f.tap('right',ms);f.advance(1000);assert.equal(f.rendered.length,0);assert.equal(spread(f),20);
 });
-test('movement before hold deadline cancels hold and remains panning', () => {
-  const f = fixture(), p = f.at(); f.emit('pointerdown', p.x, p.y); f.advance(40); f.emit('pointermove', p.x - 20, p.y - 18);
-  f.advance(700); assert.equal(f.rendered.length, 0); f.emit('pointerup', p.x - 40, p.y - 35); f.advance(1200);
-  assert.equal(f.rendered.length, 0); assert.equal(spread(f), 2);
+test('text taps and long holds route through hit-tested tokens, never through the blank swipe recognizer',()=>{
+  const calls=[],owner={},token={id:1};let active=false;
+  const f=fixture(20,{selectionModule:{create:()=>({
+    hit:(_x,_y,t)=>t===owner?token:null,
+    tap:t=>calls.push(['tap',t]),hold:t=>{calls.push(['hold',t]);active=true;},
+    reset:()=>{active=false;},isActive:()=>active
+  })}}),p=f.at();
+  const event=(type,dx=0,dy=0)=>f.emit(type,p.x+dx,p.y+dy,1,'touch',owner);
+  event('pointerdown');f.advance(5);event('pointerup');assert.deepEqual(calls,[['tap',token]]);
+  event('pointerdown');f.advance(359);assert.equal(calls.length,1);
+  f.advance(1);event('pointerup');assert.deepEqual(calls,[['tap',token],['hold',token]]);
+  f.click('zoom-in');assert.equal(active,true,'resizing the SVG does not discard a selection');
+  event('pointerdown');event('pointerup');assert.equal(calls.length,3);assert.equal(calls[2][0],'tap');
+  f.swipe();f.click('next');f.advance(1000);assert.equal(spread(f),20);assert.equal(f.rendered.length,0,'stays on single sheet during selection');
+  f.event('blur');assert.equal(active,false);
+  event('pointerdown');event('pointermove',-42);f.advance(800);event('pointerup',-80);assert.equal(f.rendered.length,0);assert.equal(calls.length,3);
+  event('pointerdown');f.emit('pointerdown',p.x,p.y+40,2,'touch');f.advance(600);event('pointerup');f.emit('pointerup',p.x,p.y+40,2,'touch');assert.equal(calls.length,3);
 });
-for (const side of ['left', 'right']) test(`${side} held sheet uses correct faces and commits past midpoint`, () => {
-  const f = fixture(20), p = f.hold(side), direction = side === 'right' ? 1 : -1;
-  const expected = direction > 0 ? { front: 21, back: 22, direction: 1, count: 1 } : { front: 20, back: 19, direction: -1, count: 1 };
-  const { at, ...actual } = f.rendered[0]; assert.deepEqual(actual, expected); assert.equal(spread(f), 20);
-  f.advance(120); f.drag(p, .7); f.advance(180); f.drag(p, .7, 'pointerup'); f.advance(1400);
-  assert.equal(spread(f), 20 + direction * 2); assert.equal(state(f), 'committed');
+test('swiping direction is independent of touched face and can reverse before release',()=>{
+  const f=fixture(20),p=f.at('left');f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x+40,p.y);f.emit('pointerup',p.x-65,p.y);
+  f.advance(1000);assert.equal(spread(f),22);
 });
-test('held paper can reverse after midpoint and return original vector page', () => {
-  const f = fixture(), original = f.el('right-paper').innerHTML, p = f.hold();
-  f.drag(p, .8); f.advance(240); f.drag(p, .7); f.advance(45); f.drag(p, .6); f.drag(p, .6, 'pointerup'); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned'); assert.equal(f.el('right-paper').innerHTML, original);
+test('micro swipe, reversal to origin, vertical pan and diagonal pan do not turn pages',()=>{
+  const f=fixture(20,{width:390,height:844}),p=f.at();
+  for(const [dx,dy] of [[-24,0],[0,-65],[-43,-43]]){
+    f.emit('pointerdown',p.x,p.y);f.emit('pointerup',p.x+dx,p.y+dy);f.advance(500);
+  }
+  f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x-70,p.y);f.emit('pointerup',p.x,p.y);
+  f.advance(500);assert.equal(spread(f),20);assert.equal(f.rendered.length,0);
 });
-test('final release coordinates can complete a held curl without an intermediate move', () => {
-  const f = fixture(), p = f.hold(); f.advance(180); f.drag(p, .9, 'pointerup'); f.advance(1500);
-  assert.equal(spread(f), 4); assert.equal(state(f), 'committed');
-});
-test('final release coordinates can reverse a held curl without an intermediate move', () => {
-  const f = fixture(), p = f.hold(); f.drag(p, .9); f.advance(180); f.drag(p, .1, 'pointerup'); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned');
-});
-test('pausing below midpoint dissipates old inward velocity before release', () => {
-  const f = fixture(), p = f.hold(); f.drag(p, .08); f.advance(20); f.drag(p, .35); f.advance(1000); f.drag(p, .35, 'pointerup'); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned');
-});
-test('pointercancel restores a nearly completed held sheet', () => {
-  const f = fixture(), original = f.el('right-paper').innerHTML, p = f.hold(); f.drag(p, .94); f.drag(p, .94, 'pointercancel'); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned'); assert.equal(f.el('right-paper').innerHTML, original);
-});
-test('cancel before hold has no tap or delayed turn', () => {
-  const f = fixture(), p = f.at(); f.emit('pointerdown', p.x, p.y); f.advance(40); f.emit('pointercancel', p.x, p.y); f.advance(1500);
-  assert.equal(f.rendered.length, 0); assert.equal(spread(f), 2);
-});
-test('lost pointer capture without coordinates cancels rather than committing', () => {
-  const f = fixture(), p = f.hold(); f.drag(p, .9);
-  f.el('stage').dispatchEvent({ type: 'lostpointercapture', pointerId: 1 }); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned');
-  for (const key of ['x', 'y', 'scale']) assert.ok(Number.isFinite(Number(f.el('stage').dataset[key])));
-});
-test('Escape cancels held paper and pending taps are cleared on blur', () => {
-  const f = fixture(), p = f.hold(); f.drag(p, .8);
-  f.el('stage').dispatchEvent({ type: 'keydown', key: 'Escape' }); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned');
-  f.tap(); f.tap(); f.tap(); f.advance(40); f.event('blur'); f.advance(4000);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned');
-});
-test('second finger cancels held sheet and pinch only changes camera', () => {
-  const f = fixture(), p = f.hold('right', 'touch'); f.drag(p, .25, 'pointermove', 'touch');
-  f.emit('pointerdown', p.x + 30, p.y + 60, 2, 'touch');
-  assert.equal(state(f), 'returned');
-  f.advance(30); f.emit('pointermove', p.x - 30, p.y - 40, 1, 'touch'); f.emit('pointermove', p.x + 80, p.y + 120, 2, 'touch');
-  f.emit('pointerup', p.x - 30, p.y - 40, 1, 'touch'); f.emit('pointerup', p.x + 80, p.y + 120, 2, 'touch'); f.advance(1200);
-  assert.equal(spread(f), 2); assert.equal(f.rendered.length, 1); assert.ok(Number(f.el('stage').dataset.scale) > p.scale);
-});
-test('pinch before hold cancels timer and neither finger release turns a page', () => {
-  const f = fixture(), p = f.at(); f.emit('pointerdown', p.x, p.y, 1, 'touch'); f.advance(40); f.emit('pointerdown', p.x, p.y + 60, 2, 'touch');
-  f.emit('pointermove', p.x - 30, p.y - 40, 1, 'touch'); f.emit('pointermove', p.x + 50, p.y + 120, 2, 'touch'); f.advance(300);
-  f.emit('pointerup', p.x - 30, p.y - 40, 1, 'touch'); f.emit('pointerup', p.x + 50, p.y + 120, 2, 'touch'); f.advance(1200);
-  assert.equal(f.rendered.length, 0); assert.equal(spread(f), 2);
-});
-for (const interruption of ['blur', 'paper-interrupt', 'document:visibilitychange']) test(`${interruption} cancels held paper without losing place`, () => {
-  const f = fixture(), p = f.hold(); f.drag(p, .8);
-  if (interruption === 'document:visibilitychange') f.context.document.hidden = true;
-  f.event(interruption); f.advance(1200); f.drag(p, .8, 'pointerup'); f.advance(1200);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned');
-});
-test('resize safely cancels physical drag and preserves spread', () => {
-  const f = fixture(), p = f.hold(); f.drag(p, .6); f.el('stage').clientWidth = 390; f.resize(); f.advance(1500);
-  assert.equal(spread(f), 2); assert.equal(state(f), 'returned'); assertReading(f);
-});
-test('first/final spread bounds apply to both tap and hold', () => {
-  const final = fixture().context.BIBLE_DATA.pages.length - 2;
-  for (const [page, side] of [[0, 'left'], [final, 'right']]) {
-    const f = fixture(page); f.tap(side); f.advance(1200); const p = f.hold(side); f.drag(p, .9, 'pointerup'); f.advance(1200);
-    assert.equal(spread(f), page); assert.equal(f.rendered.length, 0);
+test('cancelled pointer and lost capture cannot commit a pending swipe',()=>{
+  for(const type of ['pointercancel','lostpointercapture']){
+    const f=fixture(20),p=f.at();f.emit('pointerdown',p.x,p.y);f.emit('pointermove',p.x-120,p.y);
+    f.el('stage').dispatchEvent({type,pointerId:1});f.advance(600);assert.equal(spread(f),20);assert.equal(f.rendered.length,0);
+    for(const key of ['x','y','scale'])assert.ok(Number.isFinite(Number(f.el('stage').dataset[key])));
   }
 });
-test('continuous taps queue every requested sheet rather than dropping input', () => {
-  const f = fixture(20); f.tap(); f.advance(30); f.tap(); f.advance(30); f.tap(); f.advance(4000);
-  assert.equal(spread(f), 26); assert.equal(f.rendered.length, 3); assert.ok(f.rendered.every(x => x.count === 1));
+test('second finger cancels an uncommitted swipe and pinch only changes camera',()=>{
+  const f=fixture(20),p=f.at();f.emit('pointerdown',p.x,p.y,1,'touch');f.emit('pointermove',p.x-40,p.y,1,'touch');
+  f.emit('pointerdown',p.x,p.y+60,2,'touch');f.emit('pointermove',p.x+100,p.y+120,2,'touch');
+  f.emit('pointerup',p.x-40,p.y,1,'touch');f.emit('pointerup',p.x+100,p.y+120,2,'touch');f.advance(1200);
+  assert.equal(spread(f),20);assert.equal(f.rendered.length,0);assert.ok(Number(f.el('stage').dataset.scale)>p.scale);
+});
+for(const reason of ['blur','paper-interrupt','document:visibilitychange','resize','Escape'])test(reason+' restores source and unwinds the opaque clip',()=>{
+  const f=fixture(20),paper=f.el('right-paper'),original=paper.innerHTML;f.swipe();f.advance(95);
+  if(reason==='document:visibilitychange')f.context.document.hidden=true;
+  if(reason==='resize')f.resize();else if(reason==='Escape')f.el('stage').dispatchEvent({type:'keydown',key:'Escape'});else f.event(reason);
+  f.advance(1000);assert.equal(spread(f),20);assert.equal(state(f),'returned');assert.equal(paper.innerHTML,original);assert.equal(paper.style['--under-sheet-clip'],undefined);
+});
+test('first and last spread reject outward swipes',()=>{
+  const final=fixture().context.BIBLE_DATA.pages.length-2;
+  for(const [page,dir] of [[0,-1],[final,1]]){
+    const f=fixture(page);f.swipe(dir);f.advance(1000);assert.equal(spread(f),page);assert.equal(f.rendered.length,0);
+  }
+});
+test('multiple next-button requests remain queued but gestures during a flip do not accidentally chain pages',()=>{
+  const f=fixture(20);f.swipe();f.swipe();f.click('next');f.advance(2000);assert.equal(spread(f),24);assert.equal(f.rendered.length,2);
 });
 test('choosing an edge chapter navigates while the book stays open', () => {
   const f = fixture(20), target = f.context.BIBLE_DATA.books[65].first & ~1;
@@ -464,8 +430,8 @@ test('explicit left/right focus changes the displayed book and persisted face to
     assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, index);
   }
 });
-test('directory dialog interrupts held sheet without closing the physical book', () => {
-  const f = fixture(20), p = f.hold(); f.drag(p, .6); f.event('paper-directory-request'); f.advance(1500);
+test('directory dialog interrupts active swipe without closing the physical book', () => {
+  const f = fixture(20);f.swipe(); f.event('paper-directory-request'); f.advance(1500);
   assert.equal(spread(f), 20); assertReading(f); assert.equal(f.el('book-picker').open, true);
 });
 test('chapter picker opens all 66 books and selects a real chapter without scene changes', () => {
@@ -511,7 +477,7 @@ test('390x844 phone starts at readable scale with all right edges inside viewpor
   }
 });
 test('position persistence does not overwrite either ribbon and custom storage is respected', () => {
-  const f = fixture(20, { customStorage: true }); f.tap(); f.advance(1500);
+  const f = fixture(20, { customStorage: true }); f.swipe(); f.advance(1500);
   assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).spread, 22); assertUnchangedBookmarks(f);
   assert.ok(f.ribbonOptions.storage); assert.equal(f.ribbonOptions.storage.getItem('paper-bible-ribbon-v1-0'), f.initialStorage.get('paper-bible-ribbon-v1-0'));
 });
@@ -573,9 +539,9 @@ test('Escape collapses an expanded edge and restores the reader camera', () => {
   assert.equal(f.expandedSide, null); assertCameraEqual(camera(f), original); assert.equal(spread(f), 600);
 });
 test('turning paper disables edge expansion until the sheet has settled', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = f.el('right-paper').innerHTML, p = f.hold();
-  f.drag(p, .8); f.expand('right'); assert.equal(f.expandedSide, null); assert.equal(state(f), 'held');
-  f.drag(p, .8, 'pointercancel'); f.advance(1500);
+  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = f.el('right-paper').innerHTML;
+  f.swipe(); f.expand('right'); assert.equal(f.expandedSide, null); assert.equal(state(f), 'settling-forward');
+  f.event('blur'); f.advance(1500);
   assert.equal(spread(f), 600); assert.equal(state(f), 'returned'); assert.equal(f.el('right-paper').innerHTML, original);
   f.expand('right');
   assert.equal(f.expandedSide, 'right'); assertReading(f);
@@ -618,14 +584,10 @@ test('paper-interrupt closes the edge, restores camera and leaves no stuck input
   const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = camera(f);
   f.expand('right'); f.event('paper-interrupt');
   assert.equal(f.expandedSide, null); assertCameraEqual(camera(f), original);
-  f.tap(); f.advance(1500); assert.equal(spread(f), 602);
+  f.swipe(); f.advance(1500); assert.equal(spread(f), 602);
 });
-test('peek demo closes edge selection before drawing and reading resumes afterward', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = camera(f);
-  f.expand('left'); f.click('demo-peek'); f.advance(2000);
-  assert.equal(f.expandedSide, null); assert.equal(f.el('stage').dataset.edgeExpanded, undefined);
-  assert.equal(spread(f), 600); assertCameraEqual(camera(f), original);
-  f.tap(); f.advance(1500); assert.equal(spread(f), 602);
+test('obsolete held-peek demo no longer installs a handler', () => {
+  const f=fixture(600);assert.equal(f.el('demo-peek').onclick,undefined);
 });
 test('real edge and chapter DOM choose all 66 books then commit packets and resume page turns', () => {
   const data = currentRuleData(), f = fixture(600, { data, realIndexDom: true, realChaptersDom: true, manualJump: true, width: 390, height: 844 });
@@ -643,7 +605,7 @@ test('real edge and chapter DOM choose all 66 books then commit packets and resu
     assert.equal(f.expandedSide, null); assert.equal(f.el('book-name').textContent, selected.name);
     assert.equal(f.ribbonOptions.getCurrent().page, selected.first);
   }
-  f.tap(); f.advance(1500); assert.equal(spread(f), (data.books[65].first & ~1) + 2);
+  f.swipe(); f.advance(1500); assert.equal(spread(f), (data.books[65].first & ~1) + 2);
   assertUnchangedBookmarks(f);
 });
 test('book index click opens anchored chapter selector without changing the page or closing the edge', () => {
@@ -694,7 +656,7 @@ test('cancelled jump restores source SVG and cannot save target even if its old 
   assert.equal(spread(f), 20); assert.equal(f.jumpActive, false); assert.equal(f.el('stage').dataset.jumpState, 'cancelled');
   assert.equal(f.storage.get('paper-bible-position-v1'), stored);
   assert.deepEqual(['left-paper', 'right-paper'].map(id => f.el(id).innerHTML), original);
-  f.tap(); f.advance(1500); assert.equal(spread(f), 22);
+  f.swipe(); f.advance(1500); assert.equal(spread(f), 22);
 });
 test('new jump replaces the previous packet and ignores its stale finish and cancel callbacks', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), first = data.books[65].first, second = data.books[23].first;
@@ -713,9 +675,9 @@ test('pending packet excludes taps, held curls, arrows and queued ordinary page 
   assert.equal(spread(f), 20); assert.equal(f.rendered.length, 0); assert.equal(f.jumpCalls.length, 1);
   f.finishJump(); f.advance(1500); assert.equal(spread(f), target & ~1); assert.equal(f.rendered.length, 0);
 });
-test('starting packet navigation releases a held curl and consumes its remaining pointer', () => {
-  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), p = f.hold(), target = data.books[65].first;
-  f.drag(p, .8); f.navigateRibbon(target); f.drag(p, .8, 'pointerup'); f.advance(1500);
+test('starting packet navigation interrupts an ordinary flip before committing the destination', () => {
+  const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), target = data.books[65].first;
+  f.swipe(); f.navigateRibbon(target); f.advance(1500);
   assert.equal(state(f), 'returned'); assert.equal(f.jumpActive, true); assert.equal(spread(f), 20); assert.equal(f.rendered.length, 1);
   f.finishJump(); assert.equal(spread(f), target & ~1); assert.equal(f.rendered.length, 1);
 });
@@ -773,6 +735,16 @@ function clickChapterMode(f, mode) {
   button.dispatchEvent({ type: 'click' }); assert.equal(f.chapterMode, mode);
   assert.equal(button.getAttribute('aria-pressed'), 'true');
 }
+test('zooming with the menu open scales the book around the same viewport contact and leaves the chooser open',()=>{
+  const f=fixture(20,{realChaptersDom:true}),x=510,y=290;
+  f.selectBook(0,{bookIndices:[0],anchor:{left:x-24,right:x,top:y,bottom:y+20,width:24,height:20}});
+  function screenDock(){return [Number(f.chapterElement.dataset.anchorX),Number(f.chapterElement.dataset.anchorY)];}
+  const original=screenDock(),scale0=Number(f.el('stage').dataset.scale);
+  f.chapterOptions.onZoom(1.3);assert.equal(f.chaptersOpen,true);assertCameraEqual(screenDock(),original);
+  assert.ok(Math.abs(Number(f.el('stage').dataset.scale)/scale0-1.3)<.001);
+  f.click('zoom-out');assert.equal(f.chaptersOpen,true);assertCameraEqual(screenDock(),original);
+  f.resize();assert.equal(f.chaptersOpen,true);assertCameraEqual(screenDock(),original);
+});
 function assertPreviewButton(f, book, entry, source = currentBibleSource()) {
   const button = f.chapterElement.querySelectorAll('.edge-chapters__chapter').find(node => Number(node.dataset.chapter) === entry.chapter);
   assert.ok(button && !button.hidden && !button.disabled, `${book.name} ${entry.chapter} stays reachable`);
@@ -888,7 +860,7 @@ test('fixed-corner menu mode changes still block page gestures and cancel withou
   assert.equal(f.chapterElement.dataset.dockCorner, 'bottom-right');
   f.chapterElement.querySelector('.edge-chapters__outside').dispatchEvent({ type: 'click' });
   assert.equal(f.chaptersOpen, false); assertCameraEqual(camera(f), original); assert.deepEqual(Object.fromEntries(f.storage), stored); assertUnchangedBookmarks(f);
-  f.tap(); f.advance(1500); assert.equal(spread(f), 22, 'reading resumes after dismissing the fixed-corner menu');
+  f.swipe(); f.advance(1500); assert.equal(spread(f), 22, 'reading resumes after dismissing the fixed-corner menu');
 });
 
 async function run() {
