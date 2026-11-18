@@ -104,60 +104,64 @@
     const button=(cls,txt,title,fn)=>{const b=el('button',cls,txt);b.type='button';b.setAttribute('aria-label',title);b.title=title;b.addEventListener('click',fn);return b;};
     const shelf=el('div','rh-rail'),caption=el('span','rh-caption','最近跳转'),track=el('div','rh-track');
     track.setAttribute('role','group');track.setAttribute('aria-label','最近阅读位置');
-    const manage=button('rh-manage','管理','管理阅读记录',()=>open());
-    manage.setAttribute('aria-haspopup','dialog');
-    shelf.append(caption,track,manage);
-    const panel=el('dialog','rh-panel');panel.setAttribute('aria-label','管理阅读记录');
-    const head=el('div','rh-head'),heading=el('strong','','最近跳转'),closeBtn=button('rh-close','收起','收起阅读记录',()=>close());
-    head.append(heading,closeBtn);
-    const list=el('div','rh-rows'),foot=el('div','rh-foot'),status=el('span','','点位置接着读');status.setAttribute('role','status');
-    const undoButton=button('rh-undo','撤销删除','撤销上一次删除',()=>{if(model.undo()){status.textContent='已恢复记录';render();closeBtn.focus();}});
-    foot.append(status,undoButton);panel.append(head,list,foot);
-    host.append(shelf,panel);shell?.classList.add('has-history-shelf');doc.documentElement.classList.add('paper-history-on');
+    const status=el('span','rh-sr');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    let controls=new Map(),removedId=null;
+    const undoButton=button('rh-undo','撤销','撤销上一次删除',()=>{
+      const id=removedId;removedId=null;const ok=model.undo();render();
+      if(ok){status.textContent='已恢复记录';focusControl(id,'chip');}
+    });
+    shelf.append(caption,track,undoButton,status);
+    host.append(shelf);shell?.classList.add('has-history-shelf');doc.documentElement.classList.add('paper-history-on');
     function navigate(id){
       const e=model.get(id);if(!e){render();return;}
-      if(panel.open)close();onNavigate(e.page,e.id,e);
+      onNavigate(e.page,e.id,e);
+    }
+    function focusControl(id,action){
+      const ctl=controls.get(id)?.[action];if(!ctl)return;
+      ctl.focus({preventScroll:true});
+      // Scroll this track only, not the stage or the document. Include both
+      // action slots even for the end item when focus moves after reordering.
+      const box=controls.get(id).item.getBoundingClientRect?.(),viewport=track.getBoundingClientRect?.();
+      if(!box||!viewport)return;
+      if(box.right>viewport.right)track.scrollLeft+=box.right-viewport.right+2;
+      else if(box.left<viewport.left)track.scrollLeft+=box.left-viewport.left-2;
     }
     function render(){
       const items=model.list(),active=model.current(),scroll=track.scrollLeft;
-      track.replaceChildren();list.replaceChildren();
-      if(!items.length){
-        track.appendChild(el('span','rh-empty','暂无记录'));
-        list.appendChild(el('p','rh-empty','从目录或书签跳转后，这里会记下阅读位置。'));
-      }
+      const prev=doc.activeElement;let restore=null;
+      if(prev)for(const [id,row] of controls)for(const key of ['chip','pin','del'])if(prev===row[key])restore=[id,key];
+      track.replaceChildren();controls=new Map();
+      if(!items.length)track.appendChild(el('span','rh-empty','暂无记录'));
       for(const e of items){
-        const name=label(e),chip=button('rh-chip',name,'返回 '+name,()=>navigate(e.id));chip.dataset.id=e.id;
-        if(e.pinned){chip.dataset.pinned='true';chip.title='已置顶 · '+name;}
-        if(e.id===active)chip.setAttribute('aria-current','page');
-        track.appendChild(chip);
-        const row=el('div','rh-row');row.dataset.id=e.id;
-        const where=button('rh-point',name,'返回 '+name,()=>navigate(e.id));
-        if(e.id===active)where.setAttribute('aria-current','page');
-        const pin=button('rh-action',e.pinned?'已置顶':'置顶',(e.pinned?'取消置顶 ':'置顶 ')+name,()=>{
-          model.pin(e.id,!e.pinned);status.textContent=e.pinned?'已取消置顶':'已置顶';render();
-          list.querySelector('[data-id="'+e.id+'"] .rh-action')?.focus();
+        const name=label(e),item=el('div','rh-item');item.dataset.id=e.id;
+        item.setAttribute('role','group');item.setAttribute('aria-label',name);
+        const chip=button('rh-chip',name,'返回 '+name,()=>navigate(e.id));chip.dataset.id=e.id;
+        if(e.pinned){item.dataset.pinned='true';chip.title='已置顶 · '+name;}
+        if(e.id===active){item.dataset.current='true';chip.setAttribute('aria-current','page');}
+        const pin=button('rh-action rh-pin','',(e.pinned?'取消置顶 ':'置顶 ')+name,()=>{
+          if(!model.pin(e.id,!e.pinned)){render();return;}
+          status.textContent=(e.pinned?'已取消置顶 ':'已置顶 ')+name;render();focusControl(e.id,'pin');
         });
+        // Icons are fixed local markup, never interpolated scripture/storage.
+        pin.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g transform="rotate(32 8 8)"><path class="rh-pin-head" d="M5 2.1h6l-1 1.4v3.2l1.8 2H4.2l1.8-2V3.5z"/><path d="M8 8.9v5.2"/></g></svg>';
         pin.setAttribute('aria-pressed',String(e.pinned));
-        const del=button('rh-action rh-delete','删除','删除 '+name,()=>{
-          if(model.remove(e.id)){status.textContent='已删除 '+name;render();undoButton.focus();}
+        const del=button('rh-action rh-delete','','删除 '+name,()=>{
+          if(model.remove(e.id)){
+            removedId=e.id;status.textContent='已删除 '+name+'，可撤销';render();undoButton.focus({preventScroll:true});
+          }
         });
-        row.append(where,pin,del);list.appendChild(row);
+        del.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4.3 4.3 7.4 7.4m0-7.4-7.4 7.4"/></svg>';
+        item.append(chip,pin,del);track.appendChild(item);controls.set(e.id,{item,chip,pin,del});
       }
-      track.scrollLeft=scroll;undoButton.hidden=!model.canUndo();manage.setAttribute('aria-expanded',String(Boolean(panel.open)));
+      track.scrollLeft=scroll;undoButton.hidden=!model.canUndo();
+      if(restore)focusControl(...restore);
     }
-    function open(){
-      if(panel.open)return;
-      render();panel.showModal();manage.setAttribute('aria-expanded','true');closeBtn.focus({preventScroll:true});
-    }
-    function close(){if(panel.open)panel.close();}
-    panel.addEventListener('close',()=>{manage.setAttribute('aria-expanded','false');manage.focus({preventScroll:true});});
-    panel.addEventListener('click',e=>{if(e.target!==panel)return;const r=panel.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close();});
     const sync=e=>{if(!e.key||e.key===KEY||e.key.startsWith(KEY+':'))render();};
     win?.addEventListener('storage',sync);render();
     const apply=(name,...args)=>{const result=model[name](...args);render();return result;};
     return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),jump:(loc,id)=>apply('jump',loc,id),
-      list:model.list,open,close,isOpen:()=>Boolean(panel.open),element:host,
-      destroy(){close();win?.removeEventListener('storage',sync);host.replaceChildren();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
+      list:model.list,element:host,
+      destroy(){win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
   }
   return {KEY,MAX_RECENT,createModel,create,label};
 });

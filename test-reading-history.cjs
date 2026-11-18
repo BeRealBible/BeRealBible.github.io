@@ -62,33 +62,124 @@ test('edition-specific reader storage keeps history apart from other layout and 
   const a=E.storageFor(s,{pages:[]},{edition:'rules-3',pages:[],books:[]}),b=E.storageFor(s,{pages:[]},{edition:'other',pages:[],books:[]});
   model(a).jump(loc(9));assert.equal(model(a).list().length,1);assert.deepEqual(model(b).list(),[]);assert.equal(s.getItem('paper-bible-position-v1'),original);
 });
-test('UI emits exact history id+anchor on restore, never records a click before navigation commits',()=>{
-  const listeners=new Map(),doc={documentElement:null,defaultView:{addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k)}};
+// Model ordinary native buttons: Enter/Space trigger click and click bubbles.
+// Detecting a jump on pin/delete needs a real ancestor chain; calling each
+// listener in isolation masks precisely that regression.
+function shelf(storage=memory()){
+  const listeners=new Map(),requests=[];
+  const doc={activeElement:null,defaultView:{addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k)}};
   class Node{
-    constructor(type){this.type=type;this.children=[];this.attrs={};this.events={};this.className='';this.dataset={};this.ownerDocument=doc;
-      this.classList={add:()=>{},remove:()=>{}};}
-    append(...n){this.children.push(...n);}
+    constructor(tag){this.localName=tag;this.tagName=tag.toUpperCase();this.children=[];this.attrs={};this.events={};this.className='';this.dataset={};this.ownerDocument=doc;this.hidden=false;
+      this.classList={contains:c=>this.className.split(/\s+/).includes(c),add:(...cs)=>{this.className=[...new Set([...this.className.split(/\s+/).filter(Boolean),...cs])].join(' ');},
+        remove:(...cs)=>{this.className=this.className.split(/\s+/).filter(c=>!cs.includes(c)).join(' ');}};}
+    append(...nodes){for(const n of nodes){this.children.push(n);n.parentElement=this;}}
     appendChild(n){this.append(n);return n;}
-    replaceChildren(...n){this.children=n;}
+    replaceChildren(...n){for(const ch of this.children)ch.parentElement=null;this.children=[];this.append(...n);}
     setAttribute(k,v){this.attrs[k]=String(v);}
-    addEventListener(k,v){this.events[k]=v;}
-    focus(){this.focused=true;}
-    close(){this.open=false;this.events.close?.();}
-    showModal(){this.open=true;}
-    closest(){return null;}
-    querySelector(){return null;}
-    click(){this.events.click?.({target:this});}
-    find(test){if(test(this))return this;for(const c of this.children){const n=c.find(test);if(n)return n;}}
+    getAttribute(k){return this.attrs[k]??null;}
+    addEventListener(k,v){(this.events[k]||=[]).push(v);}
+    focus(){doc.activeElement=this;}
+    closest(s){return this.matches(s)?this:this.parentElement?.closest(s)||null;}
+    matches(s){
+      const tag=s.match(/^[a-z]+/i)?.[0];if(tag&&this.localName!==tag)return false;
+      for(const [,name] of s.matchAll(/\.([\w-]+)/g))if(!this.classList.contains(name))return false;
+      for(const [,k,v] of s.matchAll(/\[([\w-]+)(?:=["']?([^\]"']+)["']?)?\]/g)){
+        const a=k==='data-id'?this.dataset.id:this.attrs[k];if(a==null||v!==undefined&&v!==a)return false;
+      }
+      return !!s;
+    }
+    querySelector(s){
+      const [head,...tail]=s.trim().split(/\s+/);
+      for(const ch of this.children){
+        if(ch.matches(head)){const result=tail.length?ch.querySelector(tail.join(' ')):ch;if(result)return result;}
+        const found=ch.querySelector(s);if(found)return found;
+      }return null;
+    }
+    find(test){if(test(this))return this;for(const c of this.children){const result=c.find(test);if(result)return result;}}
+    fire(type,info={}){
+      // Dispatch follows the original event path even if handlers re-render it.
+      const path=[];for(let n=this;n;n=n.parentElement)path.push(n);
+      const event={target:this,defaultPrevented:false,stopped:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},...info};
+      for(const n of path){event.currentTarget=n;for(const fn of n.events[type]||[])fn(event);if(event.stopped)break;}
+      return event;
+    }
+    click(){assert.ok(!this.hidden&&!this.disabled);this.fire('click');}
+    key(key){this.focus();const down=this.fire('keydown',{key});this.fire('keyup',{key});
+      if(!down.defaultPrevented&&this.localName==='button'&&(key==='Enter'||key===' '))this.click();}
   }
-  doc.createElement=k=>new Node(k);doc.documentElement=new Node('html');
-  const host=new Node('section'),s=memory(),requests=[],ui=H.create({host,pageCount:120,storage:s,onNavigate:(...args)=>requests.push(args)});
-  ui.start(loc(1));const a=ui.jump(loc(10,'3:1')),b=ui.jump(loc(20,'4:1'));const before=s.getItem(H.KEY);
-  function act(label,start=host){const n=start.find(n=>n.attrs['aria-label']===label);assert.ok(n,label);n.click();return n;}
-  act('管理阅读记录');const panel=host.find(n=>n.type==='dialog');assert.ok(ui.isOpen());act('返回 创世记 3:1',panel);
-  assert.equal(ui.isOpen(),false);assert.equal(requests.length,1);assert.deepEqual(requests[0],[10,a.id,a]);assert.equal(s.getItem(H.KEY),before);
-  ui.jump(loc(10,'3:1'),a.id);act('管理阅读记录');act('置顶 创世记 4:1',panel);assert.equal(ui.list()[0].id,b.id);
-  act('取消置顶 创世记 4:1',panel);act('删除 创世记 4:1',panel);assert.equal(ui.list().length,1);act('撤销上一次删除',panel);assert.equal(ui.list().length,2);
-  assert.equal(requests.length,1);ui.destroy();assert.equal(listeners.size,0);assert.equal(host.children.length,0);
+  doc.createElement=t=>new Node(t);doc.createElementNS=(_,t)=>new Node(t);doc.documentElement=new Node('html');
+  const host=new Node('section');doc.documentElement.append(host);
+  const ui=H.create({host,pageCount:120,storage,onNavigate:(...args)=>requests.push(args)});
+  const find=(label,base=host)=>base.find(n=>n.attrs['aria-label']===label);
+  const button=(label,base)=>{const n=find(label,base);assert.ok(n,label);assert.equal(n.localName,'button');assert.ok(!n.disabled&&!n.hidden,label+' actionable inline');return n;};
+  const row=id=>{const n=host.querySelector('.rh-item[data-id="'+id+'"]');assert.ok(n,id);return n;};
+  return {host,ui,requests,doc,row,button,find,listeners};
+}
+test('ordinary history rail has no manage entry or dialog; each record owns three independent native buttons',()=>{
+  const s=shelf();s.ui.start(loc(1));const a=s.ui.jump(loc(10,'3:1')),b=s.ui.jump(loc(20,'4:1'));
+  assert.ok(!s.find('管理阅读记录'));assert.ok(!s.host.querySelector('dialog'));assert.ok(!s.host.querySelector('.rh-manage'));
+  for(const e of [a,b]){
+    const r=s.row(e.id),title='创世记 '+e.ref;
+    const controls=['返回 ','置顶 ','删除 '].map(p=>s.button(p+title,r));
+    assert.equal(r.children.filter(c=>c.localName==='button').length,3);
+    assert.ok(controls.every(c=>c.parentElement===r));assert.deepEqual(controls.map(c=>c.attrs.tabindex??'0'),['0','0','0']);
+    assert.equal(controls[1].attrs['aria-pressed'],'false');assert.equal(controls[0].dataset.id,e.id);
+  }
+  assert.equal(s.requests.length,0);s.ui.destroy();assert.equal(s.listeners.size,0);assert.equal(s.host.children.length,0);
+});
+test('inline resume emits id, page and exact anchor once; no writes before the navigation commits',()=>{
+  const storage=memory(),s=shelf(storage);s.ui.start(loc(1));const a=s.ui.jump(loc(10,'3:1'));s.ui.jump(loc(20,'4:1'));
+  const before=storage.getItem(H.KEY);s.button('返回 创世记 3:1').key('Enter');
+  assert.deepEqual(s.requests,[[10,a.id,a]]);assert.equal(storage.getItem(H.KEY),before,'request is not a reading commit');
+});
+test('pin, unpin, delete and undo work directly by keyboard or touch; action clicks never bubble into a jump',()=>{
+  const storage=memory(),s=shelf(storage);const a=s.ui.jump(loc(10,'3:1')),b=s.ui.jump(loc(20,'4:1'));
+  const label='创世记 3:1',order=()=>s.ui.list().map(e=>e.id);
+  assert.deepEqual(order(),[b.id,a.id]);assert.ok(!s.find('撤销上一次删除')||s.find('撤销上一次删除').hidden);
+  s.button('置顶 '+label).key(' ');
+  assert.equal(s.doc.activeElement,s.button('取消置顶 '+label));assert.equal(s.doc.activeElement.attrs['aria-pressed'],'true');
+  assert.deepEqual(order(),[a.id,b.id]);assert.ok(model(storage).get(a.id).pinned);
+  // No hover/open/focus setup on this item: the first tap is the action.
+  s.button('取消置顶 '+label).click();
+  assert.deepEqual(order(),[b.id,a.id]);assert.ok(!model(storage).get(a.id).pinned);assert.equal(s.doc.activeElement,s.button('置顶 '+label));
+  s.button('置顶 '+label).click();s.button('删除 '+label).click();
+  assert.deepEqual(order(),[b.id]);assert.ok(!s.find('返回 '+label));assert.equal(model(storage).get(a.id),null);
+  assert.equal(s.doc.activeElement,s.button('撤销上一次删除'));s.doc.activeElement.key('Enter');
+  assert.equal(s.doc.activeElement,s.button('返回 '+label));assert.deepEqual(order(),[a.id,b.id]);
+  assert.ok(model(storage).get(a.id).pinned);assert.ok(!s.find('撤销上一次删除')||s.find('撤销上一次删除').hidden);
+  assert.equal(s.requests.length,0);assert.equal(s.button('返回 创世记 4:1').attrs['aria-current'],'page');
+});
+test('removing the last active record leaves inline undo usable; undo after last-item deletion does not navigate',()=>{
+  const s=shelf(),e=s.ui.jump(loc(10,'3:1'));s.button('删除 创世记 3:1').key('Enter');
+  assert.deepEqual(s.ui.list(),[]);s.button('撤销上一次删除').click();assert.equal(s.ui.list()[0].id,e.id);
+  assert.equal(s.button('返回 创世记 3:1').attrs['aria-current'],undefined);assert.deepEqual(s.requests,[]);
+});
+test('reopening the shelf reflects saved pinned and deleted records without needing any editing mode',()=>{
+  const store=memory(),s=shelf(store),a=s.ui.jump(loc(10,'3:1'));s.ui.jump(loc(20,'4:1'));s.ui.jump(loc(30,'5:1'));
+  s.button('置顶 创世记 3:1').click();s.button('删除 创世记 4:1').click();s.ui.destroy();
+  const reopened=shelf(store);reopened.ui.start(loc(30,'5:1'));
+  assert.equal(reopened.ui.list()[0].id,a.id);assert.equal(reopened.button('取消置顶 创世记 3:1').attrs['aria-pressed'],'true');
+  assert.ok(!reopened.find('返回 创世记 4:1'));assert.equal(reopened.button('返回 创世记 5:1').attrs['aria-current'],'page');
+  reopened.button('取消置顶 创世记 3:1').click();assert.ok(!model(store).get(a.id).pinned);assert.deepEqual(reopened.requests,[]);
+});
+test('styles provide inline mouse hover, keyboard focus and a no-hover/coarse-pointer route',()=>{
+  const css=require('node:fs').readFileSync(require('node:path').join(__dirname,'reading-history.css'),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+  assert.match(css,/\.rh-item:hover\b/,'hover reveals actions for one item, not the whole rail');
+  const hover=css.split(/@media/).find(s=>/^\s*\(\s*hover\s*:\s*hover/.test(s)),touch=css.split(/@media/).find(s=>/^\s*[^{}]*(?:\(\s*hover\s*:\s*none\s*\)|\(\s*(?:any-)?pointer\s*:\s*coarse\s*\))/.test(s));
+  assert.ok(hover&&touch,'provide both fine-pointer and no-hover/touch interactions');
+  const modern=/@supports\s+selector\(:has\(:focus-visible\)\)\s*\{\s*\.rh-item:has\(:focus-visible\)\s+\.rh-action\s*\{([^}]*)\}\s*\}/;
+  const fallback=/@supports\s+not\s+selector\(:has\(:focus-visible\)\)\s*\{\s*\.rh-item:focus-within\s+\.rh-action\s*\{([^}]*)\}\s*\}/;
+  for(const [name,condition] of [['modern keyboard focus',modern],['legacy keyboard focus',fallback]]){
+    const declarations=hover.match(condition)?.[1]||'';assert.match(declarations,/opacity\s*:\s*1/,name+' shows controls');
+    assert.match(declarations,/pointer-events\s*:\s*auto/,name+' makes controls actionable');
+  }
+  assert.doesNotMatch(css.replace(fallback,''),/\.rh-item:focus-within\b/,'mouse-click focus must not leave the old row exposed after pointer exit on modern browsers');
+  const hidden=hover.match(/\.rh-action\s*\{([^}]*)\}/)?.[1],reveal=hover.match(/\.rh-item:hover\s+\.rh-action[^{}]*\{([^}]*)\}/)?.[1];
+  assert.match(hidden||'',/pointer-events\s*:\s*none/,'invisible desktop controls do not intercept clicks');
+  assert.match(reveal||'',/pointer-events\s*:\s*auto/);
+  const touchActions=touch.match(/\.rh-action\s*\{([^}]*)\}/)?.[1];
+  assert.match(touchActions||'',/opacity\s*:\s*1/);assert.match(touchActions||'',/pointer-events\s*:\s*auto/,'first touch activates without hover emulation');
+  assert.doesNotMatch(css,/\.rh-(?:manage|panel)(?:[\s,{:.#\[]|$)/,'no invisible old modal or manage button styling');
 });
 for(const [name,fn] of cases){fn();console.log('PASS '+name);}
 console.log(JSON.stringify({historyScenarios:cases.length}));
