@@ -1,0 +1,37 @@
+/* A separate ledge below the viewport, not a toolbar over scripture. */
+.paper-history-on{--rh-foot:calc(46px + env(safe-area-inset-bottom,0px))}
+.paper-immersive .reader.has-history-shelf .stage-wrap{bottom:var(--rh-foot);height:auto}
+.paper-immersive #reading-history{position:absolute;z-index:32;left:0;right:0;bottom:0;height:var(--rh-foot);padding:0 max(74px,calc(env(safe-area-inset-right) + 68px)) env(safe-area-inset-bottom,0px) max(12px,env(safe-area-inset-left));border-top:1px solid #695d482e;background:linear-gradient(#312c26,#25211c);color:#e7dcc7}
+.paper-history-on.paper-immersive .immersion-dock{bottom:calc(env(safe-area-inset-bottom,0px) + 2px)}
+.rh-rail{height:100%;max-width:940px;display:flex;align-items:center;gap:12px;margin:auto;min-width:0;font-family:var(--serif,serif)}
+.rh-caption,.rh-manage,.rh-chip,.rh-empty{white-space:nowrap}
+.rh-caption{font-size:11px;letter-spacing:.1em;color:#d3c2a2}
+.rh-caption::before{content:"";display:inline-block;width:3px;height:10px;background:#b38759;margin-right:7px;vertical-align:-1px}
+.rh-track{display:flex;align-items:center;gap:6px;flex:1;overflow-x:auto;min-width:0;scrollbar-width:thin;scrollbar-color:#82705b transparent;padding:2px 0;overscroll-behavior-x:contain;touch-action:pan-x;min-height:30px}
+.rh-chip,.rh-manage{flex-shrink:0;font:12px/1.35 var(--serif,serif);border:1px solid #bda7803d;background:#cfb78c0b;color:#eddfc9;border-radius:3px;padding:4px 9px;min-height:27px}
+.rh-chip[aria-current=page]{color:#ffeac6;border-color:#c2a06c8c;background:#bba2751c}
+.rh-chip[data-pinned]::before{content:"";display:inline-block;vertical-align:.05em;width:5px;height:9px;background:#c79b77;clip-path:polygon(0 0,100% 0,100% 100%,50% 72%,0 100%);margin-right:5px}
+.rh-manage{color:#d2be9e;border:0;background:none;text-decoration:underline;text-decoration-color:#a38b675c;text-underline-offset:4px;padding-inline:5px}
+.rh-rail button:hover:not(:disabled){color:#fff1ce}
+.rh-track .rh-empty{font-size:11px;color:#b2a48b}
+.rh-panel{position:fixed;inset:auto 0 calc(var(--rh-foot,48px) + 5px);margin:0 auto;width:min(358px,calc(100% - 24px));max-height:min(435px,calc(100dvh - var(--rh-foot,48px) - 20px));overflow:hidden;padding:0;border:1px solid #aa9676;border-radius:4px;background:linear-gradient(110deg,#faf5e8,#f4e9d2);color:#4f4134;box-shadow:0 7px 26px #21190f50;font:13px/1.4 var(--serif,serif);overscroll-behavior:contain}
+.rh-panel[open]{display:flex;flex-direction:column}
+.rh-panel::backdrop{background:#20191024;backdrop-filter:none}
+.rh-head,.rh-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 12px;flex:0 0 auto}
+.rh-head{border-bottom:1px solid #a78e664d}
+.rh-head strong{font-size:14px;font-weight:500;letter-spacing:.07em}
+.rh-rows{overflow-y:auto;overscroll-behavior:contain;padding:2px 12px;min-height:0}
+.rh-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:5px;border-bottom:1px solid #af99763c}
+.rh-row:last-child{border:0}
+.rh-point,.rh-close,.rh-action,.rh-undo{font:inherit;min-height:35px}
+.rh-point{text-align:start;overflow-wrap:anywhere;font-size:13px;padding:3px 0;color:#3f352a}
+.rh-point[aria-current=page]{color:#893a32}
+.rh-action,.rh-close,.rh-undo{color:#755b43;font-size:11.5px;padding:2px 5px;border:0;background:none}
+.rh-action[aria-pressed=true]{color:#915440;text-decoration:underline;text-underline-offset:3px}
+.rh-delete{color:#896c60}
+.rh-foot{border-top:1px solid #af99764d;background:#e7d9be38;min-height:32px}
+.rh-foot [role=status],.rh-rows .rh-empty{font-size:11.5px;color:#766754}
+.rh-foot [hidden]{display:none!important}
+@media(max-width:560px){.rh-rail{gap:6px}.rh-caption{font-size:10px}.rh-caption::before{margin-right:4px}.rh-chip{padding-inline:7px}.rh-manage{font-size:11px}}
+@media(pointer:coarse){.rh-chip,.rh-manage{min-height:34px}.rh-point,.rh-close,.rh-action,.rh-undo{min-height:40px}}
+@media (forced-colors:active){.rh-chip,.rh-track,.rh-panel{border:1px solid CanvasText}.rh-chip[aria-current=page],.rh-point[aria-current=page]{outline:2px solid Highlight}.rh-chip[data-pinned]::before{background:CanvasText}}

@@ -155,7 +155,7 @@
           }
         }
         if(current.bookIndex===selected&&Number(current.chapter)===entry.chapter)button.setAttribute('aria-current','page');
-        listen(button,'click',event=>{stop(event);if(opened&&!destroyed)choose(entry.page);},false,dynamicListeners);chapterButtons.push(button);
+        listen(button,'click',event=>{stop(event);if(opened&&!destroyed)choose(entry.page,entry.chapter);},false,dynamicListeners);chapterButtons.push(button);
       }
       grid.scrollTop=0;opening.dataset.page=String(book.first);opening.title=book.name+'卷首';opening.setAttribute('aria-label',`前往${book.name}卷首`);
     }
@@ -172,8 +172,8 @@
       }
       return mode;
     }
-    function choose(page){
-      if(!Number.isInteger(page)||page<0)return;close();if(typeof onSelect==='function')onSelect(page);
+    function choose(page,chapter){
+      if(!Number.isInteger(page)||page<0)return;const book=books[selected];close();if(typeof onSelect==='function')onSelect(page,{bookCode:book.code,ref:chapter?chapter+':1':null});
     }
     function open(options={}){
       if(destroyed)return false;

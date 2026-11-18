@@ -44,12 +44,12 @@ class El{
   insertBefore(ch,before){ch.parent=this;this.children.splice(this.children.indexOf(before),0,ch);}
   contains(node){return node===this||this.children.some(ch=>ch.contains(node));}
   closest(selector){return selector==='text[data-role]'&&this.tag==='text'?this:null;}
-  querySelectorAll(selector){return this.children.filter(e=>selector==='text[data-role]'&&e.tag==='text');}
-  querySelector(selector){return this.children.find(e=>selector==='svg'&&e.tag==='svg'||selector==='[role=status]'&&e.attrs.role==='status'||selector==='[data-copy]'&&'data-copy'in e.attrs);}
+  querySelectorAll(selector){return this.children.filter(e=>selector==='text[data-role]'&&e.tag==='text'||selector.startsWith('.')&&e.attrs.class?.split(' ').includes(selector.slice(1)));}
+  querySelector(selector){return this.children.find(e=>selector==='svg'&&e.tag==='svg'||selector==='[role=status]'&&e.attrs.role==='status'||selector.startsWith('[data-')&&selector.slice(1,-1)in e.attrs);}
   focus(){} select(){}
   getBoundingClientRect(){return this.rect||{left:0,top:0,width:130,height:30};}
 }
-function scene(){
+function scene(storage){
   const writes=[],timers=new Map(),messages=[];
   const win={navigator:{clipboard:{async writeText(t){writes.push(t);}}},setTimeout(fn,ms){timers.set(ms,fn);return ms;},clearTimeout(n){timers.delete(n);}};
   const doc={defaultView:win,createElement(n){return new El(n,this);},createElementNS(ns,n){return new El(n,this);}};
@@ -64,7 +64,7 @@ function scene(){
     node.getBBox=()=>({x:0,y:0,width:90,height:12});node.getExtentOfChar=j=>({x:j*10,y:0,width:10,height:12});
     return paper;
   });
-  const ctrl=S.create({stage,papers,getPage:side=>({page:{cols:[]},books:[],index:side}),commands:()=>[{text:'ONE TWO X',role:'subtitle'}],feedback:t=>messages.push(t)});
+  const ctrl=S.create({stage,papers,storage,getPage:side=>({page:{cols:[]},books:[],index:side}),commands:()=>[{text:'ONE TWO X',role:'subtitle'}],feedback:t=>messages.push(t)});
   const svg=side=>papers[side].querySelector('svg'),node=side=>svg(side).querySelectorAll('text[data-role]')[0];
   const hit=(side,n)=>ctrl.hit(side*480+(n+.5)*20,10,node(side));
   const bar=()=>stage.children.find(e=>e.attrs.role==='toolbar'),marks=(side=0)=>svg(side).children.filter(e=>e.tag==='g');
@@ -88,9 +88,49 @@ test('long press, select on current face only, toggle, copy in reading order, th
 });
 test('exit without copy removes persistent marks and draft; empty selection cannot copy',()=>{
   const {ctrl,hit,bar,writes,marks}=scene();ctrl.hold(hit(0,5));ctrl.tap(hit(0,5));assert.equal(bar().querySelector('[data-copy]').disabled,true);
-  ctrl.tap(hit(0,8));bar().children.find(e=>e.textContent==='退出').handlers.click[0]();
+  ctrl.tap(hit(0,8));bar().querySelector('[data-exit]').handlers.click[0]();
   assert.equal(marks().length,0);assert.deepEqual(writes,[]);assert.equal(ctrl.isActive(),false);
 });
 test('stale face tokens cannot mark newly rendered pages',()=>{
   const {ctrl,papers,hit}=scene(),t=hit(0,1);papers[0].children=[];assert.equal(ctrl.hold(t),false);
+});
+test('verse quotes match the supplied Genesis examples exactly: ranges, gaps, blank, edition',()=>{
+  const book=Bible.books.find(b=>b.code==='GEN'),ch=book.chapters.find(c=>+c.chapter===3);
+  const u=v=>({group:'verse:3:'+v,text:ch.verses.find(([n])=>+n===v)[1],order:v});
+  const a=u(10),b=u(11),c=u(12),d=u(13),all=[a,b,c,d];
+  assert.equal(S.formatQuote([d,a,c],'创世记',all),a.text+'……'+c.text+d.text+'\n( 创世记 3:10,12-13 和合本 )');
+  assert.equal(S.formatQuote([b,c,d],'创世记',all),b.text+c.text+d.text+'\n( 创世记 3:11-13 和合本 )');
+  assert.equal(S.formatQuote([c],'创世记',all),c.text+'\n( 创世记 3:12 和合本 )');
+});
+test('a consecutive chapter crossing and a real omission produce unambiguous references',()=>{
+  const refs=['3:35','3:36','4:1','4:2','4:3'];
+  const units=refs.map((r,i)=>({group:'verse:'+r,order:i,text:String(i)}));
+  assert.equal(S.formatQuote([units[1],units[2],units[3]],'约翰福音',units),'123\n( 约翰福音 3:36-4:2 和合本 )');
+  assert.equal(S.formatQuote([units[0],units[2],units[4]],'约翰福音',units),'0……2……4\n( 约翰福音 3:35,4:1,3 和合本 )');
+});
+test('headings and English frontmatter are never attributed to a Bible verse',()=>{
+  const words=index(0).units.filter(u=>u.group.startsWith('subtitle:'));
+  assert.equal(S.formatQuote(words,'创世记',words),'THE OLD TESTAMENT');
+  const title={group:'heading:0:1',text:'标题',order:1},verse={group:'verse:1:1',text:'经文',order:2};
+  assert.equal(S.formatQuote([title,verse],'创世记',[title,verse]),'标题\n经文\n( 创世记 1:1 和合本 )');
+});
+test('unlabelled-on-screen tools have accessible icon names and no visible selection count',()=>{
+  const s=scene();s.ctrl.hold(s.hit(0,0));const buttons=s.bar().children;
+  assert.deepEqual(buttons.map(b=>b.attrs['aria-label']),['复制','高亮','退出']);
+  assert.ok(buttons.every(b=>b.tag==='button'&&b.children[0].tag==='svg'&&!b.textContent));
+});
+test('one-color annotation survives exit, repeated SVG redraw and a new reader; can be removed',()=>{
+  const mem=new Map(),storage={getItem:k=>mem.get(k),setItem:(k,v)=>mem.set(k,v),removeItem:k=>mem.delete(k)};
+  const s=scene(storage);s.ctrl.hold(s.hit(0,0));s.ctrl.tap(s.hit(0,5));s.bar().querySelector('[data-highlight]').handlers.click[0]();
+  assert.equal(s.ctrl.isActive(),false);assert.equal(mem.size,1);assert.equal(s.marks().length,2);assert.equal(s.marks(1).length,0);
+  s.ctrl.reset();s.ctrl.refresh();s.ctrl.refresh();assert.ok(s.marks().every(e=>e.attrs.class.includes('--saved')));assert.equal(s.marks().length,2);
+  const t=scene(storage);t.ctrl.refresh();assert.equal(t.marks().length,2);t.ctrl.hold(t.hit(0,0));t.ctrl.tap(t.hit(0,5));
+  const remove=t.bar().querySelector('[data-highlight]');assert.equal(remove.attrs['aria-label'],'取消高亮');assert.equal(remove.attrs['aria-pressed'],'true');
+  remove.handlers.click[0]();assert.equal(mem.size,0);t.ctrl.refresh();assert.equal(t.marks().length,0);
+});
+test('mixed saved/unsaved selection fills remaining marks; unavailable store keeps session marks',()=>{
+  const s=scene({getItem(){throw Error('denied');},setItem(){throw Error('quota');}});
+  s.ctrl.hold(s.hit(0,1));s.bar().querySelector('[data-highlight]').handlers.click[0]();
+  s.ctrl.hold(s.hit(0,1));s.ctrl.tap(s.hit(0,5));const pen=s.bar().querySelector('[data-highlight]');assert.equal(pen.attrs['aria-pressed'],'false');pen.handlers.click[0]();
+  assert.equal(s.marks().length,2);assert.match(s.messages.at(-1),/仅本次阅读/);
 });

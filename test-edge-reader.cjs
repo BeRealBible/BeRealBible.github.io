@@ -203,7 +203,7 @@ function fixture(startSpread = 2, options = {}) {
   const context = {
     console, document: doc, navigator: {}, performance: { now: () => now },
     PaperPhysics: Physics, PaperGestures: Gestures, PaperBookMaterial: Material, PaperPage: Page, PaperEdges: Edges,
-    PaperSheetRenderer: Renderer, PaperTextSelection: options.selectionModule,
+    PaperSheetRenderer: Renderer, PaperTextSelection: options.selectionModule, PaperReadingHistory: options.historyModule,
     PaperJump: { create: () => jump },
     BIBLE_SOURCE: options.source || currentBibleSource(),
     PaperChapterPreview: { create: source => {
@@ -861,6 +861,23 @@ test('fixed-corner menu mode changes still block page gestures and cancel withou
   f.chapterElement.querySelector('.edge-chapters__outside').dispatchEvent({ type: 'click' });
   assert.equal(f.chaptersOpen, false); assertCameraEqual(camera(f), original); assert.deepEqual(Object.fromEntries(f.storage), stored); assertUnchangedBookmarks(f);
   f.swipe(); f.advance(1500); assert.equal(spread(f), 22, 'reading resumes after dismissing the fixed-corner menu');
+});
+
+test('reading trails commit requested references even when a chapter starts below another on the same page',()=>{
+  const calls=[]; let navigate;
+  const historyModule={create(opts){navigate=opts.onNavigate;return Object.fromEntries(['start','jump','advance'].map(k=>[k,(loc,id)=>calls.push({k,...loc,id})]));}};
+  const data=currentRuleData(), f=fixture(20,{data,historyModule,manualJump:true,reducedMotion:true});
+  const b=data.books.find(book=>book.code==='ROM'),i=data.books.indexOf(b);
+  const entry=b.chapters.find(e=>parseInt(data.pages[e.page].start)!==Number(e.chapter));
+  assert.ok(entry); const ref=entry.chapter+':1';
+  f.selectBook(i);f.chapterOptions.onSelect(entry.page,{bookCode:b.code,ref});
+  assert.deepEqual(calls.map(c=>c.k),['start']);f.cancelJump();
+  assert.deepEqual(calls.map(c=>c.k),['start']);
+  f.selectBook(i);f.chapterOptions.onSelect(entry.page,{bookCode:b.code,ref});f.finishJump();
+  assert.equal(calls.at(-1).ref,ref);assert.equal(calls.at(-1).page,entry.page);assert.equal(calls.at(-1).k,'jump');
+  f.click('next');assert.equal(calls.at(-1).k,'advance');assert.notEqual(calls.at(-1).page,entry.page);
+  navigate(entry.page,'saved-row',{bookCode:b.code,ref});f.finishJump();
+  assert.equal(calls.at(-1).id,'saved-row');assert.equal(calls.at(-1).ref,ref);
 });
 
 async function run() {

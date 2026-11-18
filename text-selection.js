@@ -43,6 +43,10 @@
         const count=[...slice].length,parts=g.chars.slice(offset,offset+count);offset+=count;
         const text=slice.trim();if(!text)continue;
         const unit={text,word:withWords&&/^[A-Za-z]/.test(slice),group:g.key,parts:[],order:parts[0].i+parts[0].offset/(commands[parts[0].i].text.length+1)};
+        // The address describes the passage; the fingerprint prevents an
+        // annotation migrating to different words if pagination is revised.
+        let hash=2166136261;for(const ch of slice)hash=Math.imul(hash^ch.codePointAt(0),16777619);
+        unit.id=g.key+'@'+(offset-count)+':'+(hash>>>0).toString(36);
         for(const {ch,i,offset:start} of parts){
           if(!ch.trim())continue;
           const end=start+ch.length,prior=unit.parts.at(-1);
@@ -63,6 +67,40 @@
       state.text+=join+unit.text;state.prev=unit;return state;
     },{text:'',prev:null}).text;
   }
+  function verseOf(unit){
+    const m=/^verse:(\d+):(\d+)(?:[-–](\d+))?$/.exec(unit.group);
+    return m?{ch:+m[1],v:+m[2],end:+(m[3]||m[2])}:null;
+  }
+  function formatQuote(items,bookName,faceUnits=[]){
+    const list=Array.from(items).sort((a,b)=>a.order-b.order);
+    if(!bookName||!list.some(verseOf))return copyText(list);
+    const refs=[...new Set(faceUnits.slice().sort((a,b)=>a.order-b.order).filter(verseOf).map(u=>u.group))];
+    const blocks=[];let passages=[],other=[];
+    function scripture(){
+      if(!passages.length)return;
+      const spans=[];let body='',prev=null;
+      for(const u of passages){
+        const r=verseOf(u),same=prev?.group===u.group,p=prev&&verseOf(prev);
+        // A cross-chapter boundary is only consecutive when these are
+        // neighbouring verses on the actual page, not merely a chapter apart.
+        const consecutive=p&&((r.ch===p.ch&&r.v===p.end+1)||
+          (r.ch===p.ch+1&&r.v===1&&refs.includes(prev.group)&&refs.indexOf(u.group)===refs.indexOf(prev.group)+1));
+        if(prev&&!same&&!consecutive)body+='……';
+        if(same&&prev.word&&u.word)body+=' ';
+        body+=u.text;
+        if(!same){if(consecutive)spans.at(-1).end=r;else spans.push({start:r,end:r});}
+        prev=u;
+      }
+      const address=spans.map(({start:a,end:b},i)=>{
+        const begin=(i&&spans[i-1].end.ch===a.ch?'':a.ch+':')+a.v;
+        return begin+(a.ch===b.ch&&a.v===b.end?'':'-'+(a.ch===b.ch?'':b.ch+':')+b.end);
+      }).join(',');
+      blocks.push(body+'\n( '+bookName+' '+address+' 和合本 )');passages=[];
+    }
+    function plain(){if(other.length){blocks.push(copyText(other));other=[];}}
+    for(const u of list){if(verseOf(u)){plain();passages.push(u);}else{scripture();other.push(u);}}
+    scripture();plain();return blocks.join('\n');
+  }
   function localPoint(svg,x,y){
     try{const p=svg.createSVGPoint();p.x=x;p.y=y;return p.matrixTransform(svg.getScreenCTM().inverse());}catch{return null;}
   }
@@ -77,16 +115,23 @@
     }
     return out;
   }
-  function create({stage,papers,getPage,commands,feedback=()=>{}}){
-    const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap();
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{}}){
+    const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),records=new Map();
     let active=null,bar=null,brief=null,flashTimer=null,serial=0,observer=null,refreshFrame=null;
+    const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
+    function savedFor(key){
+      if(records.has(key))return records.get(key);
+      let ids;try{ids=JSON.parse(storage?.getItem(key)||'[]');}catch{}
+      const set=new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);records.set(key,set);return set;
+    }
     function model(side,svg){
       const {page,index,books}=getPage(side),prior=cache.get(svg);
       if(prior?.index===index)return prior;
       const nodes=Array.from(svg.querySelectorAll('text[data-role]'));
       const list=commands(page,index,books).filter(c=>c.role!=='footer-rule');
       if(nodes.length!==list.length)return null; // Never select a stale curl face.
-      const entry={svg,index,side,nodes,list,mapping:new WeakMap(),...indexFace(page,list)};
+      const book=books[page.b],key=recordKey(page,index,book);
+      const entry={svg,index,side,nodes,list,mapping:new WeakMap(),bookName:book?.name,key,...indexFace(page,list)};
       nodes.forEach((el,i)=>entry.mapping.set(el,i));cache.set(svg,entry);return entry;
     }
     function hit(x,y,target){
@@ -122,6 +167,18 @@
       }
       svg.insertBefore(g,entry.nodes[0]);return g;
     }
+    function refresh(){
+      papers.forEach((paper,side)=>{
+        const svg=paper.querySelector('svg');if(!svg)return;
+        // A cancelled curl can restore a serialized SVG already containing
+        // these groups. Rebuild rather than drawing a second translucent coat.
+        for(const g of svg.querySelectorAll('.paper-ink-mark--saved'))g.remove();
+        const {page,index,books}=getPage(side),saved=savedFor(recordKey(page,index,books[page.b]));
+        if(!saved.size)return;
+        const entry=model(side,svg);if(!entry)return;
+        for(const unit of entry.units)if(saved.has(unit.id))draw({entry,unit},'saved');
+      });
+    }
     function clearBrief(){if(flashTimer!==null)win.clearTimeout(flashTimer);flashTimer=null;brief?.remove();brief=null;}
     function isCurrent(t){return t&&getPage(t.entry.side).index===t.entry.index&&papers[t.entry.side].querySelector('svg')===t.entry.svg;}
     function reset(){
@@ -144,17 +201,27 @@
       bar.style.top=within(upper>=pad?upper:py+gap,pad,r.height-bounds.height-pad)+'px';
     }
     function schedule(){if(active&&refreshFrame===null)refreshFrame=win.requestAnimationFrame(()=>{refreshFrame=null;anchorBar();});}
-    function setStatus(s){if(bar)bar.querySelector('[role=status]').textContent=s;}
+    function actionLabel(b,text){b.setAttribute('aria-label',text);b.setAttribute('title',text);}
+    function allSaved(){const saved=savedFor(active.anchor.entry.key);return !!active.marks.size&&Array.from(active.marks.keys()).every(u=>saved.has(u.id));}
+    function highlight(){
+      if(!active?.marks.size)return;
+      const key=active.anchor.entry.key,ids=savedFor(key),remove=allSaved();
+      for(const unit of active.marks.keys())if(remove)ids.delete(unit.id);else ids.add(unit.id);
+      let durable=true;try{if(!storage)durable=false;else if(!ids.size&&storage.removeItem)storage.removeItem(key);
+        else storage.setItem(key,JSON.stringify([...ids]));}catch{durable=false;}
+      reset();refresh();feedback((remove?'已取消高亮':'已高亮')+(durable?'':'（仅本次阅读）'));
+    }
     function toggle(t){
       const m=active.marks.get(t.unit);
       if(m){m.remove();active.marks.delete(t.unit);}else active.marks.set(t.unit,draw(t,'selected'));
       active.anchor=t;const {size}=active.marks;
       bar.querySelector('[data-copy]').disabled=!size;
-      setStatus('已选 '+size+' 处');anchorBar();
+      const pen=bar.querySelector('[data-highlight]'),marked=allSaved();
+      pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');anchorBar();
     }
     async function copy(){
       if(!active?.marks.size)return;
-      const version=serial,text=copyText(active.marks.keys());
+      const version=serial,{entry}=active.anchor,text=formatQuote(active.marks.keys(),entry.bookName,entry.units);
       let ok=false;
       try{if(win.navigator?.clipboard?.writeText){await win.navigator.clipboard.writeText(text);ok=true;}}catch{}
       if(version!==serial||!active)return;
@@ -164,16 +231,22 @@
         bar.querySelector('.paper-copy-field')?.remove();bar.appendChild(field);field.focus({preventScroll:true});field.select();
         try{ok=doc.execCommand('copy');}catch{}
         if(ok)field.remove();
-        else{field.classList.add('manual');setStatus('请选择并复制');field.focus({preventScroll:true});field.select();anchorBar();return;}
+        else{field.classList.add('manual');feedback('浏览器未允许自动复制，请手动复制已选文字');field.focus({preventScroll:true});field.select();anchorBar();return;}
       }
       reset();feedback('已复制选中文字');
     }
     function initBar(){
       bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label','本页选文');
-      const count=doc.createElement('span');count.setAttribute('role','status');count.setAttribute('aria-live','polite');
-      const button=(name,fn)=>{const b=doc.createElement('button');b.type='button';b.textContent=name;b.addEventListener('click',fn);return b;};
-      const copyButton=button('复制',copy);copyButton.setAttribute('data-copy','');const exit=button('退出',()=>{reset();stage.focus({preventScroll:true});});
-      bar.append(count,copyButton,exit);stage.appendChild(bar);
+      function button(name,key,path,fn){
+        const b=doc.createElement('button');b.type='button';actionLabel(b,name);b.setAttribute('data-'+key,'');
+        const icon=doc.createElementNS(SVG,'svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');
+        const line=doc.createElementNS(SVG,'path');line.setAttribute('d',path);icon.appendChild(line);b.appendChild(icon);
+        b.addEventListener('click',fn);return b;
+      }
+      bar.append(button('复制','copy','M8 6V4.5A1.5 1.5 0 0 1 9.5 3h9A1.5 1.5 0 0 1 20 4.5v12M5.5 7h9a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 19.5v-11A1.5 1.5 0 0 1 5.5 7Z',copy),
+        button('高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10',highlight),
+        button('退出','exit','m6 6 12 12m0-12L6 18',()=>{reset();stage.focus({preventScroll:true});}));
+      stage.appendChild(bar);
       // Toolbar events must never become paper taps, drags, wheel pans or pinches.
       for(const type of ['pointerdown','pointermove','pointerup','pointercancel','click','wheel'])bar.addEventListener(type,e=>e.stopPropagation());
       bar.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();reset();stage.focus({preventScroll:true});}});
@@ -195,7 +268,7 @@
       // iOS can send contextmenu before a synthetic click after a touch hold.
       if((e.pointerType!=='mouse'||active)&&hit(e.clientX,e.clientY,e.target))e.preventDefault();
     });
-    return {hit,tap,hold,reset,isActive:()=>!!active};
+    return {hit,tap,hold,reset,refresh,isActive:()=>!!active};
   }
-  return {create,indexFace,copyText,mergeRects,FLASH_MS};
+  return {create,indexFace,copyText,formatQuote,mergeRects,FLASH_MS};
 });
