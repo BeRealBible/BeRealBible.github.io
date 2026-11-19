@@ -1,0 +1,11 @@
+{
+  "family": "PaperHeading",
+  "file": "paper-heading-128e5da0d5b0.woff2",
+  "sourceFamily": "Noto Sans SC",
+  "sourceVersion": "Version 2.04;241114210130;non-release",
+  "sourceSHA256": "763146584cf0710223441356b4395e279021b0806c196614377a7a0174ae074a",
+  "weight": 600,
+  "coveredCodepoints": 1375,
+  "sha256": "128e5da0d5b01786bb920c30621e604e32c610c0b7c81d6e581924e65a55ed44",
+  "license": "paper-heading-OFL.txt"
+}

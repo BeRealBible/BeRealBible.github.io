@@ -17,12 +17,12 @@
   const esc=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const db=()=>root.V25OriginalData||root.OriginalPaperData;
   const physical=(p,i)=>!!db()&&((root.BIBLE_DATA?.pages===db().pages)||(root.BIBLE_DATA?.physicalOriginal===true)||(db().pages&&db().pages[i]===p)||typeof p?.pdfPage==='number');
-  const HEADING_FAMILY='"SimHei","Heiti SC","Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif';
-  const font=(w,role)=>special.get(w)||(/^[①-⑫]$/.test(w)?'PaperRares':role==='heading'?HEADING_FAMILY:FAMILY);
-  function metricsFor(word,family){
-    const key=family+'\0'+word;
+  const HEADING_FAMILY='"PaperHeading","SimHei","Heiti SC","Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif';
+  const font=(w,heading)=>special.get(w)||(/^[①-⑫]$/.test(w)?'PaperRares':heading?HEADING_FAMILY:FAMILY);
+  function metricsFor(word,fontSpec){
+    const key=fontSpec+'\0'+word;
     let m=metrics.get(key);if(m)return m;
-    ctx.font='100px '+family;const v=ctx.measureText(word),l=v.actualBoundingBoxLeft||0,r=v.actualBoundingBoxRight||v.width||100,a=v.actualBoundingBoxAscent||80,d=v.actualBoundingBoxDescent||0;
+    ctx.font=fontSpec;const v=ctx.measureText(word),l=v.actualBoundingBoxLeft||0,r=v.actualBoundingBoxRight||v.width||100,a=v.actualBoundingBoxAscent||80,d=v.actualBoundingBoxDescent||0;
     m=[l,Math.max(1,l+r),a,Math.max(1,a+d)];if(metrics.size>=12000)metrics.delete(metrics.keys().next().value);metrics.set(key,m);return m;
   }
   // Two OCR frames are actually strokes of the hatching in the original print.
@@ -31,9 +31,10 @@
     (i===1154&&j===263&&w[0]===8&&w[1]===1296&&w[2]===7&&w[3]===9&&w[4]==='，');
   const stock=i=>i%2?[[0,'#dcd5bf'],[.09,'#fffdf1'],[.9,'#fffef5'],[1,'#f9f6eb']]:[[0,'#f9f6eb'],[.1,'#fffef5'],[.91,'#fffdf1'],[1,'#dcd5bf']];
   function fit(w,h){const s=Math.min(W/w,H/h);return {s,ox:(W-w*s)/2,oy:(H-h*s)/2}}
-  function word(w,f,role){
-    const [x,y,width,height,text]=w,family=font(text,role),[l,iw,a,ih]=metricsFor(text,family),sx=width/iw*f.s,sy=height/ih*f.s,xx=f.ox+x*f.s,yy=f.oy+y*f.s;
-    return {text,x:xx,y:yy,w:width*f.s,h:height*f.s,sx,sy,tx:xx+l*sx,ty:yy+a*sy,family,box:w};
+  function word(w,f,heading){
+    const [x,y,width,height,text]=w,family=font(text,heading),weight=family===HEADING_FAMILY?600:400,fontSpec=(weight===600?'600 ':'')+'100px '+family;
+    const [l,iw,a,ih]=metricsFor(text,fontSpec),sx=width/iw*f.s,sy=height/ih*f.s,xx=f.ox+x*f.s,yy=f.oy+y*f.s;
+    return {text,x:xx,y:yy,w:width*f.s,h:height*f.s,sx,sy,tx:xx+l*sx,ty:yy+a*sy,family,weight,fontSpec,box:w};
   }
   function model(i){
     const store=db(),p=store.get(i);if(!p)return null;
@@ -41,7 +42,8 @@
     const tags=store.tags?.(i)||none,cached=models.get(i);if(cached&&cached.version===version&&cached.tags===tags&&cached.p===p){models.delete(i);models.set(i,cached);return cached}
     const f=fit(p[1],p[2]),words=p[3].map((w,n)=>{
       const t=tags[n]||store.metaFor?.(i,n)||{};
-      return {...word(w,f,t.role),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
+      const heading=root.V25HeadingFrames?.classify(store.sha,i,n,w)??(t.role==='heading');
+      return {...word(w,f,heading),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
     });
     const v={version,p,tags,words,f};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
   }
@@ -49,7 +51,7 @@
     const [x,y,w,h]=c.box;
     const meta=(' data-role="'+esc(c.role)+'" data-physical-idx="'+c.index+'" data-x="'+x+'" data-y="'+y+'" data-w="'+w+'" data-h="'+h+'"'+(c.ref?' data-ref="'+esc(c.ref)+'"':''));
     const clip=[Math.floor(c.x)-1,Math.ceil(c.x+c.w)+1,Math.floor(c.y)-1,Math.ceil(c.y+c.h)+1];
-    return '<text'+meta+(c.hideHatch?' visibility="hidden" pointer-events="none" aria-hidden="true"':'')+' data-clip="'+clip.join(' ')+'" transform="matrix('+[c.sx,0,0,c.sy,c.tx,c.ty].join(' ')+')" font-family="'+esc(c.family)+'" font-size="100" fill="'+ink+'" style="fill:'+ink+'">'+esc(c.text)+'</text>';
+    return '<text'+meta+(c.hideHatch?' visibility="hidden" pointer-events="none" aria-hidden="true"':'')+' data-clip="'+clip.join(' ')+'" transform="matrix('+[c.sx,0,0,c.sy,c.tx,c.ty].join(' ')+')" font-family="'+esc(c.family)+'"'+(c.weight===600?' font-weight="600"':'')+' font-size="100" fill="'+ink+'" style="fill:'+ink+'">'+esc(c.text)+'</text>';
   }
   function svg(page,i,books){
     if(!physical(page,i))return old.svg(page,i,books);
@@ -69,7 +71,7 @@
     const grd=c.createLinearGradient(0,0,W,0);for(const [n,col] of stock(i))grd.addColorStop(n,col);
     c.fillStyle=grd;c.fillRect(0,0,W,H);c.fillStyle=ink;
     if(v){
-      const {p,f}=v;function draw(t){c.save();c.transform(t.sx,0,0,t.sy,t.tx,t.ty);c.font='100px '+t.family;c.textBaseline='alphabetic';c.textAlign='left';c.fillText(t.text,0,0);c.restore()}
+      const {p,f}=v;function draw(t){c.save();c.transform(t.sx,0,0,t.sy,t.tx,t.ty);c.font=t.fontSpec;c.textBaseline='alphabetic';c.textAlign='left';c.fillText(t.text,0,0);c.restore()}
       for(const w of v.words)if(!w.hideHatch)draw(w);c.save();c.transform(f.s,0,0,f.s,f.ox,f.oy);
       for(const r of p[4]||[])c.fillRect(...r);
       c.restore();
@@ -83,9 +85,9 @@
     // charset would measure a later rare glyph with a fallback face for one frame
     // (or the lifetime of that static spread). All webfont subsets together are
     // ~1.3 MB; settle the declared book faces once before the first interactive turn.
-    const allowed=new Set(['PaperSerif','PaperRares',...special.values()]);
+    const allowed=new Set(['PaperSerif','PaperRares','PaperHeading',...special.values()]);
     const jobs=Array.from(document.fonts).filter(face=>allowed.has(face.family.replace(/["']/g,''))).map(face=>face.load());
-    if(!jobs.length&&chars.size){const txt=Array.from(chars).join('');jobs.push(document.fonts.load('100px PaperSerif',txt),document.fonts.load('100px PaperRares',txt));}
+    if(!jobs.length&&chars.size){const txt=Array.from(chars).join('');jobs.push(document.fonts.load('100px PaperSerif',txt),document.fonts.load('100px PaperRares',txt),document.fonts.load('600 100px PaperHeading',txt));}
     await Promise.all(jobs);invalidate();
   }
   root.PaperPage={...old,svg,paint,preparePhysicalFonts,clearPhysicalMetrics:invalidate,commands:(p,i,bs)=>physical(p,i)?(model(i)?.words||[]):old.commands(p,i,bs)};
