@@ -322,8 +322,11 @@
     focus='custom';transform();return true;
   }
   function pointerDown(e){
-    const candidate=e.target?.closest?.('.edge-index__band'),
-      band=candidate?.classList?.contains('edge-index__band')&&!candidate.disabled?candidate:null;
+    const touchLabel=e.pointerType==='touch'&&!edgeSide?e.target?.closest?.('.edge-index__group'):null;
+    const contact=touchLabel?relative(e):null,atEdge=contact&&inwardDirection((contact.x-x)/scale,(contact.y-y)/scale,null);
+    const candidate=e.target?.closest?.('.edge-index__band')||
+      (touchLabel&&atEdge===(touchLabel.dataset.side==='right'?1:-1)?touchLabel:null),
+      band=candidate&&!candidate.disabled?candidate:null;
     suppressBandClick=null;
     if((edgeSide&&band?.dataset.side!==edgeSide)||jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
     clearHold();
@@ -430,7 +433,7 @@
   stage.addEventListener('pointerdown',pointerDown,true);stage.addEventListener('pointermove',pointerMove);
   stage.addEventListener('pointerup',e=>pointerUp(e),true);stage.addEventListener('pointercancel',e=>pointerUp(e,true),true);
   stage.addEventListener('click',e=>{
-    if(suppressBandClick&&e.detail!==0&&performance.now()<=suppressBandClick.until&&e.target?.closest?.('.edge-index__band')===suppressBandClick.band){
+    if(suppressBandClick&&e.detail!==0&&performance.now()<=suppressBandClick.until&&e.target?.closest?.('.edge-index__band,.edge-index__group')===suppressBandClick.band){
       suppressBandClick=null;e.preventDefault();e.stopPropagation();
     }
   },true);
