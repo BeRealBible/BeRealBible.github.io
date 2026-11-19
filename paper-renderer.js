@@ -241,6 +241,11 @@
     const stock=markup.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g,el=>{
       const tag=el.slice(0,el.indexOf('>')+1),num=k=>{const m=tag.match(new RegExp(' '+k+'="([^"]+)"'));return m?Number(m[1]):NaN;};
       const x=num('x'),y=num('y'),size=num('font-size'),single=el.slice(tag.length,-7).replace(/&[^;]+;/g,'?');
+      // Exact physical words are matrix-transformed: their raw font size and
+      // baseline are not book-space coordinates. Clone only intersecting words
+      // when falling back to a fully vector curl without WebGL/Canvas ink.
+      const physical=tag.match(/ data-clip="(-?\d+) (-?\d+) (-?\d+) (-?\d+)"/);
+      if(physical){const [l,r,t,b]=physical.slice(1).map(Number);glyphs.push({el,l,r,t,b});return '';}
       const finite=Number.isFinite(x+y+size)&&size>0,small=finite&&[...single].length===1;
       glyphs.push({el,l:small?x-3*size:-Infinity,r:small?x+3*size:Infinity,t:finite?y-3*size:-Infinity,b:finite?y+3*size:Infinity});return '';
     });

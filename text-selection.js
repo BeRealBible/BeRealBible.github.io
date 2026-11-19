@@ -14,6 +14,16 @@
     function group(key){if(!groups.has(key))groups.set(key,{key,chars:[],marks:[]});return groups.get(key);}
     commands.forEach((c,i)=>{
       const text=String(c.text||'');if(!text||c.role==='blank-mark')return;
+      // A sealed paper word carries its own reviewed verse association.
+      // Unknown / auxiliary printing remains selectable without a false citation.
+      if(c.physicalInk){
+        const key=c.ref&&['body','chapter','verse'].includes(c.role)?'verse:'+c.ref:
+          c.role==='heading'&&c.ref?'heading:'+c.ref:'physical-'+c.role+':'+(c.group||i);
+        const g=group(key);
+        if(c.ref&&(c.role==='chapter'||c.role==='verse')){g.marks.push(i);return;}
+        let offset=0;for(const ch of text){g.chars.push({ch,i,offset});offset+=ch.length;}
+        return;
+      }
       const row=page.cols?.[c.column]?.[c.row],key=c.column+':'+c.row;
       if(row&&key!==rowKey){ref=row.start||ref;rowKey=key;}
       const run=row?.runs?.[c.run];
@@ -162,7 +172,21 @@
       const entry=model(side,svg),point=localPoint(svg,x,y);
       if(!entry||!point)return null;
       const i=entry.mapping.get(node);if(i===undefined)return null;
-      let n;try{n=node.getCharNumAtPosition(point);}catch{return null;}
+      let n;
+      try{
+        let probe=point;
+        if(entry.list[i].physicalInk){
+          // getCharNumAtPosition consumes the word's own untransformed user space,
+          // not the book's 480 x 704 root nor the original PDF pixel rectangle.
+          const screen=node.getScreenCTM();if(!screen)return null;
+          const q=svg.createSVGPoint();q.x=x;q.y=y;probe=q.matrixTransform(screen.inverse());
+        }
+        n=node.getCharNumAtPosition(probe);
+        if(n<0&&entry.list[i].physicalInk){
+          const c=entry.list[i];
+          if(point.x>=c.x&&point.x<=c.x+c.w&&point.y>=c.y&&point.y<=c.y+c.h&&entry.lookup[i]?.length&&entry.lookup[i].every(v=>v===entry.lookup[i][0]))n=0;
+        }
+      }catch{return null;}
       const unit=entry.lookup[i]?.[n];return unit?{entry,unit,point:{x:point.x,y:point.y}}:null;
     }
     function draw(token,mode){
@@ -171,10 +195,18 @@
         const node=entry.nodes[i],c=entry.list[i],line=[c.column,c.row,c.y].join('/');
         let rects=[];
         try{
+          if(c.physicalInk&&start===0&&end===c.text.length){
+            // Use measured ink, not the much larger em-square.
+            boxes.push({x:c.x,y:c.y,width:c.w,height:c.h,line});continue;
+          }
           if(start===0&&end===c.text.length)rects=[node.getBBox()];
           else for(let j=start;j<end;j++)rects.push(node.getExtentOfChar(j));
         }catch{continue;}
-        for(const r of rects)boxes.push({x:r.x,y:r.y,width:r.width,height:r.height,line});
+        for(const r of rects){
+          // The physical word transform is diagonal, including page adaptation.
+          if(c.physicalInk)boxes.push({x:r.x*c.sx+c.tx,y:r.y*c.sy+c.ty,width:r.width*c.sx,height:r.height*c.sy,line});
+          else boxes.push({x:r.x,y:r.y,width:r.width,height:r.height,line});
+        }
       }
       const g=doc.createElementNS(SVG,'g');
       g.setAttribute('class','paper-ink-mark paper-ink-mark--'+mode);g.setAttribute('aria-hidden','true');g.setAttribute('pointer-events','none');

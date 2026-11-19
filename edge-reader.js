@@ -39,6 +39,7 @@
   if(saved?.explicitRef&&saved.ref&&saved.bookName===currentBook().name&&saved.page===readingLocation().page){
     preciseRef={page:saved.page,bookCode:currentBook().code,ref:saved.ref};
   }
+  if(window.PAPER_INITIAL_REF&&window.PAPER_INITIAL_REF.page===readingLocation().page)preciseRef=window.PAPER_INITIAL_REF;
   const capturePose=()=>({zoom:scale/fitScale,cx:(view.w/2-x)/scale,cy:(view.h/2-y)/scale,focus});
   function save(){
     if(edgeSide)return; // Inspecting a book edge must not replace the reading view.
@@ -499,6 +500,7 @@
   $('demo-pan').onclick=()=>{focusPage('right');feedback('拖动正文平移；从书页外缘向书心拖动翻页');};
   stage.dataset.scene='reading';stage.dataset.textHoldMs=String(TEXT_HOLD_MS);
   window.PaperImmersion?.setScene?.('reading');
+  document.fonts?.addEventListener?.('loadingdone',()=>{const n=spread;requestAnimationFrame(()=>{if(n===spread&&!fold&&!jumpState&&!gesture&&!selection?.isActive()){papers.forEach((paper,i)=>paper.innerHTML=svgPage(n+i));selection?.refresh?.();}})});
   render();resize();
   if(saved?.zoom>1&&Number.isFinite(saved.centerX)&&Number.isFinite(saved.centerY)){
     scale=clamp(fitScale*saved.zoom,fitScale,MAX_SCALE);x=view.w/2-saved.centerX*scale;y=view.h/2-saved.centerY*scale;focus=saved.focus||'custom';constrain();transform();
