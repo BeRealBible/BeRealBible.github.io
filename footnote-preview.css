@@ -1,0 +1,15 @@
+.footnote-preview[hidden]{display:none!important}
+.footnote-preview{
+  position:fixed;z-index:5000;box-sizing:border-box;margin:0;padding:13px 16px 14px;
+  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;touch-action:pan-y;
+  border:1px solid #b7a27b;border-radius:5px;background:#fffaf0;color:#382d22;
+  box-shadow:0 5px 24px #2b211d38;font:15px/1.65 var(--serif,serif);
+  text-align:start;overflow-wrap:anywhere;user-select:text;
+}
+.footnote-preview__citation{color:#756246;font:12px/1.45 var(--ui,sans-serif);padding-bottom:6px;border-bottom:1px solid #d9c9a9}
+.footnote-preview .footnote-preview__heading{margin:8px 0 4px;color:#684335;font:600 15px/1.45 var(--serif,serif)}
+.footnote-preview .footnote-preview__verse{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px;margin:2px 0}
+.footnote-preview__number{color:#89543b;font:600 12px/1.6 var(--ui,sans-serif);padding-top:2px;font-variant-numeric:tabular-nums}
+.footnote-preview__text{white-space:pre-wrap}
+@media(forced-colors:active){.footnote-preview{color:CanvasText;background:Canvas;border-color:CanvasText}.footnote-preview__citation,.footnote-preview__number,.footnote-preview .footnote-preview__heading{color:CanvasText}}
+@media print{.footnote-preview{display:none!important}}

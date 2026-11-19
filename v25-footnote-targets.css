@@ -1,0 +1,12 @@
+/* Buttons are siblings of the fixed page SVG, never children of role=img.
+   No default paint or layout; the original printed citation is the label. */
+#book-volume .paper > .v25-footnote-target {
+  position:absolute;display:block;min-width:0;min-height:0;max-width:none;max-height:none;
+  padding:0;margin:0;border:0;border-radius:0;box-shadow:none;background:transparent;
+  appearance:none;-webkit-appearance:none;cursor:help;touch-action:manipulation;
+}
+#book-volume .paper > .v25-footnote-target:focus-visible {outline:1px solid #806237;outline-offset:1px;}
+#book.curl-active .v25-footnote-target,
+#stage[data-jump-state="running"] .v25-footnote-target,
+#stage[data-jump-state="switching"] .v25-footnote-target { visibility:hidden; }
+@media print { #book-volume .paper > .v25-footnote-target {display:none;} }
