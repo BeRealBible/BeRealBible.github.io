@@ -15,31 +15,49 @@
   const tracks=[
     ['ot-a',[10.5,18,26.5,34.9,42.9,50.8,58.5,66,73.5,80.7,87.9],
       [34,41,47,49.5,53.5,57.5,60.5,63,64,68.5,75],
-      [['创',[0]],['出',[1]],['利',[2]],['民',[3]],['申',[4]],['书',[5]],['士',[6]],['得',[7]],['撒上下',[8,9]],['王上下',[10,11]],['代上下',[12,13]]]],
+      [['创',[0]],['出',[1]],['利',[2]],['民',[3]],['申',[4]],['书',[5]],['士',[6]],['得',[7]],['撒上下',[8,9],'shared'],['王上下',[10,11],'shared'],['代上下',[12,13],'shared']]],
     ['ot-b',[7.4,14.9,22.5,30.1,38.3,45.7,53.2,60.9,68.3,76.1,83.9,92.1],
       [83,86,90,101.5,103,109,117,123.5,125,126.5,127,126.5],
       [['拉尼',[14,15]],['斯伯',[16,17]],['诗箴',[18,19]],['传歌',[20,21]],['赛',[22]],['耶哀',[23,24]],['结但',[25,26]],['何珥',[27,28]],['摩俄拿',[29,30,31]],['弥鸿哈',[32,33,34]],['番该',[35,36]],['亚玛',[37,38]]]],
     ['nt-a',[...NT_TOP,48.8,56.7,64.9,72.5,80.6,88.9],
       [829,834,836.5,840,845,850.5,852,856,857.5,860,859.5],
-      [['太',[39]],['可',[40]],['路',[41]],['约',[42]],['徒',[43]],['罗',[44]],['林前后',[45,46]],['加弗',[47,48]],['腓西',[49,50]],['帖前后',[51,52]],['提前后',[53,54]]]],
+      [['太',[39]],['可',[40]],['路',[41]],['约',[42]],['徒',[43]],['罗',[44]],['林前后',[45,46],'shared'],['加弗',[47,48]],['腓西',[49,50]],['帖前后',[51,52],'shared'],['提前后',[53,54],'shared']]],
     ['nt-b',NT_TOP,[859,859.5,862.5,862.5,865.5],
-      [['多门',[55,56]],['来雅',[57,58]],['彼前后',[59,60]],['约壹贰叁犹',[61,62,63,64]],['启',[65]]]]
+      [['多门',[55,56]],['来雅',[57,58]],['彼前后',[59,60],'shared'],['约壹贰叁犹',[61,62,63,64],'john-jude'],['启',[65]]]]
   ];
-  const GROUPS=Object.freeze(tracks.flatMap(([track,heights,xs,labels])=>labels.map(([label,members],row)=>
-    ({track,label,members:Object.freeze(members),nt:track.startsWith('nt'),row,percent:heights[row],photoX:xs[row]})))
+  const GROUPS=Object.freeze(tracks.flatMap(([track,heights,xs,labels])=>labels.map(([label,members,face],row)=>
+    ({track,label,face:face||(members.length===1?'single':'stack'),members:Object.freeze(members),nt:track.startsWith('nt'),row,percent:heights[row],photoX:xs[row]})))
     .map((g,index)=>Object.freeze({...g,index})));
   const clamp=(value,lo,hi)=>Math.max(lo,Math.min(hi,value));
   const carrierSheet=book=>Math.ceil(Math.max(0,Number(book.first)||0)/2);
   const sideOf=(book,spread)=>carrierSheet(book)<=Math.floor(Math.max(0,Number(spread)||0)/2)?'left':'right';
   const groupY=group=>group.percent*constants.HEIGHT/100;
-  function faceLines(item){
-    // The very small shared John/Jude cut can only carry an abbreviation;
-    // the accessible title and the menu still spell out every actual book.
-    if(item.bookIndices.some(i=>i>=61&&i<=63)){
-      const letters=item.bookIndices.filter(i=>i>=61&&i<=63).map(i=>i-60).join('');
-      return ['约',letters,...(item.bookIndices.includes(64)?['犹']:[])];
+  // The ink on one physical cut does not imply separate click targets. Keep
+  // a shared stem to the reader's LEFT on both sides of the open book.
+  function paintFace(button,item){
+    const ids=item.bookIndices,key=ids.join(',');
+    if(button._faceKey===key)return;
+    button._faceKey=key;
+    const el=button.children[0],group=GROUPS[item.groupIndex];
+    const kind=ids.length===1?'single':group.face;
+    el.dataset.face=kind;el.textContent='';
+    const part=(name,text)=>{
+      const span=el.ownerDocument.createElement('span');span.dataset.part=name;span.textContent=text;el.appendChild(span);
+    };
+    if(kind==='shared'){
+      const [stem,top,bottom]=group.label;
+      part('root',stem);part('top',top);part('bottom',bottom);
+    }else if(kind==='stack'){
+      // A cut like 摩 / 俄 / 拿 has three different initials, not a stem.
+      for(const id of ids)part('row',group.label[group.members.indexOf(id)]);
+    }else if(kind==='john-jude'){
+      const numbers=ids.filter(i=>i!==64).map(i=>i-60).join('');
+      part('letters','约\n'+numbers);
+      if(ids.includes(64))part('jude','犹');
+    }else{
+      // Also used when turning a leaf separates two members of a shared cut.
+      el.textContent=[...item.label].join('\n');
     }
-    return [...item.label];
   }
   // Normal view: calibrate projected paper thickness at each photographed cut;
   // interpolate between actual carrier leaves as sheets move across the spine.
@@ -175,7 +193,7 @@
       const button=configureButton(add('button','edge-index__group '+(group.nt?'edge-index__nt':'edge-index__ot')));
       button.dataset.group=String(group.index);button.dataset.side=side;
       button.dataset.track=group.track;button.dataset.row=String(group.row);
-      const label=doc.createElement('span');label.setAttribute('aria-hidden','true');button.appendChild(label);
+      const label=doc.createElement('span');label.className='edge-index__face';label.setAttribute('aria-hidden','true');button.appendChild(label);
       listen(button,'click',event=>{
         stop(event);const item=button._edgeItem;
         if(destroyed||state.turning||expanded||button.hidden||!item)return;
@@ -219,11 +237,7 @@
       for(const item of geometry.groups){
         const button=groupButtons.get(item.groupIndex+':'+item.side);button._edgeItem=item;
         position(button,item);button.hidden=expanded===item.side;button.disabled=Boolean(state.turning||expanded);
-        const lines=faceLines(item);
-        button.children[0].textContent=lines.join('\n');
-        const fontSize=Math.min(item.width-5,10.5,(item.height-9)/lines.length,
-          lines.some(s=>s.length===3)?7.5:Infinity);
-        button.style.fontSize=fontSize+'px';
+        paintFace(button,item);
         button.title=item.bookIndices.map(index=>books[index].name).join(' · ')+' · 选择章节';
         button.setAttribute('aria-label',button.title+'，书口空白处可展开逐卷选择');button.setAttribute('aria-haspopup','dialog');
         button.dataset.members=item.bookIndices.join(',');markCurrent(button,item.bookIndices.some(current));

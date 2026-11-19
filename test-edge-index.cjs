@@ -49,6 +49,8 @@ class Target {
 }
 class Element extends Target {
   constructor(tag,doc){super();this.tagName=tag.toUpperCase();this.ownerDocument=doc;this.children=[];this.dataset={};this.attributes={};this.style={};}
+  set textContent(value){this._text=String(value);for(const child of this.children)child.parentNode=null;this.children=[];}
+  get textContent(){return (this._text||'')+this.children.map(child=>child.textContent).join('');}
   setAttribute(key,value){this.attributes[key]=String(value);}
   removeAttribute(key){delete this.attributes[key];}
   getAttribute(key){return this.attributes[key]??null;}
@@ -66,6 +68,58 @@ const isClass=(node,name)=>String(node.className||'').split(' ').includes(name);
 const classNodes=(fixture,name)=>fixture.children.filter(node=>isClass(node,name));
 const visibleBooks=fixture=>classNodes(fixture,'edge-index__book').filter(node=>!node.hidden);
 const visibleGroups=fixture=>classNodes(fixture,'edge-index__group').filter(node=>!node.hidden);
+const descendants=node=>node.children.filter(child=>!child.hidden).flatMap(child=>[child,...descendants(child)]);
+const printed=node=>node.hidden?'':(node._text||'')+node.children.map(printed).join('');
+const cutFor=(f,members)=>visibleGroups(f).find(button=>button.dataset.members===members.join(','));
+const sharedFaces=[[8,'撒','上','下'],[10,'王','上','下'],[12,'代','上','下'],
+  [45,'林','前','后'],[51,'帖','前','后'],[53,'提','前','后'],[59,'彼','前','后']];
+test('shared-name paper cuts carry one stem and separate upper/lower qualifiers inside one named button',()=>{
+  const f=setup(physical);
+  for(const spread of [0,physical.pages.length-1]){
+    f.index.update({spread});
+    for(const [i,stem,top,bottom] of sharedFaces){
+      const cut=cutFor(f,[i,i+1]);assert.ok(cut);assert.equal(cut.dataset.side,spread?'left':'right');
+      const nodes=descendants(cut);
+      for(const [part,glyph] of [['root',stem],['top',top],['bottom',bottom]]){
+        const found=nodes.filter(n=>n.dataset.part===part);
+        assert.equal(found.length,1,`${stem} needs a single ${part} glyph, not a vertical three-character string`);
+        assert.equal(printed(found[0]).trim(),glyph);
+      }
+      assert.deepEqual([...printed(cut).replace(/\s/gu,'')].sort(),[stem,top,bottom].sort(),'never print the common stem twice');
+      assert.equal(cut.tagName,'BUTTON');assert.ok(nodes.every(n=>n.tagName!=='BUTTON'&&n.tagName!=='A'));
+      for(const book of physical.books.slice(i,i+2))assert.ok(cut.getAttribute('aria-label').includes(book.name));
+      cut.click();assert.deepEqual(f.metadata.at(-1).bookIndices,[i,i+1]);
+    }
+  }
+});
+test('independent two- and three-book cuts and the John/Jude cut do not reuse the shared-stem face',()=>{
+  const f=setup(physical);
+  for(const [members,expected] of [[[14,15],'拉尼'],[[29,30,31],'摩俄拿'],[[47,48],'加弗'],[[55,56],'多门'],[[61,62,63,64],'约123犹']]){
+    const cut=cutFor(f,members);assert.ok(cut);
+    const nodes=descendants(cut);assert.ok(!nodes.some(n=>n.dataset.part==='root'),'do not infer a stem from glyph count');
+    assert.equal(printed(cut).replace(/\s/gu,''),expected);
+    if(members.includes(64)){
+      const bands=nodes.filter(n=>n.dataset.part==='letters'||n.dataset.part==='jude');
+      assert.deepEqual(bands.map(n=>printed(n).replace(/\s/gu,'')),['约123','犹'],'the three epistle numerals belong with John above the division, not to a third band');
+    }else{
+      assert.deepEqual(nodes.filter(n=>n.dataset.part==='row').map(printed),[...expected],'each independent book has its own horizontal band');
+    }
+  }
+});
+test('turning through each shared-name cut shows and opens only the actual half on each side; returning restores the whole face',()=>{
+  const f=setup(physical),books=physical.books;
+  for(const [i] of sharedFaces){
+    f.index.update({spread:splitBefore(books,i+1)});
+    for(const [j,side] of [[i,'left'],[i+1,'right']]){
+      const button=cutFor(f,[j]);assert.ok(button);assert.equal(button.dataset.side,side);
+      assert.equal(printed(button).replace(/\s/gu,''),books[j].short);
+      button.click();assert.deepEqual(f.metadata.at(-1).bookIndices,[j]);
+      assert.ok(!button.getAttribute('aria-label').includes(books[j===i?i+1:i].name));
+    }
+    f.index.update({spread:0});const full=cutFor(f,[i,i+1]);
+    assert.equal(descendants(full).filter(n=>n.dataset.part==='root').length,1);
+  }
+});
 test('the photos partition the 66 books into exactly 11 + 12 black and 11 + 5 red cuts',()=>{
   assert.equal(E.GROUPS.length,39);
   for(const [track,groups] of photograph){
