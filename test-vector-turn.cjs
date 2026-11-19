@@ -40,6 +40,11 @@ for(const direction of [-1,1])for(const corner of ['top','bottom']){
     }
     if(i===0||i===50)for(const y of [0,7,176,352,507,703,704]){
       near(boundaryAt(mask,y),((i===0)===(direction>0))?480:0);}
+    if(i===25&&opts.vertical!==0){
+      const tips=s.vs.map(v=>at(s,480,v));
+      const span=Math.max(...tips.map(q=>q.x))-Math.min(...tips.map(q=>q.x));
+      assert.ok(span<52,'the central turn carries the near and far edges as one coherent leaf');
+    }
     if(i===6){
       const tip=at(s,480,corner==='top'?0:704),far=at(s,480,corner==='top'?704:0);
       assert.ok(tip.z>60&&extent(tip)<445,'grabbed end must visibly peel first');

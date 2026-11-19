@@ -471,6 +471,27 @@ test('first and last spread reject outward swipes',()=>{
     const f=fixture(page);f.swipe(dir);f.advance(1000);assert.equal(spread(f),page);assert.equal(f.rendered.length,0);
   }
 });
+test('physical Revelation end preserves the anchor and stops at the last readable spread',()=>{
+  const {window}=vm.createContext({window:{},atob});
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'v25-original-data.js'),'utf8'),{window,atob});
+  const db=window.V25OriginalData,last=db.books.at(-1).last;
+  assert.equal(last,1244);assert.equal(db.lookup('REV','22:21'),last);
+  assert.equal(db.pages.length,1272);
+  assert.ok(db.pages.slice(last+1).every(p=>p.blank&&p.b<0));
+  const data={...db.meta,readingLastPage:last};
+  const f=fixture(last-2,{data});
+  f.click('next');f.advance(1500);assert.equal(spread(f),last);
+  assert.equal(f.position.page,last);assert.equal(f.el('next').disabled,true);
+  assert.equal(f.el('prev').disabled,false);assert.match(f.el('progress-label').textContent,/100%/);
+  assert.equal(f.el('page-label').textContent,'292');
+  const before=f.rendered.length;f.swipe(1);f.el('stage').dispatchEvent({type:'keydown', key:'ArrowRight'});
+  f.click('next');f.advance(1500);assert.equal(spread(f),last);assert.equal(f.rendered.length,before);
+  f.click('prev');f.advance(1500);assert.equal(spread(f),last-2);
+  const stale=fixture(1270,{data});assert.equal(spread(stale),last);
+  const exact=fixture(last,{data,pose:{page:last,bookName:'启示录',ref:'22:21',explicitRef:true}});
+  assert.match(exact.el('chapter-name').textContent,/22/);
+  const anchor=JSON.parse(exact.storage.get('paper-bible-position-v1'));assert.equal(anchor.ref,'22:21');
+});
 test('multiple next-button requests remain queued but gestures during a flip do not accidentally chain pages',()=>{
   const f=fixture(20);f.swipe();f.swipe();f.click('next');f.advance(2000);assert.equal(spread(f),24);assert.equal(f.rendered.length,2);
 });

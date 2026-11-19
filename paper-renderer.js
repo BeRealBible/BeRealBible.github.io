@@ -183,17 +183,19 @@
     if(contact>1e-6&&contact<length-1e-6)a[clamp(Math.round(contact*count/length),1,count-1)]=contact;
     return a;
   }
-  // Use the original spine-bound arc at the grabbed material point, not at
-  // the middle of an imaginary strip. Tension reaches more distant rows later:
-  // a top corner peels first while the far bottom corner still lies flat.
+  // Keep the grabbed material point exactly on the pointer. A stiff bound
+  // leaf can peel briefly at the corner, but then its rows turn together.
+  // Releasing the lag smoothly avoids a twisted, accordion-like silhouette.
+  const smoothstep=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
   function surface(options,cols=6,rows=4){
     const dir=options.direction<0?-1:1,p=clamp(options.progress,0,1);
     const radius=clamp(options.radius??392,12,480),gy=clamp(options.grabY??600,0,704);
     const top=options.corner?options.corner==='top':gy<352,vertical=p===0||p===1?0:clamp(options.vertical||0,-210,210);
     const us=knots(480,cols,radius),vs=knots(704,rows,gy),triangles=[],points=[];
     for(const v of vs){
-      const from=(top?1:-1)*(v-gy)/704,delay=.54*Math.max(0,from);
-      const progress=from>0?Math.max(0,(p-delay)/(1-delay)):p+.6*(-from)*p*(1-p);
+      const from=(top?1:-1)*(v-gy)/704;
+      const delay=.23*Math.max(0,from)*(1-smoothstep((p-.12)/.48));
+      const progress=from>0?Math.max(0,(p-delay)/(1-delay)):p+.20*(-from)*p*(1-p);
       const follow=p>0?Math.min(1,progress/p):0;
       const row={direction:dir,radius,grabY:v,progress,vertical:vertical*follow*Math.max(0,1-Math.abs(from)*1.55)};
       for(const u of us){

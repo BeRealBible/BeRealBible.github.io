@@ -5,7 +5,8 @@
   const $=id=>document.getElementById(id),D=window.BIBLE_DATA;
   const Page=window.PaperPage,Material=window.PaperBookMaterial;
   const stage=$('stage'),book=$('book'),papers=[$('left-paper'),$('right-paper')];
-  const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,MAX_SPREAD=(D.pages.length-2)&~1;
+  const LAST_PAGE=D.readingLastPage??D.pages.length-1;
+  const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,MAX_SPREAD=Math.min(LAST_PAGE&~1,(D.pages.length-2)&~1);
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
@@ -44,7 +45,7 @@
   function save(){
     if(edgeSide)return; // Inspecting a book edge must not replace the reading view.
     const p=capturePose();
-    try{storage?.setItem('paper-bible-position-v1',JSON.stringify({spread,page:spread+readingSide,zoom:p.zoom,centerX:p.cx,centerY:p.cy,focus,bookName:currentBook().name,ref:readingLocation().ref,explicitRef:!!preciseRef&&preciseRef.page===readingLocation().page,edition:D.edition}));}catch{}
+    try{storage?.setItem('paper-bible-position-v1',JSON.stringify({spread,page:Math.min(spread+readingSide,LAST_PAGE),zoom:p.zoom,centerX:p.cx,centerY:p.cy,focus,bookName:currentBook().name,ref:readingLocation().ref,explicitRef:!!preciseRef&&preciseRef.page===readingLocation().page,edition:D.edition}));}catch{}
   }
   function feedback(text,delay=2200){
     clearTimeout(feedbackTimer);$('gesture-feedback').textContent=text;$('gesture-feedback').classList.remove('idle');
@@ -91,8 +92,8 @@
     $('book-name').textContent=b.name;
     $('chapter-name').textContent=ref.split(':')[0]===last.split(':')[0]?`第 ${ref.split(':')[0]} 章`:`${ref.split(':')[0]}–${last.split(':')[0]} 章`;
     const label=q=>q.blank?'空白':q.frontmatter?'卷首':String(q.displayPage??D.pages.indexOf(q));
-    $('page-label').textContent=`${label(D.pages[spread])} — ${label(D.pages[spread+1])}`;
-    const progress=(spread+1)/(D.pages.length-1);
+    $('page-label').textContent=spread+1>LAST_PAGE?label(D.pages[spread]):`${label(D.pages[spread])} — ${label(D.pages[spread+1])}`;
+    const progress=(spread+1)/(D.readingLastPage==null?D.pages.length-1:MAX_SPREAD+1);
     $('progress-label').textContent=`${b.short} · 全书 ${Math.round(progress*100)}%`;
     $('read-block').style.width=progress*100+'%';$('position-pin').style.left=progress*100+'%';
     $('prev').disabled=spread===0;$('next').disabled=spread===MAX_SPREAD;
@@ -239,7 +240,7 @@
   }
   function jump(page,pose,entryId,requested,destinationKey=null){
     closeEdge();interrupt();$('book-picker').close();
-    page=clamp(page,0,D.pages.length-1);
+    page=clamp(page,0,LAST_PAGE);
     const target=clamp(page&~1,0,MAX_SPREAD),transaction={from:spread,target,page,pose};
     jumpState=transaction;
     const complete=()=>{
@@ -270,7 +271,7 @@
     }});
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
-  history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,pageCount:D.pages.length,
+  history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,pageCount:LAST_PAGE+1,
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
   selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});

@@ -44,7 +44,7 @@
   }
 
   function showChrome() {
-    if (scene !== 'reading') return;
+    if (scene !== 'reading' || document.body?.hasAttribute('data-minimal-reader')) return;
     chromeVisible = true;
     setControlsVisible(true);
     scheduleHide();
@@ -145,6 +145,13 @@
   function init() {
     if (initialized) return;
     initialized = true;
+    if (document.body.hasAttribute('data-minimal-reader')) {
+      groups = [document.querySelector('.reader-header'), document.getElementById('reading-tools'), document.querySelector('.reader-footer')].filter(Boolean);
+      root.classList.add('paper-immersive');
+      setScene(scene);
+      window.dispatchEvent(new Event('resize'));
+      return;
+    }
     document.body.insertAdjacentHTML('beforeend', `
       <div class="immersion-dock" id="immersion-dock" role="group" aria-label="阅读入口">
         <button id="immersion-menu" class="immersion-quiet-button" aria-label="展开阅读工具" aria-expanded="false" aria-controls="reading-tools immersion-extra">

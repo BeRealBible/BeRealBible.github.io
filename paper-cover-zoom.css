@@ -44,3 +44,6 @@ html.paper-immersive,.paper-immersive body,.paper-immersive .stage-wrap{backgrou
 @keyframes pcz-seat{0%,23%{transform:translateX(0) rotateZ(-3deg) rotateX(7deg)}78%,100%{transform:translateX(48%) rotateZ(0) rotateX(0)}}
 @keyframes pcz-reveal{0%,52%{opacity:1}87%,100%{opacity:0}}
 @media(prefers-reduced-motion:reduce){.pcz-intro{display:none!important}}
+
+/* V25's minimal reader leaves only the book, zoom and recent jumps visible. */
+.paper-immersive body[data-minimal-reader] :is(.reader-header,.reading-tools,.reader-footer,.gesture-feedback) { display:none !important; }

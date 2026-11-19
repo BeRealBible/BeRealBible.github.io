@@ -20,7 +20,7 @@
   <script src="paper-typography.js?v=index-25&h=a9cd2577eab5" defer></script><script src="paper-page.js?v=index-25&h=2f7cf4b6ba62" defer></script><script src="v25-original-render.js?v=index-25&h=d7c8c055de0a" defer></script>
   <script src="gesture-core.js?v=index-25&h=ee115bd46ad7" defer></script>
   <script src="paper-physics.js?v=index-25&h=b83a87be5697" defer></script>
-  <script src="paper-renderer.js?v=index-25&h=d6594dd8496e" defer></script>
+  <script src="paper-renderer.js?v=index-25&h=85b9a69516ad" defer></script>
   <script src="paper-edges.js?v=index-25&h=bf2480c1ac5b" defer></script>
   <link rel="stylesheet" href="paper-edges.css?v=index-25&h=c1b48c2aa726">
   <link rel="stylesheet" href="edge-reader.css?v=index-25&h=5daf10eeb954">
@@ -42,17 +42,17 @@
   <script src="footnote-passages.js?v=index-25&h=0b6254049a75" defer></script>
   <script src="v25-footnote-targets.js?v=index-25&h=2cbfd4b35f1a" defer></script>
   <script src="footnote-preview.js?v=index-25&h=cc15f29b313f" defer></script>
-  <link id="v25-desk-controller" rel="preload" as="script" href="edge-reader.js?v=index-25&h=4679522c8a3d">
-  <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=30bda077da49" defer></script>
-  <script src="immersion.js?v=index-25&h=48b4e559ed01" defer></script>
+  <link id="v25-desk-controller" rel="preload" as="script" href="edge-reader.js?v=index-25&h=9349ace059fb">
+  <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=d8e57602ca3f" defer></script>
+  <script src="immersion.js?v=index-25&h=5481938463a4" defer></script>
 
   <script src="reader-release.js?v=index-25&h=4570de647195" defer></script>
   <style>#reader-rule-loading{position:fixed;inset:0;z-index:9999;display:grid;place-content:center;padding:32px;background:#e8e1d4;color:#493f32;text-align:center;font:16px/1.8 system-ui,sans-serif}#reader-rule-loading p{max-width:30em}#reader-rule-loading a{color:#8b3939}html[data-rule-layout="ready"] #reader-rule-loading{display:none}</style>
 <link rel="stylesheet" href="fonts-rares.css?v=index-25&h=189bacd36390"><link rel="stylesheet" href="v25-original-fonts.css?v=index-25&h=896813a3e953">
-<link rel="stylesheet" href="paper-cover-zoom.css?v=index-25&h=90a590ef722b">
+<link rel="stylesheet" href="paper-cover-zoom.css?v=index-25&h=1c73ca4bcc1a">
 <script src="paper-cover-zoom.js?v=index-25&h=fe0b1a65a964" defer></script>
 </head>
-<body data-paper-scene="reading">
+<body data-paper-scene="reading" data-minimal-reader>
 <div id="reader-rule-loading" role="status"><strong>纸页 · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./?v=index-25">加载遇到问题？重新打开</a></div>
 <header class="masthead">
   <a class="brand" href="#" aria-label="纸页，返回阅读"><span class="brand-mark">页</span><span>纸页<small>PAPER BIBLE</small></span></a>
@@ -92,7 +92,7 @@
         </div>
       </div></div>
 
-      <div class="gesture-feedback" id="gesture-feedback" role="status" aria-live="polite">点索引组选章 · 点书口空白放大</div>
+      <div class="gesture-feedback" id="gesture-feedback" role="status" aria-live="polite"></div>
     </div>
     <div class="reading-tools" id="reading-tools">
       <div class="focus-group" role="group" aria-label="阅读视角"><button id="fit-book" class="active">对开</button><button id="focus-left">左页</button><button id="focus-right">右页</button></div>

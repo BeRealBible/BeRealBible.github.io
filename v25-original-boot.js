@@ -9,11 +9,15 @@
   async function read(k,name){let last;for(let i=0;i<3;i++){try{const r=await fetch('./paper-pages/'+name);if(!r.ok)throw Error('HTTP '+r.status);D.installPack(k,await r.json());return}catch(e){last=e;if(i!==2)await new Promise(ok=>setTimeout(ok,450*(i+1)))}}throw last}
   async function worker(){for(;;){const i=at++;if(i>=parts.length)break;await read(...parts[i]);note.textContent='正在打开纸本经文（'+(++done)+' / '+parts.length+'）。'}}
   await Promise.all(Array.from({length:6},worker));
-  const meta=D.finalize();let raw;try{raw=localStorage}catch{}
+  const meta=D.finalize(),end=D.books.at(-1)?.last;
+  // Stop navigation at the last printed scripture, preserving both leaf faces
+  // and the original full paper stock for the desk renderer.
+  if(Number.isInteger(end)&&end>0&&end<=D.count&&meta.pages.slice(end+1).every(p=>p.blank&&p.b<0))meta.readingLastPage=end;
+  let raw;try{raw=localStorage}catch{}
   const storage=window.makeV25PhysicalStorage(raw,meta,old);
   window.PAPER_READER_STORAGE=storage;storage.migrateHighlights();storage.migrateNoteHighlightIds();
   const hash=q.hash.slice(1),pv=q.searchParams.get('pdf'),ref=q.searchParams.get('ref'),book=q.searchParams.get('book'),ch=q.searchParams.get('ch');
-  function route(key){if(!key)return null;if(/^\d{1,4}$/.test(key)){const p=+key;return p>0&&p<=D.count?{p}:null}
+  function route(key){if(!key)return null;if(/^\d{1,4}$/.test(key)){const p=+key;return p>0&&p<=D.count?{p:Math.min(p,meta.readingLastPage??D.count)}:null}
    const a=/^([A-Z0-9]{3})\.(\d+)(?::(\d+))?$/.exec(key);if(!a)return null;
    const b=D.books.find(b=>b.code===a[1]),r=a[2]+':'+(a[3]||1),p=a[3]?D.lookup(a[1],r):b?.chapters.find(c=>c.chapter===+a[2])?.page;
    return Number.isInteger(p)?{p,code:a[1],ref:r}:null}
