@@ -34,11 +34,6 @@ const photoX={
 const groupForBook=index=>E.GROUPS.find(g=>g.members.includes(index));
 const samuelGroup=()=>groupForBook(8).index;
 const splitBefore=(source,i)=>Math.max(0,2*E.carrierSheet(source[i])-2);
-function physicalRatio(book,side,spread,pages){
-  const carrier=Math.ceil(book.first/2),split=Math.floor(spread/2),sheets=Math.ceil(pages/2);
-  const value=side==='left'?(carrier-1)/Math.max(1,split-1):(carrier-split-1)/Math.max(1,sheets-split-1);
-  return Math.min(1,Math.max(0,value));
-}
 let checks=0;
 function test(name,fn){fn();checks++;console.log('PASS '+name);}
 class Target {
@@ -61,12 +56,11 @@ class Element extends Target {
   click(){return this.dispatch('click');}
 }
 function setup(edition=data){const doc=new Target();doc.createElement=tag=>new Element(tag,doc);const host=new Element('div',doc),events=[],metadata=[];
-  host.style.zIndex='6';const index=E.create(host,{books:edition.books,pageCount:edition.pages.length,onSelect:(i,b,meta)=>{events.push(['select',i,b.code]);metadata.push(meta);},onExpand:side=>events.push(['expand',side])});
+  host.style.zIndex='6';const index=E.create(host,{books:edition.books,pageCount:edition.pages.length,onSelect:(i,b,meta)=>{events.push(['select',i,b.code]);metadata.push(meta);}});
   return {doc,host,index,events,metadata,children:index.element.children};
 }
 const isClass=(node,name)=>String(node.className||'').split(' ').includes(name);
 const classNodes=(fixture,name)=>fixture.children.filter(node=>isClass(node,name));
-const visibleBooks=fixture=>classNodes(fixture,'edge-index__book').filter(node=>!node.hidden);
 const visibleGroups=fixture=>classNodes(fixture,'edge-index__group').filter(node=>!node.hidden);
 const descendants=node=>node.children.filter(child=>!child.hidden).flatMap(child=>[child,...descendants(child)]);
 const printed=node=>node.hidden?'':(node._text||'')+node.children.map(printed).join('');
@@ -164,13 +158,14 @@ test('a group straddling the reading page splits by members rather than followin
     }
   }
 });
-test('normal bands use real page proportions and expanded bounds never inflate normal cover bounds',()=>{
+test('normal bands use real page proportions and blank clicks cannot change their bounds',()=>{
   const f=setup();f.index.update({spread:740});const before=f.index.getNormalBounds();
   const unopened=E.layout(books,pageCount,0).bounds,finished=E.layout(books,pageCount,pageCount-1).bounds;
   assert.ok(unopened.leftExtent<before.leftExtent&&before.leftExtent<finished.leftExtent);
   assert.ok(unopened.rightExtent>before.rightExtent&&before.rightExtent>finished.rightExtent);
-  f.index.setExpanded('right');const b=f.index.getBounds();assert.equal(b.rightExtent,208);assert.equal(b.leftExtent,before.leftExtent);
-  assert.equal(b.normalRightExtent,before.rightExtent);assert.deepEqual(f.index.getNormalBounds(),before);
+  const bounds=f.index.getBounds();assert.equal(bounds.leftExtent,before.leftExtent);assert.equal(bounds.rightExtent,before.rightExtent);
+  for(const band of classNodes(f,'edge-index__band'))band.click();
+  assert.deepEqual(f.index.getBounds(),bounds);assert.deepEqual(f.index.getNormalBounds(),before);assert.deepEqual(f.events,[]);
 });
 test('all 39 cut centres match the independently measured open photo within 1.5% of page height; the short track stops beside Acts',()=>{
   const {books,pages}=physical,g=E.layout(books,pages.length,0),height=g.bands.right.height;
@@ -232,63 +227,6 @@ test('all normal spreads retain each cut height; tracks at the same height keep 
   }
  }
 });
-test('physical OCR and both fallback editions preserve exact physical depth and avoid collisions on every expanded spread',()=>{
-  let crossTestamentStates=0;
-  for(const edition of editions){
-    const {books,pages}=edition.data;
-    for(let spread=0;spread<pages.length;spread+=2)for(const side of ['left','right']){
-      const geometry=E.layout(books,pages.length,spread,side),items=geometry.expandedBooks,band=geometry.bands[side];
-      assert.equal(band.width,208);assert.equal(band.height,704);
-      assert.equal(items.length,books.filter(book=>E.sideOf(book,spread)===side).length);
-      if(items.some(item=>item.nt)&&items.some(item=>!item.nt))crossTestamentStates++;
-      for(const item of items){
-        assert.equal(item.width,28);assert.equal(item.height,18);
-        assert.ok(item.x>=band.x&&item.x+item.width<=band.x+band.width);assert.ok(item.y>=0&&item.y+item.height<=704);
-        assert.equal(item.side,E.sideOf(books[item.index],spread));
-        const carrier=Math.ceil(books[item.index].first/2),ratio=physicalRatio(books[item.index],side,spread,pages.length);
-        assert.equal(item.carrier,carrier);
-        const expected=band.x+10+ratio*(208-20-28);
-        assert.ok(Math.abs(item.x-expected)<1e-10,`${edition.name}: ${books[item.index].name} depth must not be snapped or collision-shifted`);
-        assert.ok(Math.abs(item.depthRatio-ratio)<1e-12);
-      }
-      for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)assert.equal(E.rectanglesOverlap(items[i],items[j],2),false,`overlap: ${edition.name}, spread ${spread}, ${side}, ${items[i].index}/${items[j].index}`);
-      for(let i=1;i<items.length;i++){
-        const previous=items[i-1],current=items[i];
-        if(current.carrier===previous.carrier)assert.equal(current.x,previous.x,'one physical leaf has one horizontal depth');
-        else assert.ok(current.x>previous.x,`${edition.name} ${side}: canonical depth must strictly increase, ${previous.index}->${current.index}`);
-      }
-    }
-  }
-  assert.ok(crossTestamentStates>50);
-});
-
-test('Genesis Exodus Leviticus Numbers Deuteronomy Joshua advance continuously on both physical sides',()=>{
-  for(const edition of editions){
-    const {books,pages}=edition.data;
-    for(const [spread,side] of [[0,'right'],[(books[23].first&~1),'left']]){
-      const items=E.layout(books,pages.length,spread,side).expandedBooks.filter(item=>item.index<6);
-      assert.deepEqual(items.map(item=>books[item.index].code),['GEN','EXO','LEV','NUM','DEU','JOS']);
-      for(const item of items)assert.ok(Math.abs(item.y-(item.originalY-item.height/2))<=10,'uncrowded early books must stay near their original vertical anchors');
-      const gaps=[];
-      for(let i=1;i<items.length;i++){
-        const gap=items[i].x-items[i-1].x;assert.ok(gap>0);gaps.push(gap);
-        assert.ok(Math.abs(gap/(items[i].carrier-items[i-1].carrier)-(items[1].x-items[0].x)/(items[1].carrier-items[0].carrier))<1e-10);
-      }
-      assert.ok(gaps.some(gap=>Math.abs(gap-gaps[0])>1e-6),'real unequal book lengths must not become equally spaced columns');
-    }
-  }
-});
-
-test('recto and verso labels on the same carrier stay at the same x and separate only vertically',()=>{
-  const samples=[1,2,3,4].map((first,index)=>({code:'TEST'+index,short:String(index),first}));
-  for(const [spread,side] of [[0,'right'],[4,'left']]){
-    const items=E.layout(samples,100,spread,side).expandedBooks;
-    assert.equal(items[0].x,items[1].x);assert.equal(items[2].x,items[3].x);assert.ok(items[2].x>items[0].x);
-    assert.notEqual(items[0].y,items[1].y);assert.notEqual(items[2].y,items[3].y);
-    for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)assert.equal(E.rectanglesOverlap(items[i],items[j],2),false);
-  }
-});
-
 test('normal marks within a photographic track never reverse member depth, on either side in any edition',()=>{
   for(const edition of editions){
     const {books,pages}=edition.data;
@@ -311,14 +249,19 @@ test('normal group buttons select the first actual member on that side',()=>{
   const right=visibleGroups(f).find(node=>+node.dataset.group===samuelGroup()&&node.dataset.side==='right');
   left.click();right.click();assert.deepEqual(f.events,[['select',8,'1SA'],['select',9,'2SA']]);
 });
-test('expanded selection requests a chapter menu without collapsing and reaches every physical-edition book, including Jude',()=>{
-  const f=setup(physical),books=physical.books;f.index.update({spread:740});
-  for(let i=0;i<books.length;i++){
-    const side=E.sideOf(books[i],740);f.index.setExpanded(side);const button=visibleBooks(f).find(node=>+node.dataset.book===i);assert.ok(button);
-    const start=f.events.length;button.click();assert.deepEqual(f.events.slice(start),[['select',i,books[i].code]]);assert.equal(f.index.getExpanded(),side);
-    assert.deepEqual(f.metadata.at(-1).bookIndices,[i]);
+test('every book, including Jude, is represented by exactly one direct chapter-menu target at each sampled spread',()=>{
+  const f=setup(physical);
+  for(const spread of [0,740,splitBefore(physical.books,39),physical.pages.length-1]){
+    f.index.update({spread});const members=[];
+    for(const button of visibleGroups(f)){
+      const ids=button.dataset.members.split(',').map(Number),before=f.events.length;
+      button.click();
+      assert.deepEqual(f.events.slice(before),[['select',ids[0],physical.books[ids[0]].code]]);
+      assert.deepEqual(f.metadata.at(-1).bookIndices,ids);
+      members.push(...ids);
+    }
+    assert.deepEqual(members.sort((a,b)=>a-b),Array.from({length:66},(_,i)=>i));
   }
-  assert.equal(f.events.filter(event=>event[0]==='select').length,66);
 });
 test('the physical compact four-book John/Jude cut sends its exact members to the chapter selector',()=>{
   const f=setup(physical),group=groupForBook(64);
@@ -336,52 +279,50 @@ test('chapter requests carry only this side group members and a detached plain s
   f.metadata[0].bookIndices.push(65);left.click();assert.deepEqual(f.metadata.at(-1).bookIndices,[8]);
   assert.match(left.getAttribute('aria-label'),/选择章节/);assert.equal(left.getAttribute('aria-haspopup'),'dialog');
 });
-test('Escape belonging to the chapter dialog does not collapse the expanded book edge',()=>{
-  const f=setup();f.index.setExpanded('right');
-  const event=f.doc.dispatch('keydown',{key:'Escape',target:{closest:selector=>selector==='.edge-chapters'?{}:null}});
-  assert.equal(f.index.getExpanded(),'right');assert.equal(event.prevented,false);
-  f.doc.querySelector=()=>({});f.doc.dispatch('keydown',{key:'Escape'});assert.equal(f.index.getExpanded(),'right');
-});
-test('bands, group labels and individual labels are native focusable buttons with full names',()=>{
-  const f=setup();f.index.setExpanded('right');
-  for(const button of [...classNodes(f,'edge-index__band'),...visibleBooks(f)]){
-    assert.equal(button.tagName,'BUTTON');assert.equal(button.type,'button');assert.ok(button.title);assert.ok(button.getAttribute('aria-label'));
-    assert.equal(button.events.has('keydown'),false);assert.equal(button.getAttribute('tabindex'),null);
-    const down=button.dispatch('pointerdown');assert.equal(down.prevented,false);
+test('blank fore-edge surfaces do not advertise or expose any alternate view',()=>{
+  const f=setup(),bands=classNodes(f,'edge-index__band');assert.equal(bands.length,2);
+  for(const band of bands){
+    assert.equal(band.tagName,'DIV');assert.equal(band.getAttribute('aria-hidden'),'true');
+    assert.equal(band.getAttribute('role'),null);assert.equal(band.getAttribute('tabindex'),null);
+    assert.ok(!band.events.has('click'));assert.equal(band.dispatch('pointerdown').stopped,false);
+    band.click();band.dispatch('dblclick');
   }
-  for(const button of visibleBooks(f)){const i=+button.dataset.book;assert.ok(button.title.includes(books[i].name));assert.equal(button.textContent,books[i].short);assert.equal(Number(button.dataset.carrier),Math.ceil(books[i].first/2));assert.ok(Number.isFinite(Number(button.dataset.depthRatio)));}
-  assert.equal(f.doc.activeElement,visibleBooks(f)[0]);
-  f.index.setExpanded(null);for(const button of visibleGroups(f)){assert.equal(button.tagName,'BUTTON');assert.equal(button.type,'button');assert.ok(button.title);}
+  assert.deepEqual(f.events,[]);assert.equal(f.host.style.zIndex,'6');
+  assert.equal(f.children.filter(node=>node.tagName==='BUTTON'&&!isClass(node,'edge-index__group')).length,0);
+  assert.equal(f.index.setExpanded,undefined);assert.equal(f.index.isExpanded,undefined);
+  assert.equal(f.doc.dispatch('keydown',{key:'Escape'}).prevented,false);
+  for(const name of ['edge-index__book','edge-index__backdrop','edge-index__caption'])assert.equal(classNodes(f,name).length,0);
 });
-test('titles and accessible names never present internal first-page offsets as printed page numbers',()=>{
-  const f=setup();f.index.update({spread:1194});f.index.setExpanded('right');
-  for(const button of [...classNodes(f,'edge-index__group'),...classNodes(f,'edge-index__book')]){
-    assert.equal(/第\s*\d+\s*页/.test(button.title||''),false);
-    assert.equal(/第\s*\d+\s*页/.test(button.getAttribute('aria-label')||''),false);
+test('only the actual cut buttons are focusable, labelled and request the chapter dialog',()=>{
+  const f=setup(physical);f.index.update({spread:1194});
+  for(const button of visibleGroups(f)){
+    assert.equal(button.tagName,'BUTTON');assert.equal(button.type,'button');
+    assert.equal(button.getAttribute('aria-haspopup'),'dialog');
+    assert.equal(button.getAttribute('aria-label'),button.title);
+    for(const i of button.dataset.members.split(','))assert.ok(button.title.includes(physical.books[i].name));
+    assert.doesNotMatch(button.title,/展开|放大|第\s*\d+\s*页/);
+    assert.equal(button.getAttribute('tabindex'),null);assert.equal(button.events.has('keydown'),false);
+    assert.equal(button.dispatch('pointerdown').prevented,false);
   }
 });
-test('blank band click expands, Escape/backdrop close, and null closure is idempotent',()=>{
-  const f=setup(),right=classNodes(f,'edge-index__band').find(node=>node.dataset.side==='right');
-  right.click();assert.equal(f.index.getExpanded(),'right');assert.equal(f.host.style.zIndex,'90');assert.equal(f.index.isExpanded(),true);
-  const escape=f.doc.dispatch('keydown',{key:'Escape'});assert.ok(escape.stopped&&escape.prevented);assert.equal(f.index.getExpanded(),null);assert.equal(f.host.style.zIndex,'6');
-  assert.equal(f.doc.activeElement,right);const count=f.events.length;f.index.setExpanded(null);assert.equal(f.events.length,count);
-  right.click();classNodes(f,'edge-index__backdrop')[0].click();assert.equal(f.index.getExpanded(),null);
-});
-test('turn update closes and disables index without reentering onExpand',()=>{
-  const f=setup();f.index.setExpanded('right');const count=f.events.length;
-  f.index.update({turning:true});assert.equal(f.index.getExpanded(),null);assert.equal(f.events.length,count);
-  for(const button of visibleGroups(f)){assert.ok(button.disabled);button.click();}assert.equal(f.events.length,count);
-  f.index.setExpanded('right');assert.equal(f.index.getExpanded(),null);assert.equal(f.events.length,count);
+test('turn updates disable chapter labels while retaining the band gesture surfaces',()=>{
+  const f=setup();f.index.update({turning:true});
+  for(const button of visibleGroups(f)){assert.ok(button.disabled);button.click();}assert.deepEqual(f.events,[]);
   f.index.update({turning:false});assert.ok(visibleGroups(f).every(button=>!button.disabled));
 });
-test('current highlight follows only its actual side and updates without replacing book buttons',()=>{
-  const f=setup(),original=classNodes(f,'edge-index__book').slice();f.index.update({spread:262,currentBook:'2SA'});
-  const highlighted=visibleGroups(f).filter(node=>node.getAttribute('aria-current')==='page');assert.equal(highlighted.length,1);assert.equal(highlighted[0].dataset.side,'right');
-  f.index.setExpanded('right');assert.equal(visibleBooks(f).filter(node=>node.getAttribute('aria-current')).length,1);
-  for(const spread of [1216,0,1244]){f.index.update({spread});assert.deepEqual(classNodes(f,'edge-index__book'),original);}
+test('current highlight follows only its physical side without replacing cut buttons',()=>{
+  const f=setup(),original=classNodes(f,'edge-index__group');
+  f.index.update({spread:splitBefore(books,9),currentBook:'2SA'});
+  const highlighted=visibleGroups(f).filter(node=>node.getAttribute('aria-current')==='page');
+  assert.equal(highlighted.length,1);assert.equal(highlighted[0].dataset.side,'right');
+  for(const spread of [1216,0,1244]){
+    f.index.update({spread});assert.deepEqual(classNodes(f,'edge-index__group'),original);
+  }
 });
-test('destroy removes only owned markup and document listeners, restoring host stacking',()=>{
-  const f=setup(),sibling=new Element('div',f.doc);f.host.appendChild(sibling);f.index.setExpanded('right');f.index.destroy();f.index.destroy();
-  assert.deepEqual(f.host.children,[sibling]);assert.equal(f.host.style.zIndex,'6');assert.equal(f.doc.events.get('keydown').size,0);
+test('destroy removes only owned markup and detaches native group listeners',()=>{
+  const f=setup(),sibling=new Element('div',f.doc),cut=visibleGroups(f)[0];
+  f.host.appendChild(sibling);f.index.destroy();f.index.destroy();
+  assert.deepEqual(f.host.children,[sibling]);assert.equal(f.host.style.zIndex,'6');
+  cut.click();assert.deepEqual(f.events,[]);assert.equal(cut.events.get('click').size,0);assert.equal(f.doc.events.size,0);
 });
 console.log(`Edge index: ${checks} checks passed (${books.length} real books, ${pageCount} real pages).`);

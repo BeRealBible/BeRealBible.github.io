@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const root=__dirname;
-const requiredIds=['stage','book','book-volume','reference-cover','left-half','right-half','left-paper','right-paper','left-paper-edges','right-paper-edges','edge-index-host','location-button','book-name','chapter-name','prev','next','page-label','progress-label','read-block','position-pin','help-open','help-dialog','about-open','about-dialog','reading-tools','fit-book','focus-left','focus-right','zoom-in','zoom-out','zoom-value','viewport-map','map-window','gesture-feedback','demo-pan','demo-burst','book-picker','book-picker-title','book-picker-close','book-picker-back','book-picker-books','book-picker-chapters','reader-rule-loading','reader-version','reader-reload'];
+const requiredIds=['stage','book','book-volume','reference-cover','left-half','right-half','left-paper','right-paper','left-paper-edges','right-paper-edges','edge-index-host','location-button','book-name','chapter-name','prev','next','page-label','progress-label','read-block','position-pin','help-open','help-dialog','about-open','about-dialog','reading-tools','fit-book','focus-left','focus-right','zoom-in','zoom-out','zoom-value','gesture-feedback','demo-pan','demo-burst','book-picker','book-picker-title','book-picker-close','book-picker-back','book-picker-books','book-picker-chapters','reader-rule-loading','reader-version','reader-reload'];
 const retainedScripts=['book-material.js','bible-data.js','data/bible-source.js','paper-layout.js','paper-edition.js','paper-typography.js','paper-page.js','gesture-core.js','paper-physics.js','paper-renderer.js','paper-edges.js','immersion.js','reader-release.js'];
 const physicalScripts=['v25-original-data.js','v25-original-render.js','v25-original-storage.js','v25-original-boot.js'];
 const retiredScripts=['ribbon-bookmarks.js','app.js','book-kinematics.js','book-solid.js','book-packet.js','book-depth.js','book-leaves.js','book-scene.js','book-index-layout.js','book-index.js','sticker-reader.js','sticker-index.js'];
@@ -15,6 +15,7 @@ for(const entry of ['index.html','rules.html']){
   assert.equal(ids.length,new Set(ids).size,`${entry}: duplicate IDs`);
   assert.ok(ids.includes('reading-history'));
   assert.ok(!ids.includes('ribbon-bookmarks')&&!/ribbon-bookmarks\.css|(?:丝带|丝绸)书签/.test(html),`${entry}: retired ribbon UI and stylesheet must stay out of this release`);
+  assert.ok(!ids.includes('viewport-map')&&!ids.includes('map-window')&&scripts.includes('paper-cover-zoom.js'), `${entry}: retain the current reading-scale control, not the retired minimap`);
   for(const id of requiredIds)assert.ok(ids.includes(id),`${entry}: missing #${id}`);
   const physical=entry==='index.html',startup=physical?'v25-original-boot.js':'edge-reader.js';
   const entryScripts=physical?physicalScripts:['rule-reader-bootstrap.js','edge-reader.js'];
@@ -45,7 +46,8 @@ for(const entry of ['index.html','rules.html']){
   assert.ok(!/id="(?:scene-controls|index-placement|physical-index-host|view-edge|view-open|right-edge-open|left-edge-open|paper-solid|book-leaves)"/.test(html),`${entry}: old scene entry remains`);
   assert.ok(!/合书|合起书|看书侧|切口|切槽|半圆|拨开|半秒/.test(html),`${entry}: old interaction instructions remain`);
   assert.ok(!/sticker-(?:reader|index)|贴纸/.test(html),`${entry}: retired sticker presentation remains`);
-  assert.ok(html.includes('点索引组')&&html.includes('点书口空白')&&html.includes('Esc 收起'),`${entry}: compact edge direct/select/close instructions`);
+  assert.ok(html.includes('点书卷签直接选章')&&html.includes('合签可切换书卷')&&html.includes('Esc 收起'),`${entry}: choose on the compact book edge or switch within a shared tab`);
+  assert.ok(!/点书口空白|书口放大后|收起索引放大|放大后可独立选择每卷/.test(html),`${entry}: no obsolete fore-edge magnifier instructions`);
   assert.ok(html.includes('data-reader-build="index-25"'),`${entry}: release stamp`);
   assert.ok(!/demo-peek|touch-ring|短点即翻|长按、掀开/.test(html) && html.includes('长按经文') && /右页外缘向左(?:拖动|拖|滑)/.test(html),`${entry}: current selection and outer-edge swipe instructions`);
   assert.ok(!/book-(?:index|scene|solid|leaves)\.css/.test(html),`${entry}: old scene styling loaded`);

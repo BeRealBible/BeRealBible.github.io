@@ -10,7 +10,7 @@
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
-  let saved=null,storage,queuedTurns=[],readingSide=1,edgePose=null,edgeSide=null,selection=null,history=null,preciseRef=null;
+  let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
   let suppressBandClick=null, coverZoom=null;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
@@ -24,7 +24,7 @@
     (canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
   const desk=window.PaperBookDesk?.create(stage,$('desk-surface'));let deskKey=null;
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
-  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,onExpand:expandEdge});
+  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters});
   const readingPage=()=>{
     const a=D.pages[spread+1-readingSide],b=D.pages[spread+readingSide];
     return b.b>=0&&!b.blank&&b.start?b:a.b>=0&&!a.blank&&a.start?a:b;
@@ -43,7 +43,6 @@
   if(window.PAPER_INITIAL_REF&&window.PAPER_INITIAL_REF.page===readingLocation().page)preciseRef=window.PAPER_INITIAL_REF;
   const capturePose=()=>({zoom:scale/fitScale,cx:(view.w/2-x)/scale,cy:(view.h/2-y)/scale,focus});
   function save(){
-    if(edgeSide)return; // Inspecting a book edge must not replace the reading view.
     const p=capturePose();
     try{storage?.setItem('paper-bible-position-v1',JSON.stringify({spread,page:Math.min(spread+readingSide,LAST_PAGE),zoom:p.zoom,centerX:p.cx,centerY:p.cy,focus,bookName:currentBook().name,ref:readingLocation().ref,explicitRef:!!preciseRef&&preciseRef.page===readingLocation().page,edition:D.edition}));}catch{}
   }
@@ -56,26 +55,6 @@
     book.style.setProperty('--edge-left-extent',e.normalLeftExtent+'px');
     book.style.setProperty('--edge-right-extent',e.normalRightExtent+'px');
     return e;
-  }
-  function closeEdge(){if(edgeSide)index.setExpanded(null);}
-  function expandEdge(side){
-    if(side){
-      if(!edgePose)edgePose=capturePose();
-      interrupt();edgeSide=side;stage.dataset.edgeExpanded=side;
-      const e=index.getBounds();
-      // Keep the book open. Only bring the expanded fore-edge into the window;
-      // never rasterize the text or make a phone's labels miniature.
-      scale=Math.min(Math.max(1,scale),(view.w-32)/224,(view.h-64)/704);
-      focus='custom';
-      if(side==='left')x=Math.max(x,20+e.leftExtent*scale);
-      else x=Math.min(x,view.w-20-(960+e.rightExtent)*scale);
-      y=clamp(y,24,Math.max(24,view.h-24-704*scale));
-      constrain();transform();
-    }else{
-      const pose=edgePose;edgePose=null;edgeSide=null;delete stage.dataset.edgeExpanded;
-      if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus;}
-      constrain();transform();
-    }
   }
   function applyMaterial(material=Material.compute(spread,D.pages.length,D.books)){
     for(const side of ['left','right']){
@@ -100,23 +79,11 @@
     stage.dataset.spread=String(spread);stage.dataset.book=b.code;
     applyMaterial();updateIndex();
   }
-  function envelope(normal=false){
+  function envelope(){
     const e=index.getBounds();
-    return {left:-Math.max(16,normal?e.normalLeftExtent:e.leftExtent),right:960+Math.max(16,normal?e.normalRightExtent:e.rightExtent),bottom:724};
+    return {left:-Math.max(16,e.leftExtent),right:960+Math.max(16,e.rightExtent),bottom:724};
   }
   function constrain(){
-    if(edgeSide){
-      const e=index.getBounds(),w=edgeSide==='left'?e.leftExtent:e.rightExtent,
-        offset=(edgeSide==='left'?-w:960)*scale;
-      // The open index, not the 960-wide spread, is the navigable surface.
-      // Small bands stay fully in view; overlarge bands can reach either end
-      // but cannot be dragged entirely offscreen, even at maximum zoom.
-      const bound=(start,size,viewport)=>{
-        const pad=Math.min(18,viewport/4),far=viewport-pad-size;
-        return clamp(start,Math.min(pad,far),Math.max(pad,far));
-      };
-      x=bound(x+offset,w*scale,view.w)-offset;y=bound(y,704*scale,view.h);return;
-    }
     const e=envelope(),w=(e.right-e.left)*scale,h=e.bottom*scale,pad=18;
     if(w<=view.w-pad*2)x=view.w/2-(e.left+e.right)*scale/2;
     else x=clamp(x,view.w-pad-e.right*scale,pad-e.left*scale);
@@ -133,10 +100,10 @@
     $('surface-caption').style.opacity=scale>fitScale*1.2?'0':'1';
     updateIndex();chapters?.reposition?.();
   }
-  function measureFit(){const e=envelope(true),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
-  function fit(){closeEdge();interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
+  function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
+  function fit(){interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
   function focusPage(side,arriving=false){
-    if(!arriving){closeEdge();interrupt();}focus=side;readingSide=side==='left'?0:1;render();const e=envelope(),outer=side==='left'?-e.left:e.right-960;
+    if(!arriving)interrupt();focus=side;readingSide=side==='left'?0:1;render();const e=envelope(),outer=side==='left'?-e.left:e.right-960;
     scale=clamp((view.w-32)/(480+outer),fitScale,MAX_SCALE);
     // A fixed double-column page must not become 7 px text on a phone. Keep
     // its outer column and compact book index readable; pan to the inner column.
@@ -145,7 +112,7 @@
     y=18;constrain();transform();save();
   }
   function zoom(next,at={x:view.w/2,y:view.h/2}){
-    closeEdge();interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
+    interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
     x=at.x-(at.x-x)/scale*next;y=at.y-(at.y-y)/scale*next;
     scale=next;focus=scale===fitScale?'fit':'custom';constrain();transform();save();
   }
@@ -158,10 +125,6 @@
       const next=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);
       x=clamp(ax,8,view.w-8)-(ax-x)*next/scale;y=clamp(ay,8,view.h-8)-(ay-y)*next/scale;
       scale=next;transform();return;
-    }
-    if(edgeSide){
-      scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;
-      constrain();transform();return;
     }
     if(focus==='fit')scale=fitScale;
     else{scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;}
@@ -225,7 +188,7 @@
     foldFrame=requestAnimationFrame(frame);
   }
   function turn(direction,count=1,source='control'){
-    if(edgeSide||jumpState||chapters?.isOpen()||selection?.isActive())return;
+    if(jumpState||chapters?.isOpen()||selection?.isActive())return;
     clearHold();
     if(fold){if(fold.settling&&queuedTurns.length<8)queuedTurns.push([direction,count,source]);return;}
     if(startFold(direction,count,source))settleFold();
@@ -239,7 +202,7 @@
     if(fold)finishFold(false);
   }
   function jump(page,pose,entryId,requested,destinationKey=null){
-    closeEdge();interrupt();$('book-picker').close();
+    interrupt();$('book-picker').close();
     page=clamp(page,0,LAST_PAGE);
     const target=clamp(page&~1,0,MAX_SPREAD),transaction={from:spread,target,page,pose};
     jumpState=transaction;
@@ -277,8 +240,6 @@
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:(page,requested)=>jump(page,null,null,requested),
     getBookFrame:bookFrame,onZoom:zoomWithChapterMenu,
-    onDismiss:frame=>{if(!edgeSide||!frame)return;const r=stage.getBoundingClientRect();
-      x=frame.x-r.left;y=frame.y-r.top;scale=frame.scale;constrain();transform();},
     getPreview:(index,chapter)=>chapterPreview(D.books[index]?.code,chapter),
     getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingLocation().ref,10)||1})});
   function openEdgeChapters(i,_book,metadata={}){
@@ -286,7 +247,7 @@
     chapters.open({bookIndices:metadata.bookIndices||[i],index:i,anchor:metadata.anchor});
   }
   function openPicker(){
-    closeEdge();interrupt();$('book-picker-books').hidden=false;$('book-picker-chapters').hidden=true;$('book-picker-back').hidden=true;
+    interrupt();$('book-picker-books').hidden=false;$('book-picker-chapters').hidden=true;$('book-picker-back').hidden=true;
     $('book-picker-title').textContent='书卷与章节';$('book-picker').showModal();
   }
   function showChapters(i){
@@ -300,7 +261,7 @@
   $('book-picker-close').onclick=()=>$('book-picker').close();
   $('location-button').onclick=openPicker;
   window.addEventListener('paper-directory-request',openPicker);
-  window.addEventListener('paper-interrupt',()=>{closeEdge();interrupt();});
+  window.addEventListener('paper-interrupt',()=>{interrupt();});
   const relative=e=>{const r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top,t:e.timeStamp??performance.now()};};
   const centroid=()=>{const a=[...pointers.values()];return {x:a.reduce((s,p)=>s+p.x,0)/a.length,y:a.reduce((s,p)=>s+p.y,0)/a.length,t:Math.max(...a.map(p=>p.t))};};
   const distance=()=>{const a=[...pointers.values()];return a.length<2?0:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);};
@@ -320,16 +281,16 @@
     focus='custom';transform();return true;
   }
   function pointerDown(e){
-    const touchLabel=e.pointerType==='touch'&&!edgeSide?e.target?.closest?.('.edge-index__group'):null;
+    const touchLabel=e.pointerType==='touch'?e.target?.closest?.('.edge-index__group'):null;
     const contact=touchLabel?relative(e):null,atEdge=contact&&inwardDirection((contact.x-x)/scale,(contact.y-y)/scale,null);
     const candidate=e.target?.closest?.('.edge-index__band')||
       (touchLabel&&atEdge===(touchLabel.dataset.side==='right'?1:-1)?touchLabel:null),
       band=candidate&&!candidate.disabled?candidate:null;
     suppressBandClick=null;
-    if((edgeSide&&band?.dataset.side!==edgeSide)||jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
+    if(jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
     clearHold();
-    // Let a stationary press reach the actual band button (including native
-    // focus/click). Transfer its capture to the stage only once a drag exists.
+    // A still press on blank paper does nothing; a named cut keeps its native
+    // click. Transfer pointer capture to the stage only after a drag starts.
     pointers.set(e.pointerId,relative(e));try{(band||stage).setPointerCapture(e.pointerId);}catch{}
     if(pointers.size>1){
       if(fold){queuedTurns=[];finishFold(false);}
@@ -339,7 +300,7 @@
     const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
-      edge:edgeSide?0:inwardDirection(bx,by,band),contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
+      edge:inwardDirection(bx,by,band),contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
       direction:0,trend:1,extreme:0};
     if(token&&!selection.isActive())holdTimer=setTimeout(()=>{
       holdTimer=null;if(gesture!==g||pointers.size!==1||g.kind!=='pending'||g.pinched)return;
@@ -426,8 +387,8 @@
     }
     if(g.kind==='pan'){stage.dataset.lastGesture='pan';if(g.panned)save();}
   }
-  // The index owns native button clicks. Capture pointer events before the
-  // band's stopPropagation, but never handle book-label buttons or an open index.
+  // Capture before a compact tab handles its native click; drags starting on
+  // the blank fore-edge remain normal page gestures.
   stage.addEventListener('pointerdown',pointerDown,true);stage.addEventListener('pointermove',pointerMove);
   stage.addEventListener('pointerup',e=>pointerUp(e),true);stage.addEventListener('pointercancel',e=>pointerUp(e,true),true);
   stage.addEventListener('click',e=>{
@@ -454,14 +415,10 @@
     if(e.ctrlKey||e.metaKey){
       e.preventDefault();wheelBurst=null;if(fold||pointers.size||!dy)return;
       const next=clamp(scale*Math.exp(-dy*.003),fitScale,MAX_SCALE);
-      if(edgeSide){
-        x=at.x-(at.x-x)*next/scale;y=at.y-(at.y-y)*next/scale;scale=next;constrain();transform();
-      }else zoom(next,at);
+      zoom(next,at);
       return;
     }
-    e.preventDefault();if(edgeSide||pointers.size){
-      wheelBurst=null;if(edgeSide&&!pointers.size&&!fold)panTo(x-dx,y-dy);return;
-    }
+    e.preventDefault();if(pointers.size){wheelBurst=null;return;}
     if(scale>fitScale+.00001){
       wheelBurst=null;if(!fold&&panTo(x-dx,y-dy))save();return;
     }
@@ -482,18 +439,17 @@
   stage.addEventListener('keydown',e=>{
     if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&(e.altKey||e.ctrlKey||e.metaKey))return;
     if(jumpState||chapters?.isOpen()){if(e.key==='Escape'){e.preventDefault();interrupt();}return;}
-    if(edgeSide){if(e.key==='Escape'){e.preventDefault();closeEdge();}return;}
     if(e.target?.closest?.('button,input,dialog'))return;
     if(e.key==='ArrowRight'){e.preventDefault();turn(1);}else if(e.key==='ArrowLeft'){e.preventDefault();turn(-1);}
     else if(e.key==='Escape')interrupt();else if(e.key==='+'||e.key==='=')zoom(scale*1.2);else if(e.key==='-')zoom(scale/1.2);else if(e.key==='0')fit();
   });
   $('fit-book').onclick=fit;$('zoom-value').onclick=fit;
   for(const side of ['left','right'])$('focus-'+side).onclick=()=>{focusPage(side);history?.advance(readingLocation());};
-  $('zoom-in').onclick=()=>{if(chapters?.isOpen())zoomWithChapterMenu(1.3);else{closeEdge();zoom(scale*1.3);}};
-  $('zoom-out').onclick=()=>{if(chapters?.isOpen())zoomWithChapterMenu(1/1.3);else{closeEdge();zoom(scale/1.3);}};
+  $('zoom-in').onclick=()=>{if(chapters?.isOpen())zoomWithChapterMenu(1.3);else zoom(scale*1.3);};
+  $('zoom-out').onclick=()=>{if(chapters?.isOpen())zoomWithChapterMenu(1/1.3);else zoom(scale/1.3);};
   $('prev').onclick=()=>turn(-1);$('next').onclick=()=>turn(1);
-  $('about-open').onclick=()=>{closeEdge();interrupt();$('about-dialog').showModal();};
-  $('help-open').onclick=()=>{closeEdge();interrupt();$('help-dialog').showModal();};
+  $('about-open').onclick=()=>{interrupt();$('about-dialog').showModal();};
+  $('help-open').onclick=()=>{interrupt();$('help-dialog').showModal();};
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
   document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
   document.querySelector('.brand')?.addEventListener('click',e=>{e.preventDefault();fit();});

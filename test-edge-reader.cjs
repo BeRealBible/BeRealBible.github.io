@@ -144,14 +144,14 @@ function fixture(startSpread = 2, options = {}) {
     hide() { this.last = null; }
   }
   let edgeBounds = { leftExtent: 52, rightExtent: 52, normalLeftExtent: 52, normalRightExtent: 52 };
-  let edgeItems = [], edgeLayout, expandedSide = null, edgeState = { spread: startSpread, turning: false };
+  let edgeItems = [], edgeLayout, edgeState = { spread: startSpread, turning: false };
   function edgeGeometry() {
     if (options.realEdgeGeometry) {
-      edgeLayout = EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, edgeState.spread, expandedSide);
-      edgeItems = [...edgeLayout.groups, ...edgeLayout.expandedBooks];
+      edgeLayout = EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, edgeState.spread);
+      edgeItems = edgeLayout.groups;
       edgeBounds = edgeLayout.bounds;
     } else {
-      edgeBounds = { leftExtent: expandedSide === 'left' ? 240 : 52, rightExtent: expandedSide === 'right' ? 240 : 52, normalLeftExtent: 52, normalRightExtent: 52 };
+      edgeBounds = { leftExtent: 52, rightExtent: 52, normalLeftExtent: 52, normalRightExtent: 52 };
     }
     return edgeBounds;
   }
@@ -159,7 +159,6 @@ function fixture(startSpread = 2, options = {}) {
     update: (...args) => {
       edgeCalls.push({ type: 'update', args, at: now });
       edgeState = { ...edgeState, ...args[0] };
-      if (edgeState.turning) expandedSide = null;
       return edgeGeometry();
     },
     setSpread: (...args) => edgeCalls.push({ type: 'spread', args, at: now }),
@@ -167,13 +166,6 @@ function fixture(startSpread = 2, options = {}) {
     setTurning: (...args) => edgeCalls.push({ type: 'turning', args, at: now }),
     getBounds: () => edgeBounds,
     getNormalBounds: () => ({ leftExtent: edgeBounds.normalLeftExtent, rightExtent: edgeBounds.normalRightExtent }),
-    setExpanded: side => {
-      if (edgeState.turning) side = null;
-      if (side === expandedSide) return expandedSide;
-      expandedSide = side; edgeGeometry(); edgeCalls.push({ type: 'expanded', side, at: now });
-      edgeOptions?.onExpand?.(side); return expandedSide;
-    },
-    getExpanded: () => expandedSide,
     destroy() {}
   };
   function finishJump(call = jumpActive, stale = false) {
@@ -265,7 +257,15 @@ function fixture(startSpread = 2, options = {}) {
   function click(id, extra = {}) { el(id).dispatchEvent({ type: 'click', detail: 1, ...extra }); }
   function selectBook(index, metadata) {
     assert.ok(edgeOptions, 'edge index is installed');
-    if (options.realIndexDom) return readerIndex.element.querySelector(`[data-book="${index}"]`).dispatchEvent({ type: 'click' });
+    if (options.realIndexDom) {
+      const group = readerIndex.element.querySelectorAll('.edge-index__group').find(b => !b.hidden && b.dataset.members.split(',').includes(String(index)));
+      assert.ok(group, 'named cut with the requested book exists'); group.dispatchEvent({type:'click'});
+      if (options.realChaptersDom && chapterReader.isOpen() && Number(chapterReader.element.dataset.book)!==index) {
+        const member = chapterReader.element.querySelectorAll('.edge-chapters__book').find(b => Number(b.dataset.book)===index);
+        assert.ok(member, 'requested book is one of the section tabs'); member.dispatchEvent({type:'click'});
+      }
+      return;
+    }
     if (edgeState.turning) return;
     return edgeOptions.onSelect(index, context.BIBLE_DATA.books[index], metadata || { bookIndices: [index], anchor: { left: 300, top: 250, width: 44, height: 26, right: 344, bottom: 276 } });
   }
@@ -280,8 +280,8 @@ function fixture(startSpread = 2, options = {}) {
   }
   return { el, advance, emit, at, tap, swipe, hold, drag, click, context, rendered, draws, saved, storage, edgeCalls, sceneCalls, jumpCalls, chapterCalls, previewCalls, previewSources,
     get now() { return now; }, get position() { return JSON.parse(storage.get('paper-bible-position-v1')); }, get edgeItems() { return edgeItems; },
-    get edgeLayout() { return options.realIndexDom ? EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, Number(el('stage').dataset.spread), readerIndex.getExpanded()) : edgeLayout; },
-    get expandedSide() { return readerIndex.getExpanded(); }, get indexElement() { return readerIndex.element; },
+    get edgeLayout() { return options.realIndexDom ? EdgeIndex.layout(context.BIBLE_DATA.books, context.BIBLE_DATA.pages.length, Number(el('stage').dataset.spread)) : edgeLayout; },
+    get indexElement() { return readerIndex.element; },
     get chapterState() { return chapterOpenState; }, get chapterElement() { return chapterReader.element; }, get chaptersOpen() { return chapterReader.isOpen(); }, get chapterOptions() { return chapterOptions; }, get jumpActive() { return jump.isActive(); },
     get chapterMode() { return chapterReader.getMode(); }, setChapterMode: mode => chapterReader.setMode(mode),
     finishJump: () => finishJump(), cancelJump: () => jump.cancel(), invokeJumpFinish: index => finishJump(jumpCalls[index], true),
@@ -289,7 +289,6 @@ function fixture(startSpread = 2, options = {}) {
     event: (type, extra = {}) => dispatch(events, type, extra), resize: () => observer?.(),
     selectBook, chooseChapter,
     goBook: index => { selectBook(index); chooseChapter(context.BIBLE_DATA.books[index].first); },
-    expand: side => { assert.ok(edgeOptions, 'edge index is installed'); return readerIndex.setExpanded(side); },
     navigateDirectory:page=>chapterOptions.onSelect(page), navigateHistory:(page,id,entry)=>historyOptions.onNavigate(page,id,entry) };
 }
 
@@ -346,11 +345,11 @@ test('zoomed two-finger horizontal wheel only pans; strip and named book buttons
   assert.ok(parseInt(f.el('zoom-value').textContent)>155);
   const before=Number(f.el('stage').dataset.x);wheelAt(f,p,-20,0);f.advance(500);
   assert.notEqual(Number(f.el('stage').dataset.x),before);assert.equal(f.rendered.length,0);
-  f.click('fit-book');if(!f.expandedSide)f.expand('right');
+  f.click('fit-book');band.dispatchEvent({type:'click',detail:1});
   const z=Number(f.el('stage').dataset.scale);assert.equal(wheelAt(f,p,0,-70,{ctrlKey:true,target:band}).defaultPrevented,true);
-  assert.equal(f.expandedSide,'right');assert.ok(Number(f.el('stage').dataset.scale)>z);
-  wheelAt(f,p,80,0,{target:band});assert.equal(f.rendered.length,0);f.expand(null);
-  assert.equal(f.el('zoom-value').textContent,'100%','looking at a zoomed edge has not overwritten the reading pose');
+  assert.ok(Number(f.el('stage').dataset.scale)>z);assert.equal(f.chaptersOpen,false);
+  wheelAt(f,p,80,0,{target:band});assert.equal(f.rendered.length,0);
+  f.click('fit-book');assert.equal(f.el('zoom-value').textContent,'100%');
 });
 test('lifting one finger after a pinch allows immediate single-finger pan without selection or a page turn',()=>{
   const f=fixture(20,{width:390,height:844}),p=f.at('right',300,300),s=f.el('stage');
@@ -420,13 +419,13 @@ for(const dir of [-1,1])test('last intentional motion towards the source cancels
   f.advance(600);assert.equal(f.draws.at(-1).progress,partial);assert.equal(spread(f),20);
   send('pointerup',521);f.advance(1000);assert.equal(spread(f),20);assert.equal(state(f),'returned');assert.equal(f.rendered.length,1);
 });
-test('unexpanded striped edge distinguishes the index click from the page drag without swallowing named tabs',()=>{
+test('blank fore-edge accepts page drags without swallowing taps on named cuts',()=>{
   const f=fixture(20),stage=f.el('stage'),p=f.at('right',478,625),band=f.el('edge-band-probe');band.className='edge-index__band';
   const send=(t,dx,target=band)=>f.emit(t,p.x-dx,p.y,1,'touch',target);
   const nativeClick=()=>{const e={type:'click',target:band,detail:1};stage.dispatchEvent(e);return !e.defaultPrevented;};
-  send('pointerdown',0);send('pointerup',0);assert.ok(nativeClick(),'tap can reach the native index handler');assert.equal(f.rendered.length,0);
+  send('pointerdown',0);send('pointerup',0);assert.ok(nativeClick(),'stationary tap is not mistaken for a drag');assert.equal(f.rendered.length,0);
   send('pointerdown',0);send('pointermove',55);assert.equal(state(f),'dragging');f.advance(520);assert.equal(spread(f),20);
-  send('pointerup',55);assert.ok(!nativeClick(),'trailing synthetic click cannot reopen the index');f.advance(900);assert.equal(spread(f),22);
+  send('pointerup',55);assert.ok(!nativeClick(),'trailing synthetic click is suppressed after the drag');f.advance(900);assert.equal(spread(f),22);
   const tab=f.el('demo-index-test');tab.className='edge-index__group';send('pointerdown',0,tab);send('pointermove',70,tab);send('pointerup',70,tab);f.advance(900);assert.equal(spread(f),22);
 });
 test('a deliberate short forward drag held stationary still commits on release without fling velocity',()=>{
@@ -626,107 +625,35 @@ function camera(f) { return ['x', 'y', 'scale'].map(key => Number(f.el('stage').
 function assertCameraEqual(actual, expected) {
   actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) <= .02, `camera component ${index} must restore: ${value} vs ${expected[index]}`));
 }
-test('expanded edge restores exact custom camera and never persists its temporary view', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true, pose: { zoom: 2, centerX: 600, centerY: 340, focus: 'custom' } });
-  const original = camera(f), saved = f.storage.get('paper-bible-position-v1');
-  f.expand('right'); assert.equal(f.expandedSide, 'right');
-  assert.notDeepEqual(camera(f), original, 'expanded edge uses its own readable camera');
-  assert.equal(f.storage.get('paper-bible-position-v1'), saved, 'temporary index camera must not overwrite reading position');
-  f.expand('left'); assert.equal(f.expandedSide, 'left');
-  f.expand(null); assert.equal(f.expandedSide, null); assertCameraEqual(camera(f), original);
-  assert.equal(f.storage.get('paper-bible-position-v1'), saved); assertReading(f);
-});
-for(const side of ['left','right'])test('zoomed '+side+' index pans to all four bounds, returns from its chooser, and never turns a page',()=>{
-  const f=fixture(600,{width:390,height:844,data:currentRuleData(),realIndexDom:true,realChaptersDom:true}),stage=f.el('stage');
-  const original=camera(f),saved=f.storage.get('paper-bible-position-v1');f.expand(side);
-  const band=f.indexElement.querySelectorAll('.edge-index__band').find(b=>b.dataset.side===side),box=f.edgeLayout.bands[side];
-  function rect(){const [x,y,s]=camera(f);return {left:x+box.x*s,top:y,right:x+(box.x+box.width)*s,bottom:y+704*s};}
-  const center=()=>{const r=rect();return {x:(Math.max(0,r.left)+Math.min(390,r.right))/2,y:(Math.max(0,r.top)+Math.min(844,r.bottom))/2};};
-  wheelAt(f,center(),0,-600,{ctrlKey:true,target:band});assert.ok(rect().bottom-rect().top>1800);
-  for(const sign of [1,-1]){
-    wheelAt(f,center(),sign*1e5,sign*1e5,{target:band});const r=rect();
-    if(sign>0){assert.ok(Math.abs(r.right-372)<.15);assert.ok(Math.abs(r.bottom-826)<.15);}
-    else{assert.ok(Math.abs(r.left-18)<.15);assert.ok(Math.abs(r.top-18)<.15);}
-    assert.ok(r.right>=372&&r.left<=18.1,'horizontal pan always leaves the broad open index in view');
-  }
-  const nativeClick=()=>{const e={type:'click',target:band,detail:1};stage.dispatchEvent(e);if(!e.defaultPrevented)band.dispatchEvent({type:'click'});};
+for(const side of ['left','right'])test('blank '+side+' edge never changes the reading camera, page or selection menu',()=>{
+  const f=fixture(600,{data:currentRuleData(),realIndexDom:true,realChaptersDom:true,pose:{zoom:2,centerX:600,centerY:340,focus:'custom'}});
+  const original=camera(f),stored=f.storage.get('paper-bible-position-v1'),writes=f.saved.length;
+  const band=f.indexElement.querySelectorAll('.edge-index__band').find(node=>node.dataset.side===side);
+  assert.notEqual(band.tagName,'BUTTON');assert.equal(f.indexElement.querySelectorAll('.edge-index__book').length,0);
   for(const type of ['mouse','touch']){
-    const before=camera(f),p=center();
-    f.emit('pointerdown',p.x,p.y,1,type,band);f.emit('pointermove',p.x-20,p.y-70,1,type,band);
-    f.emit('pointerup',p.x-20,p.y-70,1,type,band);nativeClick();
-    assert.ok(Math.abs(camera(f)[0]-before[0]+20)<.1);assert.ok(Math.abs(camera(f)[1]-before[1]+70)<.1);
-    assert.equal(f.expandedSide,side);assert.equal(f.rendered.length,0);assert.equal(spread(f),600);
-  }
-  const pose=camera(f),button=f.indexElement.querySelectorAll('.edge-index__book').find(b=>!b.hidden);
-  button.dispatchEvent({type:'click'});assert.equal(f.chaptersOpen,true);
-  f.chapterOptions.onZoom(.8);f.chapterElement.querySelector('.edge-chapters__close').dispatchEvent({type:'click'});
-  assert.equal(f.expandedSide,side);assertCameraEqual(camera(f),pose);
-  const p=center();f.emit('pointerdown',p.x,p.y,1,'touch',band);f.emit('pointerup',p.x,p.y,1,'touch',band);nativeClick();
-  assert.equal(f.expandedSide,null);assertCameraEqual(camera(f),original);assert.equal(f.storage.get('paper-bible-position-v1'),saved);
-  assert.equal(f.jumpCalls.length,0);
-});
-test('expanded edge consumes page tap, hold, pointercancel and keyboard arrows without page turns', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }); f.expand('right');
-  const p = f.at(); f.emit('pointerdown', p.x, p.y); f.advance(1); f.emit('pointerup', p.x, p.y); f.advance(500);
-  // Opening a side selector is not a hidden request to flip the obscured paper.
-  assert.equal(spread(f), 600); assert.equal(f.rendered.length, 0);
-  f.expand('right'); f.emit('pointerdown', p.x, p.y); f.advance(400); f.emit('pointercancel', p.x, p.y); f.advance(500);
-  assert.equal(spread(f), 600); assert.equal(f.rendered.length, 0);
-  f.expand('right');
-  for (const key of ['ArrowLeft', 'ArrowRight']) f.el('stage').dispatchEvent({ type: 'keydown', key });
-  f.advance(1500); assert.equal(spread(f), 600); assert.equal(f.rendered.length, 0);
-});
-test('Escape collapses an expanded edge and restores the reader camera', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = camera(f);
-  f.expand('left'); f.el('stage').dispatchEvent({ type: 'keydown', key: 'Escape' });
-  assert.equal(f.expandedSide, null); assertCameraEqual(camera(f), original); assert.equal(spread(f), 600);
-});
-test('turning paper disables edge expansion until the sheet has settled', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = f.el('right-paper').innerHTML;
-  f.swipe(); f.expand('right'); assert.equal(f.expandedSide, null); assert.equal(state(f), 'settling-forward');
-  f.event('blur'); f.advance(1500);
-  assert.equal(spread(f), 600); assert.equal(state(f), 'returned'); assert.equal(f.el('right-paper').innerHTML, original);
-  f.expand('right');
-  assert.equal(f.expandedSide, 'right'); assertReading(f);
-});
-test('every one of 66 books remains individually reachable in expanded edges with exact page anchors', () => {
-  const data = currentRuleData(), f = fixture(600, { data, realEdgeGeometry: true });
-  for (let index = 0; index < data.books.length; index++) {
-    const selected = data.books[index], side = EdgeIndex.carrierSheet(selected) <= Math.floor(spread(f) / 2) ? 'left' : 'right';
-    f.expand(side);
-    assert.ok(f.edgeLayout.expandedBooks.some(item => item.index === index && item.side === side), selected.name + ' is individually accessible on its own carrier side');
-    const before = spread(f); f.selectBook(index);
-    assert.equal(f.chaptersOpen, true); assert.equal(spread(f), before, 'book label opens chapters before navigation');
-    f.chooseChapter(selected.first);
-    assert.equal(f.expandedSide, null); assert.equal(spread(f), selected.first & ~1);
-    assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.position.page, selected.first);
-    assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, selected.first); assertReading(f);
+    const g=f.edgeLayout.bands[side],p={x:original[0]+(g.x+g.width/2)*original[2],y:original[1]+350*original[2]};
+    f.emit('pointerdown',p.x,p.y,1,type,band);f.emit('pointerup',p.x,p.y,1,type,band);band.dispatchEvent({type:'click',detail:1});
+    assertCameraEqual(camera(f),original);assert.equal(f.chaptersOpen,false);assert.equal(spread(f),600);
+    assert.equal(f.saved.length,writes);assert.equal(f.storage.get('paper-bible-position-v1'),stored);
   }
 });
-test('390x844 expanded edge shows every selected-side label inside the viewport', () => {
-  const data = currentRuleData(), f = fixture(600, { data, width: 390, height: 844, realEdgeGeometry: true });
-  for (const side of ['left', 'right']) {
-    f.expand(side); const [x, y, scale] = camera(f);
-    const visible = f.edgeLayout.expandedBooks.filter(item => item.side === side); assert.ok(visible.length);
-    for (const item of visible) {
-      const left = x + item.x * scale, top = y + item.y * scale;
-      assert.ok(left >= -.02 && left + item.width * scale <= 390.02, data.books[item.index].name + ' expanded horizontal bounds');
-      assert.ok(top >= -.02 && top + item.height * scale <= 844.02, data.books[item.index].name + ' expanded vertical bounds');
-    }
-  }
+test('paper turning disables direct group activation until the sheet has settled',()=>{
+  const f=fixture(600,{data:currentRuleData(),realIndexDom:true,realChaptersDom:true}),original=f.el('right-paper').innerHTML;
+  f.swipe();assert.equal(state(f),'settling-forward');
+  const cut=()=>f.indexElement.querySelectorAll('.edge-index__group').find(b=>!b.hidden);
+  assert.equal(cut().disabled,true);cut().dispatchEvent({type:'click'});assert.equal(f.chaptersOpen,false);
+  f.event('blur');f.advance(1500);assert.equal(spread(f),600);assert.equal(state(f),'returned');
+  assert.equal(f.el('right-paper').innerHTML,original);assert.equal(cut().disabled,false);
+  cut().dispatchEvent({type:'click'});assert.equal(f.chaptersOpen,true);
 });
-for (const [control, factor] of [['zoom-in', 1.3], ['zoom-out', 1 / 1.3]]) test(`${control} closes the edge and applies its factor to the reading zoom`, () => {
+for (const [control, factor] of [['zoom-in', 1.3], ['zoom-out', 1 / 1.3]]) test(`${control} still scales the whole book from the saved reading zoom`, () => {
   const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true, pose: { zoom: 2, centerX: 600, centerY: 340, focus: 'custom' } });
-  f.expand('right'); f.click(control);
-  const saved = JSON.parse(f.storage.get('paper-bible-position-v1'));
-  assert.equal(f.expandedSide, null); assert.ok(Math.abs(saved.zoom - 2 * factor) < 1e-8);
-  assert.equal(spread(f), 600); assertReading(f);
+  f.click(control);assert.ok(Math.abs(f.position.zoom-2*factor)<1e-8);assert.equal(spread(f),600);assertReading(f);
 });
-test('paper-interrupt closes the edge, restores camera and leaves no stuck input mode', () => {
-  const f = fixture(600, { data: currentRuleData(), realEdgeGeometry: true }), original = camera(f);
-  f.expand('right'); f.event('paper-interrupt');
-  assert.equal(f.expandedSide, null); assertCameraEqual(camera(f), original);
-  f.swipe(); f.advance(1500); assert.equal(spread(f), 602);
+test('paper-interrupt closes a direct chapter chooser without changing the camera or blocking subsequent turns',()=>{
+  const f=fixture(600,{data:currentRuleData(),realIndexDom:true,realChaptersDom:true}),original=camera(f);
+  f.selectBook(30);assert.equal(f.chaptersOpen,true);f.event('paper-interrupt');assert.equal(f.chaptersOpen,false);
+  assertCameraEqual(camera(f),original);f.swipe();f.advance(1500);assert.equal(spread(f),602);
 });
 test('obsolete held-peek demo no longer installs a handler', () => {
   const f=fixture(600);assert.equal(f.el('demo-peek').onclick,undefined);
@@ -735,25 +662,22 @@ test('real edge and chapter DOM choose all 66 books then commit packets and resu
   const data = currentRuleData(), f = fixture(600, { data, realIndexDom: true, realChaptersDom: true, manualJump: true, width: 390, height: 844 });
   for (let index = 0; index < data.books.length; index++) {
     const selected = data.books[index], side = EdgeIndex.carrierSheet(selected) <= Math.floor(spread(f) / 2) ? 'left' : 'right';
-    const band = f.indexElement.querySelectorAll('.edge-index__band').find(button => button.dataset.side === side);
-    assert.ok(!band.disabled); band.dispatchEvent({ type: 'click' }); assert.equal(f.expandedSide, side);
-    const button = f.indexElement.querySelector(`[data-book="${index}"]`);
-    assert.ok(!button.hidden && !button.disabled, selected.name + ' actual button is accessible');
-    const before = spread(f); f.selectBook(index);
-    assert.equal(f.chaptersOpen, true); assert.equal(spread(f), before); assert.equal(f.expandedSide, side);
+    const group=f.indexElement.querySelectorAll('.edge-index__group').find(b=>!b.hidden && b.dataset.members.split(',').includes(String(index)));
+    assert.ok(group&&!group.disabled,selected.name+' is on a selectable physical cut');assert.equal(group.dataset.side,side);
+    const before=spread(f);f.selectBook(index);assert.equal(f.chaptersOpen,true);assert.equal(spread(f),before);
     assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, selected.chapters.length);
     f.chooseChapter(selected.chapters[0].page);
     if ((selected.first & ~1) !== before) { assert.equal(f.jumpActive, true); assert.equal(spread(f), before); f.finishJump(); }
-    assert.equal(f.expandedSide, null); assert.equal(f.el('book-name').textContent, selected.name);
+    assert.equal(f.el('book-name').textContent, selected.name);
     assert.equal(f.position.page, selected.first);
   }
   f.swipe(); f.advance(1500); assert.equal(spread(f), (data.books[65].first & ~1) + 2);
 });
-test('book index click opens anchored chapter selector without changing the page or closing the edge', () => {
+test('direct book index click opens anchored chapter selector without changing page or camera', () => {
   const data = currentRuleData(), f = fixture(20, { data, manualJump: true }), anchor = { left: 300, top: 250, right: 344, bottom: 276, width: 44, height: 26 };
-  const stored = f.storage.get('paper-bible-position-v1'); f.expand('right');
+  const stored = f.storage.get('paper-bible-position-v1'), cameraBefore=camera(f);
   f.selectBook(55, { bookIndices: [55, 56], anchor });
-  assert.equal(f.expandedSide, 'right'); assert.equal(f.chaptersOpen, true);
+  assertCameraEqual(camera(f),cameraBefore); assert.equal(f.chaptersOpen, true);
   assert.deepEqual(Array.from(f.chapterState.bookIndices), [55, 56]); assert.equal(f.chapterState.index, 55);
   assert.deepEqual(f.chapterState.anchor, anchor); assert.equal(spread(f), 20); assert.equal(f.jumpCalls.length, 0);
   assert.equal(f.storage.get('paper-bible-position-v1'), stored);
@@ -771,8 +695,8 @@ test('chapter selector consumes tap, hold and arrows; Escape dismisses without n
 test('far chapter jump keeps source metadata and storage until packet completion then commits exact face', () => {
   const data = currentRuleData(), selected = data.books.find(book => book.code === 'PHM'), index = data.books.indexOf(selected);
   const f = fixture(20, { data, width: 390, height: 844, manualJump: true }), stored = f.storage.get('paper-bible-position-v1');
-  f.expand('right'); f.selectBook(index); f.chooseChapter(selected.first);
-  assert.equal(f.expandedSide, null); assert.equal(f.chaptersOpen, false); assert.equal(f.jumpActive, true);
+  f.selectBook(index); f.chooseChapter(selected.first);
+  assert.equal(f.chaptersOpen, false); assert.equal(f.jumpActive, true);
   assert.equal(f.jumpCalls.length, 1); assert.equal(f.jumpCalls[0].from, 20); assert.equal(f.jumpCalls[0].to, selected.first);
   assert.equal(spread(f), 20); assert.equal(f.storage.get('paper-bible-position-v1'), stored);
   assert.notEqual(f.position.page, selected.first); f.advance(10000);
@@ -861,13 +785,13 @@ test('actual chapter 150 button requests its real page instead of the first page
   f.finishJump(); assert.equal(f.position.page, target);
   assert.equal(JSON.parse(f.storage.get('paper-bible-position-v1')).page, target);
 });
-test('real chapter Escape closes only the popover before a second Escape closes the expanded edge', () => {
-  const data = currentRuleData(), f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true });
-  f.expand('right'); f.selectBook(65); assert.equal(f.chaptersOpen, true);
-  f.event('keydown', { key: 'Escape', target: f.context.document.activeElement });
-  assert.equal(f.chaptersOpen, false); assert.equal(f.expandedSide, 'right'); assert.equal(f.jumpCalls.length, 0);
-  f.event('document:keydown', { key: 'Escape', target: f.context.document.activeElement });
-  assert.equal(f.expandedSide, null); assert.equal(spread(f), 20);
+test('one Escape dismisses the direct chooser and immediately leaves normal reading available', () => {
+  const data = currentRuleData(), f = fixture(20,{data,realIndexDom:true,realChaptersDom:true,manualJump:true});
+  const original=camera(f);f.selectBook(65);assert.equal(f.chaptersOpen,true);
+  f.event('keydown',{key:'Escape',target:f.context.document.activeElement});
+  assert.equal(f.chaptersOpen,false);assert.equal(f.jumpCalls.length,0);assert.equal(spread(f),20);
+  assertCameraEqual(camera(f),original);f.el('stage').dispatchEvent({type:'keydown',key:'ArrowRight'});
+  f.advance(1500);assert.equal(spread(f),22);
 });
 function clickChapterMode(f, mode) {
   const label = mode === 'preview' ? '经文摘读' : '章号格子';

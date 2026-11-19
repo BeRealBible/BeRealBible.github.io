@@ -2,16 +2,12 @@
 .edge-index [hidden] { display:none!important; }
 .edge-index button { appearance:none;-webkit-appearance:none;box-sizing:border-box;margin:0;min-width:0;min-height:0;max-width:none;max-height:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none; }
 .edge-index__band {
-  position:absolute;z-index:2;padding:0;border:0;border-radius:0;cursor:zoom-in;pointer-events:auto;
+  position:absolute;z-index:2;padding:0;border:0;border-radius:0;cursor:default;pointer-events:auto;user-select:none;
   background:repeating-linear-gradient(90deg,#6e5a3c29 0 1px,transparent 1px 3px),linear-gradient(90deg,#d6ccb6,#f1eadb);
   box-shadow:inset 0 0 0 1px #79664b20;
 }
 .edge-index__band[data-side="right"] { background:repeating-linear-gradient(90deg,#6e5a3c29 0 1px,transparent 1px 3px),linear-gradient(270deg,#d6ccb6,#f1eadb); }
-.edge-index__band[data-expanded="true"] {
-  z-index:20;cursor:zoom-out;box-shadow:0 0 0 2px #d9bc77,0 14px 40px #0006;
-  background:repeating-linear-gradient(90deg,#6e5a3c24 0 1px,transparent 1px 5px),linear-gradient(#efe7d6,#e6dcc7);
-}
-.edge-index__group,.edge-index__book {
+.edge-index__group {
   position:absolute;display:flex;align-items:center;justify-content:center;padding:0;border:0;
   z-index:3;border-radius:6px;color:#fff9ec;cursor:pointer;pointer-events:auto;text-align:center;white-space:nowrap;
   box-shadow:0 0 0 1px #6e583747,inset 0 1px 1px #ffffff2e;
@@ -63,19 +59,13 @@
 /* As in the open book: the straight edge faces the outside cover. */
 .edge-index__group[data-side="left"] { --ink-left:0px;--ink-right:3px;border-radius:0 100% 100% 0 / 0 50% 50% 0; }
 .edge-index__group[data-side="right"] { --ink-left:3px;--ink-right:0px;border-radius:100% 0 0 100% / 50% 0 0 50%; }
-.edge-index__book { z-index:30;border-radius:3px;font-family:"Songti SC","STSong","SimSun",serif;font-size:11px;font-weight:500; }
 .edge-index [aria-current="page"] { box-shadow:0 0 0 2px #d6b56b,0 0 7px #d6b56b70; }
 .edge-index button:focus-visible { outline:2px solid #e9c96e;outline-offset:3px; }
 .edge-index button:disabled { cursor:default;pointer-events:none; }
-.edge-index__backdrop {
-  position:absolute;inset:-2000px;z-index:10;width:auto;height:auto;padding:0;border:0;border-radius:0;
-  background:rgba(10,8,5,.45);cursor:zoom-out;pointer-events:auto;
-}
-.edge-index__caption { position:absolute;top:-30px;z-index:40;color:#f3e2b3;font:12px/1.6 "PingFang SC","Microsoft YaHei",sans-serif;white-space:nowrap;pointer-events:none;text-shadow:0 1px 2px #0007; }
 @media (hover:hover) {
-  .edge-index__group:hover:not(:disabled),.edge-index__book:hover:not(:disabled) { box-shadow:0 0 0 2px #e7c46a,inset 0 0 0 20px #ffffff17; }
+  .edge-index__group:hover:not(:disabled) { box-shadow:0 0 0 2px #e7c46a,inset 0 0 0 20px #ffffff17; }
 }
 @media (forced-colors:active) {
-  .edge-index .edge-index__group,.edge-index__book { border:1px solid ButtonText;color:ButtonText;background:ButtonFace; }
+  .edge-index .edge-index__group { border:1px solid ButtonText;color:ButtonText;background:ButtonFace; }
   .edge-index [aria-current="page"] { color:HighlightText;background:Highlight; }
 }
