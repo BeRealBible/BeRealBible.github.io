@@ -71,19 +71,29 @@
     }
     return {units,lookup};
   }
-  function copyText(items){
+  // Presentation spaces are not part of the copied Chinese text. Keep actual
+  // Latin/numeric word separators; never alter ink, annotation IDs or citations.
+  const cjk=/\p{Script=Han}/u,wordEdge=/[A-Za-z0-9]/;
+  function clipboardText(t){
+    if(!cjk.test(t))return t;
+    return t.replace(/[\s\u200B\u2060]+/gu,(gap,i,value)=>{
+      const before=value[i-1],after=value[i+gap.length];
+      return before&&after&&wordEdge.test(before)&&wordEdge.test(after)?' ':'';
+    });
+  }
+  function copyText(items,textFor=u=>u.text){
     return Array.from(items).sort((a,b)=>a.order-b.order).reduce((state,unit)=>{
       const join=!state.prev?'':state.prev.word&&unit.word&&state.prev.group===unit.group?' ':'\n';
-      state.text+=join+unit.text;state.prev=unit;return state;
+      state.text+=join+textFor(unit);state.prev=unit;return state;
     },{text:'',prev:null}).text;
   }
   function verseOf(unit){
     const m=/^verse:(\d+):(\d+)(?:[-–](\d+))?$/.exec(unit.group);
     return m?{ch:+m[1],v:+m[2],end:+(m[3]||m[2])}:null;
   }
-  function formatQuote(items,bookName,faceUnits=[]){
+  function formatQuote(items,bookName,faceUnits=[],textFor=u=>u.text){
     const list=Array.from(items).sort((a,b)=>a.order-b.order);
-    if(!bookName||!list.some(verseOf))return copyText(list);
+    if(!bookName||!list.some(verseOf))return copyText(list,textFor);
     const refs=[...new Set(faceUnits.slice().sort((a,b)=>a.order-b.order).filter(verseOf).map(u=>u.group))];
     const blocks=[];let passages=[],other=[];
     function scripture(){
@@ -97,7 +107,7 @@
           (r.ch===p.ch+1&&r.v===1&&refs.includes(prev.group)&&refs.indexOf(u.group)===refs.indexOf(prev.group)+1));
         if(prev&&!same&&!consecutive)body+='……';
         if(same&&prev.word&&u.word)body+=' ';
-        body+=u.text;
+        body+=textFor(u);
         if(!same){if(consecutive)spans.at(-1).end=r;else spans.push({start:r,end:r});}
         prev=u;
       }
@@ -107,9 +117,12 @@
       }).join(',');
       blocks.push(body+'\n( '+bookName+' '+address+' 和合本 )');passages=[];
     }
-    function plain(){if(other.length){blocks.push(copyText(other));other=[];}}
+    function plain(){if(other.length){blocks.push(copyText(other,textFor));other=[];}}
     for(const u of list){if(verseOf(u)){plain();passages.push(u);}else{scripture();other.push(u);}}
     scripture();plain();return blocks.join('\n');
+  }
+  function clipboardQuote(items,bookName,faceUnits){
+    return formatQuote(items,bookName,faceUnits,u=>clipboardText(u.text));
   }
   // Each provider owns only query construction. No network work until submit.
   const searchProviders=Object.freeze({
@@ -132,6 +145,50 @@
       }else out.push({...b});
     }
     return out;
+  }
+  function median(a){return a.slice().sort((x,y)=>x-y)[Math.floor(a.length/2)];}
+  // The sealed OCR tags on some editions lack line metadata. Derive stable
+  // row anchors from all body glyphs on the physical face, not from the
+  // selected glyphs: punctuation and small verse labels are not baselines.
+  function physicalRows(commands){
+    const anchors=[[],[]],center=c=>c.y+c.h/2,column=c=>c.x+c.w/2<240?0:1;
+    const body=commands.filter(c=>c.physicalInk&&c.role==='body'&&cjk.test(c.text)&&c.h>0&&c.w>0);
+    if(!body.length)return new Map();
+    const typical=median(body.map(c=>c.h));
+    for(const c of body.slice().sort((a,b)=>center(a)-center(b))){
+      if(c.h<typical*.62)continue;
+      const rows=anchors[column(c)],last=rows.at(-1),y=center(c);
+      if(last&&Math.abs(y-last.center)<=typical*.40){
+        last.center=(last.center*last.n+y)/++last.n;
+      }else rows.push({center:y,n:1});
+    }
+    const inferred=new Map();
+    commands.forEach((c,i)=>{
+      if(!c.physicalInk||c.role!=='body')return;
+      const col=column(c),rows=anchors[col],y=center(c);
+      let nearest=-1,distance=Infinity;
+      for(let j=0;j<rows.length;j++){
+        const d=Math.abs(y-rows[j].center);if(d<distance){distance=d;nearest=j;}
+      }
+      if(distance<=typical*.66)inferred.set(i,{key:'ink/'+col+'/'+nearest,center:rows[nearest].center,height:typical});
+    });
+    return inferred;
+  }
+  // Paint one even band from first to last selected ink on each physical
+  // row. Gaps inside the verse (punctuation and deity spacing) belong to it.
+  function verseBands(boxes){
+    const rows=new Map(),unknown=[];
+    for(const b of boxes){
+      if(!(b.width>0&&b.height>0))continue;
+      if(b.row==null){unknown.push(b);continue;}
+      const row=rows.get(b.row)||[];row.push(b);rows.set(b.row,row);
+    }
+    return [...Array.from(rows.values(),row=>{
+      const x=Math.min(...row.map(b=>b.x)),right=Math.max(...row.map(b=>b.x+b.width));
+      const height=row[0].rowHeight??median(row.map(b=>b.height));
+      const center=row[0].rowCenter??median(row.map(b=>b.y+b.height/2));
+      return {x,y:center-height/2,width:right-x,height};
+    }),...mergeRects(unknown)];
   }
   function create({stage,papers,getPage,commands,storage,feedback=()=>{}}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map();
@@ -190,27 +247,33 @@
       const unit=entry.lookup[i]?.[n];return unit?{entry,unit,point:{x:point.x,y:point.y}}:null;
     }
     function draw(token,mode){
-      const {entry,unit}=token,svg=entry.svg,boxes=[];
+      const {entry,unit}=token,svg=entry.svg,boxes=[],verse=!!verseOf(unit)&&!unit.word;
+      const body=verse&&unit.parts.some(({i})=>entry.list[i].role==='body');
+      if(verse&&entry.rows===undefined)entry.rows=physicalRows(entry.list);
       for(const {i,start,end} of unit.parts){
         const node=entry.nodes[i],c=entry.list[i],line=[c.column,c.row,c.y].join('/');
+        if(body&&(c.role==='chapter'||c.role==='verse'))continue; // labels are not verse text
+        const fallback=entry.rows?.get(i);
+        const row=c.column!==''&&c.row!==''&&c.column!=null&&c.row!=null?c.column+'/'+c.row:fallback?.key;
+        const rowCenter=fallback?.center,rowHeight=fallback?.height;
         let rects=[];
         try{
           if(c.physicalInk&&start===0&&end===c.text.length){
             // Use measured ink, not the much larger em-square.
-            boxes.push({x:c.x,y:c.y,width:c.w,height:c.h,line});continue;
+            boxes.push({x:c.x,y:c.y,width:c.w,height:c.h,line,row,rowCenter,rowHeight});continue;
           }
           if(start===0&&end===c.text.length)rects=[node.getBBox()];
           else for(let j=start;j<end;j++)rects.push(node.getExtentOfChar(j));
         }catch{continue;}
         for(const r of rects){
           // The physical word transform is diagonal, including page adaptation.
-          if(c.physicalInk)boxes.push({x:r.x*c.sx+c.tx,y:r.y*c.sy+c.ty,width:r.width*c.sx,height:r.height*c.sy,line});
-          else boxes.push({x:r.x,y:r.y,width:r.width,height:r.height,line});
+          if(c.physicalInk)boxes.push({x:r.x*c.sx+c.tx,y:r.y*c.sy+c.ty,width:r.width*c.sx,height:r.height*c.sy,line,row,rowCenter,rowHeight});
+          else boxes.push({x:r.x,y:r.y,width:r.width,height:r.height,line,row,rowCenter,rowHeight});
         }
       }
       const g=doc.createElementNS(SVG,'g');
       g.setAttribute('class','paper-ink-mark paper-ink-mark--'+mode);g.setAttribute('aria-hidden','true');g.setAttribute('pointer-events','none');
-      for(const b of mergeRects(boxes)){
+      for(const b of verse?verseBands(boxes):mergeRects(boxes)){
         const rect=doc.createElementNS(SVG,'rect');
         for(const [k,v] of Object.entries({x:b.x-.5,y:b.y+.06*b.height,width:b.width+1,height:.90*b.height,rx:1.1}))rect.setAttribute(k,String(v));
         g.appendChild(rect);
@@ -289,9 +352,20 @@
       const pen=bar.querySelector('[data-highlight]'),marked=allSaved();
       pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');
     }
+    // Clipboard event for Ctrl/Cmd+C on the focused paper reader. Inputs
+    // (including the search box and manual-copy fallback) keep normal Copy.
+    function keyboardCopy(e){
+      if(!active?.marks.size||!isCurrent(active.anchor)||!e.clipboardData||
+        e.target?.closest?.('textarea,input,[contenteditable]'))return;
+      const {entry}=active.anchor;
+      try{e.clipboardData.setData('text/plain',clipboardQuote(active.marks.keys(),entry.bookName,entry.units));}
+      catch{return;}
+      e.preventDefault();reset();feedback('\u5df2\u590d\u5236\u9009\u4e2d\u6587\u5b57');
+    }
+    stage.addEventListener('copy',keyboardCopy);
     async function copy(){
       if(!active?.marks.size)return;
-      const version=serial,{entry}=active.anchor,text=formatQuote(active.marks.keys(),entry.bookName,entry.units);
+      const version=serial,{entry}=active.anchor,text=clipboardQuote(active.marks.keys(),entry.bookName,entry.units);
       let ok=false;
       try{if(win.navigator?.clipboard?.writeText){await win.navigator.clipboard.writeText(text);ok=true;}}catch{}
       if(version!==serial||!active)return;
@@ -375,7 +449,7 @@
     function hold(t){
       if(!isCurrent(t))return false;
       if(active){if(!searchForm&&sameFace(t)&&!active.marks.has(t.unit))toggle(t);return true;}
-      clearBrief();active={marks:new Map(),anchor:t};stage.dataset.textSelection='active';initBar();toggle(t);return true;
+      clearBrief();active={marks:new Map(),anchor:t};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
     }
     stage.addEventListener('contextmenu',e=>{
       if(e.target?.closest?.('.paper-selection-tools'))return;
@@ -395,7 +469,7 @@
       if(win.requestAnimationFrame)syncFrame=win.requestAnimationFrame(sync);else sync();
     }
     win.addEventListener?.('storage',changed);
-    return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
+    return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,buildSearchURL,mergeRects,FLASH_MS};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,buildSearchURL,mergeRects,verseBands,physicalRows,FLASH_MS};
 });

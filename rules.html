@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#25221e">
+  <meta name="theme-color" content="#ddd0b9">
   <meta name="description" content="固定纸页、双栏对开、紧凑书口索引与真实阅读进度。一个保留经文空间记忆的圣经阅读体验原型。">
-  <link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" sizes="180x180" href="app-icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" sizes="180x180" href="app-icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>纸页 · 书口索引阅读</title>
   <link rel="stylesheet" href="fonts.css?v=index-25&h=6d379c62a957">
   <link rel="stylesheet" href="fonts-extra.css?v=index-25&h=9754c054be54">
@@ -34,14 +34,16 @@
   <link rel="stylesheet" href="reading-history.css?v=index-25&h=af827bc6b9cf">
   <link rel="stylesheet" href="text-selection.css?v=index-25&h=1097cc5990c7">
   <script src="reading-history.js?v=index-25&h=72ca280178fd" defer></script>
-  <script src="text-selection.js?v=index-25&h=146bd9583576" defer></script>
+  <script src="text-selection.js?v=index-25&h=230a01a2f985" defer></script>
   <link rel="stylesheet" href="book-desk.css?v=index-25&h=a4f58a5689e4">
   <script src="book-desk.js?v=index-25&h=214f33efde16" defer></script>
-  <script src="edge-reader.js?v=index-25&h=58febd765bdc" defer></script>
+  <script src="edge-reader.js?v=index-25&h=4679522c8a3d" defer></script>
   <script src="immersion.js?v=index-25&h=48b4e559ed01" defer></script>
 
   <script src="reader-release.js?v=index-25&h=4570de647195" defer></script>
   <style>#reader-rule-loading{position:fixed;inset:0;z-index:9999;display:grid;place-content:center;padding:32px;background:#e8e1d4;color:#493f32;text-align:center;font:16px/1.8 system-ui,sans-serif}#reader-rule-loading p{max-width:30em}#reader-rule-loading a{color:#8b3939}html[data-rule-layout="ready"] #reader-rule-loading{display:none}</style>
+<link rel="stylesheet" href="paper-cover-zoom.css?v=index-25&h=90a590ef722b">
+<script src="paper-cover-zoom.js?v=index-25&h=fe0b1a65a964" defer></script>
 </head>
 <body data-paper-scene="reading">
 <div id="reader-rule-loading" role="status"><strong>纸页 · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./?v=index-25">加载遇到问题？重新打开</a></div>
@@ -83,7 +85,6 @@
       </div></div>
 
       <div class="gesture-feedback" id="gesture-feedback" role="status" aria-live="polite">点索引组选章 · 点书口空白放大</div>
-      <div class="viewport-map" id="viewport-map" aria-hidden="true"><div class="map-fold"></div><div id="map-window"></div></div>
     </div>
     <div class="reading-tools" id="reading-tools">
       <div class="focus-group" role="group" aria-label="阅读视角"><button id="fit-book" class="active">对开</button><button id="focus-left">左页</button><button id="focus-right">右页</button></div>

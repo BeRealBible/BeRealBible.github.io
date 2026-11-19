@@ -17,11 +17,13 @@
   const esc=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const db=()=>root.V25OriginalData||root.OriginalPaperData;
   const physical=(p,i)=>!!db()&&((root.BIBLE_DATA?.pages===db().pages)||(root.BIBLE_DATA?.physicalOriginal===true)||(db().pages&&db().pages[i]===p)||typeof p?.pdfPage==='number');
-  const font=w=>special.get(w)||(/^[①-⑫]$/.test(w)?'PaperRares':FAMILY);
-  function metricsFor(word){
-    let m=metrics.get(word);if(m)return m;
-    ctx.font='100px '+font(word);const v=ctx.measureText(word),l=v.actualBoundingBoxLeft||0,r=v.actualBoundingBoxRight||v.width||100,a=v.actualBoundingBoxAscent||80,d=v.actualBoundingBoxDescent||0;
-    m=[l,Math.max(1,l+r),a,Math.max(1,a+d)];if(metrics.size>=12000)metrics.delete(metrics.keys().next().value);metrics.set(word,m);return m;
+  const HEADING_FAMILY='"SimHei","Heiti SC","Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif';
+  const font=(w,role)=>special.get(w)||(/^[①-⑫]$/.test(w)?'PaperRares':role==='heading'?HEADING_FAMILY:FAMILY);
+  function metricsFor(word,family){
+    const key=family+'\0'+word;
+    let m=metrics.get(key);if(m)return m;
+    ctx.font='100px '+family;const v=ctx.measureText(word),l=v.actualBoundingBoxLeft||0,r=v.actualBoundingBoxRight||v.width||100,a=v.actualBoundingBoxAscent||80,d=v.actualBoundingBoxDescent||0;
+    m=[l,Math.max(1,l+r),a,Math.max(1,a+d)];if(metrics.size>=12000)metrics.delete(metrics.keys().next().value);metrics.set(key,m);return m;
   }
   // Ink-only presentation of the printed fore-edge. Keep the plain abbreviation
   // where its original position is known; never consume a changeable band of a text column.
@@ -33,9 +35,9 @@
     (i===1154&&j===263&&w[0]===8&&w[1]===1296&&w[2]===7&&w[3]===9&&w[4]==='，');
   const stock=i=>i%2?[[0,'#dcd5bf'],[.09,'#fffdf1'],[.9,'#fffef5'],[1,'#f9f6eb']]:[[0,'#f9f6eb'],[.1,'#fffef5'],[.91,'#fffdf1'],[1,'#dcd5bf']];
   function fit(w,h){const s=Math.min(W/w,H/h);return {s,ox:(W-w*s)/2,oy:(H-h*s)/2}}
-  function word(w,f){
-    const [x,y,width,height,text]=w,[l,iw,a,ih]=metricsFor(text),sx=width/iw*f.s,sy=height/ih*f.s,xx=f.ox+x*f.s,yy=f.oy+y*f.s;
-    return {text,x:xx,y:yy,w:width*f.s,h:height*f.s,sx,sy,tx:xx+l*sx,ty:yy+a*sy,family:font(text),box:w};
+  function word(w,f,role){
+    const [x,y,width,height,text]=w,family=font(text,role),[l,iw,a,ih]=metricsFor(text,family),sx=width/iw*f.s,sy=height/ih*f.s,xx=f.ox+x*f.s,yy=f.oy+y*f.s;
+    return {text,x:xx,y:yy,w:width*f.s,h:height*f.s,sx,sy,tx:xx+l*sx,ty:yy+a*sy,family,box:w};
   }
   function model(i){
     const store=db(),p=store.get(i);if(!p)return null;
@@ -43,7 +45,7 @@
     const tags=store.tags?.(i)||none,cached=models.get(i);if(cached&&cached.version===version&&cached.tags===tags&&cached.p===p){models.delete(i);models.set(i,cached);return cached}
     const f=fit(p[1],p[2]),words=p[3].map((w,n)=>{
       const t=tags[n]||store.metaFor?.(i,n)||{};
-      return {...word(w,f),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
+      return {...word(w,f,t.role),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
     });
     const v={version,p,tags,words,f};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
   }

@@ -188,3 +188,41 @@ test('escape from the search editor cancels before a second escape exits selecti
   s.bar().handlers.keydown[0](event);assert.ok(s.ctrl.isActive());assert.deepEqual(s.tabs,[]);
   s.bar().handlers.keydown[0](event);assert.equal(s.ctrl.isActive(),false);
 });
+
+test('clipboard strips Han layout spaces without touching display text, English or citation',()=>{
+  const verse={order:1,group:'verse:1:1',text:'\u8d77 \u521d\u3000\u00a0\u795e\ufeff\u5275 \u9020\u3002'};
+  const next={order:2,group:'verse:1:2',text:'\u5730 \u200b\u662f \u7a7a \u865b\u3002'};
+  const unmodified='\u8d77 \u521d\u3000\u00a0\u795e\ufeff\u5275 \u9020\u3002\u5730 \u200b\u662f \u7a7a \u865b\u3002\n( \u5275\u4e16\u8a18 1:1-2 \u548c\u5408\u672c )';
+  assert.equal(S.formatQuote([next,verse],'\u5275\u4e16\u8a18'),unmodified);
+  assert.equal(S.clipboardQuote([next,verse],'\u5275\u4e16\u8a18'),'\u8d77\u521d\u795e\u5275\u9020\u3002\u5730\u662f\u7a7a\u865b\u3002\n( \u5275\u4e16\u8a18 1:1-2 \u548c\u5408\u672c )');
+  const cover={order:1,group:'heading:1:1',text:'THE OLD TESTAMENT'};
+  assert.equal(S.clipboardQuote([cover]),cover.text);
+});
+test('physical verse bands use one span despite OCR height and punctuation differences',()=>{
+  const glyph=(x,y,w,h,text)=>({x,y,w,h,text,role:'body',physicalInk:true});
+  const commands=[
+    glyph(18,20,11,14,'\u8d77'),glyph(34,22,11,11,'\u521d'),glyph(64,19,12,14,'\u795e'),
+    glyph(78,31,2,2,'\u3002'),glyph(18,40,11,14,'\u5730'),glyph(256,20,11,14,'\u7684')
+  ];
+  const rows=S.physicalRows(commands);
+  const boxes=commands.map((c,i)=>({...c,width:c.w,height:c.h,row:rows.get(i)?.key,
+    rowCenter:rows.get(i)?.center,rowHeight:rows.get(i)?.height}));
+  const bands=S.verseBands(boxes);
+  assert.deepEqual(bands.map(b=>[b.x,b.width]),[[18,62],[18,11],[256,11]]);
+  assert.ok(bands[1].y>bands[0].y+bands[0].height);
+  assert.equal(bands[0].height,bands[2].height);
+});
+
+test('Ctrl/Cmd+C uses the same clipboard text and does not intercept editing controls',()=>{
+  const s=scene(),token=s.hit(0,0);
+  token.unit.text='\u8d77 \u521d\u3000\u795e\u5275 \u9020';token.unit.group='verse:1:1';token.unit.word=false;
+  s.ctrl.hold(token);
+  const writes=[];
+  const copy=s.stage.handlers.copy[0],clipboardData={setData(...entry){writes.push(entry)}};
+  let cancelled=false;
+  copy({target:{closest:()=>true},clipboardData,preventDefault(){cancelled=true}});
+  assert.deepEqual(writes,[]);assert.equal(cancelled,false);assert.ok(s.ctrl.isActive());
+  copy({target:s.stage,clipboardData,preventDefault(){cancelled=true}});
+  assert.deepEqual(writes,[['text/plain','\u8d77\u521d\u795e\u5275\u9020']]);
+  assert.ok(cancelled);assert.equal(s.ctrl.isActive(),false);
+});

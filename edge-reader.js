@@ -11,7 +11,7 @@
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,edgePose=null,edgeSide=null,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
-  let suppressBandClick=null;
+  let suppressBandClick=null, coverZoom=null;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
   if(saved&&Number.isFinite(saved.spread))spread=clamp(saved.spread&~1,0,MAX_SPREAD);
   if(saved?.page===spread)readingSide=0;
@@ -125,13 +125,10 @@
   function transform(){
     book.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
     $('zoom-value').textContent=Math.round(scale/fitScale*100)+'%';
+    coverZoom?.sync(scale,fitScale,MAX_SCALE);
     $('zoom-in').disabled=scale>=MAX_SCALE;$('zoom-out').disabled=scale<=fitScale;
     stage.dataset.scale=scale.toFixed(4);stage.dataset.x=x.toFixed(2);stage.dataset.y=y.toFixed(2);
     ['fit-book','focus-left','focus-right'].forEach((id,i)=>$(id).classList.toggle('active',focus===['fit','left','right'][i]));
-    const map=$('viewport-map'),mw=map.clientWidth,mh=map.clientHeight;
-    const vx=clamp(-x/(960*scale),0,1),vy=clamp(-y/(704*scale),0,1);
-    Object.assign($('map-window').style,{left:vx*mw+'px',top:vy*mh+'px',width:Math.min(1-vx,view.w/(960*scale))*mw+'px',height:Math.min(1-vy,view.h/(704*scale))*mh+'px'});
-    map.style.opacity=scale>fitScale*1.2?'1':'0';
     $('surface-caption').style.opacity=scale>fitScale*1.2?'0':'1';
     updateIndex();chapters?.reposition?.();
   }
@@ -512,6 +509,14 @@
   // fit remains available, and both index bands stay reachable by pan.
   else if(view.w<560)focusPage(readingSide?'right':'left');
   deskKey=history?.start(readingLocation())?.id||null;
+  coverZoom=window.PaperCoverZoom?.mount({doc:document,win:window,stage,history:$('reading-history'),
+    onZoom(percent){
+      const next=window.PaperCoverZoom.asScale(percent,fitScale,MAX_SCALE);
+      if(next===null)return;
+      if(chapters?.isOpen())zoomWithChapterMenu(next/scale);else zoom(next);
+    }});
+  coverZoom?.sync(scale,fitScale,MAX_SCALE);
+  coverZoom?.openOnce();
   new ResizeObserver(resize).observe(stage);window.addEventListener('resize',resize);
   save();
 })();

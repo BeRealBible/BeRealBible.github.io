@@ -1,0 +1,17 @@
+const fs=require('node:fs'),a=require('node:assert/strict'),vm=require('node:vm');
+const drawn=[],measured=[];
+const c={font:'',measureText(text){measured.push([text,this.font]);return {actualBoundingBoxLeft:1,actualBoundingBoxRight:/SimHei/.test(this.font)?49:99,actualBoundingBoxAscent:70,actualBoundingBoxDescent:5}},save(){},restore(){},setTransform(){},createLinearGradient(){return {addColorStop(){}}},fillRect(){},transform(){},fillText(text){drawn.push([text,this.font])}};
+const page=[3,480,704,[[0,0,20,20,'神'],[22,0,20,20,'神'],[44,0,20,20,'章'],[66,0,20,20,'言'],[88,0,20,20,'①']],[]];
+const tags=[{role:'heading',ref:'GEN.1.1'},{role:'body',ref:'GEN.1.1'},{role:'chapter'},{role:'other'},{role:'heading'}];
+const window={PaperPage:{svg(){return 'legacy'}},V25OriginalData:{pages:[],get:i=>i===3?page:null,tags:()=>tags}};
+vm.runInNewContext(fs.readFileSync(process.argv[2]||'v25-original-render.js','utf8'),{window,document:{createElement:()=>({getContext:()=>c})}});
+const api=window.PaperPage,physical={pdfPage:3},books=[];
+const [heading,body,chapter,other,note]=api.commands(physical,3,books);
+a.match(heading.family,/^"SimHei"/);a.match(body.family,/^"SimSun"/);a.equal(chapter.family,body.family);a.equal(other.family,body.family);a.equal(note.family,'PaperRares');
+a.notEqual(heading.sx,body.sx);a.equal(heading.ref,body.ref);a.equal(heading.w,body.w);a.equal(heading.h,body.h);
+a.deepEqual(measured.filter(([t])=>t==='神').map(([,f])=>f),['100px '+heading.family,'100px '+body.family]);
+const svg=api.svg(physical,3,books);
+a.match(svg,/data-role="heading"[^>]*font-family="&quot;SimHei&quot;/);a.match(svg,/data-role="body"[^>]*font-family="&quot;SimSun&quot;/);a.doesNotMatch(svg,/font-weight="bold"/);
+api.paint({getContext:()=>c},physical,3,books,1);a.deepEqual(drawn.slice(0,2),[['神','100px '+heading.family],['神','100px '+body.family]]);
+a.equal(api.svg({},99,books),'legacy');
+console.log('15 V25 heading checks passed');

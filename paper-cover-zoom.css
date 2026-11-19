@@ -1,0 +1,46 @@
+/* Quiet linen desk and warm natural leather; the original scripture stays unchanged. */
+html.paper-immersive,.paper-immersive body,.paper-immersive .stage-wrap{background:#ddd0b9}
+.paper-immersive .stage,.pcz-intro{
+  background:radial-gradient(ellipse at 47% 37%,#f1e8d7 0%,#e4d7bd 67%,#d6c6a9 100%);
+}
+.paper-immersive #reference-cover{
+  background:linear-gradient(98deg,#482e22,#654634 36%,#553726 71%,#422b20);
+  border:1px solid #513729;
+  border-radius:9px;
+  box-shadow:0 21px 41px #55391d30,0 4px 0 #3d281b,inset 0 0 0 1px #ecdabe23;
+}
+.paper-immersive #reading-history{background:linear-gradient(#efe6d6,#e7dac4);border-color:#90745038;color:#574638}
+.paper-immersive .rh-caption,.paper-immersive .rh-empty,.paper-immersive .rh-undo{color:#6d5841}
+.paper-immersive .rh-item{color:#574638;background:#fbf4e54d;border-color:#80674745}
+.paper-immersive .rh-item[data-current]{color:#493528;background:#e1c9a6;border-color:#98764e67}
+.paper-immersive .rh-chip:hover,.paper-immersive .rh-undo:hover{color:#713f25}
+.paper-immersive .rh-action{color:#765235}
+.paper-immersive .rh-item[data-reveal]:not([data-pinned]) .rh-pin,.paper-immersive .rh-item[data-reveal] .rh-delete{background:#f4e8d6;color:#70492f}
+.paper-immersive .rh-rail button:focus-visible,.pcz-control :focus-visible{outline:2px solid #8a613a;outline-offset:-2px}
+.pcz-control{position:relative;flex:none;color:#594636;font:12px/1.45 var(--ui,system-ui,sans-serif)}
+.stage-wrap>.pcz-control{position:absolute;left:max(12px,env(safe-area-inset-left));bottom:12px;z-index:37}
+.pcz-button{min-width:42px;min-height:36px;padding:0 9px;border:1px solid #8067474d;border-radius:8px;background:#fbf4e595;color:#594636}
+.pcz-button[aria-expanded="true"]{background:#eadbc4;border-color:#93744d88}
+.pcz-panel[hidden]{display:none}
+.pcz-panel{position:absolute;z-index:5;left:0;bottom:calc(100% + 10px);width:min(220px, calc(100vw - 35px));padding:11px 14px 6px;border:1px solid #987d574a;border-radius:12px;color:#553e2e;background:#faf2e6;box-shadow:0 7px 20px #5b412625}
+.pcz-summary{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.pcz-value{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}
+.pcz-range{display:block;width:100%;height:31px;min-width:0;margin:2px 0 0;accent-color:#825438;cursor:pointer;touch-action:none}
+@media(max-width:520px){.paper-immersive .rh-rail{gap:6px}.paper-immersive .rh-caption::before{margin-right:3px}.pcz-button{min-width:36px;padding:0 5px}}
+
+/* Decorative, pointer-transparent intro. No mutation of page, URL or camera state. */
+.pcz-intro{position:absolute;isolation:isolate;z-index:40;inset:0;display:grid;place-items:center;pointer-events:none;overflow:hidden;animation:pcz-reveal 2.1s linear both}
+.pcz-plate{position:relative;width:min(46vw,46vh,330px);width:min(46vw,46dvh,330px);aspect-ratio:480/704;perspective:900px;transform-style:preserve-3d;animation:pcz-seat 2.1s cubic-bezier(.24,.58,.24,1) both}
+.pcz-stack{position:absolute;inset:9px -8px -12px 4px;border-radius:5px 13px 13px 5px;background:repeating-linear-gradient(0deg,#c5ad89 0 1px,#f4debb 1px 2px,#e6d0ad 2px 4px);box-shadow:0 7px 0 #4d3024,0 10px 2px #402c20,8px 23px 34px #5e3e304a}
+.pcz-lid{position:absolute;inset:0;transform-origin:0 center;transform-style:preserve-3d;animation:pcz-hinge 2.1s cubic-bezier(.44,.06,.2,1) both}
+.pcz-face,.pcz-back{position:absolute;inset:0;border-radius:7px 12px 13px 5px;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.pcz-face{display:grid;align-content:center;text-align:center;gap:10px;color:#e6cc91;border:1px solid #3e2317;background:repeating-linear-gradient(125deg,#f0cc9810 0 1px,#2312060b 1px 3px,transparent 3px 5px),radial-gradient(ellipse at 43% 34%,#6c4a36,#4d3025 70%,#3f271d);box-shadow:inset 8px 0 10px #2d160f6b,inset 0 0 0 3px #8f67413b,1px 5px 0 #392217,5px 7px 12px #37241648}
+.pcz-face::before{content:"";position:absolute;inset:7% 8%;border:1px solid #b58e574f;border-radius:4px;pointer-events:none}
+.pcz-face::after{content:"";position:absolute;top:0;bottom:0;left:7%;width:1px;background:#d0a86c45;box-shadow:1px 0 3px #23170f85}
+.pcz-back{transform:rotateY(180deg);background:linear-gradient(90deg,#70523c,#a78663 12%,#c6a783 23%,#cdb08c 80%,#8d6c4d);box-shadow:inset 0 0 0 3px #80593d}
+.pcz-imprint{font:600 clamp(19px,4vw,39px)/1.2 var(--serif,serif);letter-spacing:.18em;text-indent:.18em;text-shadow:0 1px #2d1b12,0 -1px #f6e3b344}
+.pcz-subtitle{font:500 clamp(8px,1.2vw,12px)/1.2 var(--serif,serif);letter-spacing:.32em;text-indent:.32em;color:#d2b881}
+@keyframes pcz-hinge{0%,23%{transform:rotateY(0deg)}75%,100%{transform:rotateY(-168deg)}}
+@keyframes pcz-seat{0%,23%{transform:translateX(0) rotateZ(-3deg) rotateX(7deg)}78%,100%{transform:translateX(48%) rotateZ(0) rotateX(0)}}
+@keyframes pcz-reveal{0%,52%{opacity:1}87%,100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.pcz-intro{display:none!important}}
