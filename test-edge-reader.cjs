@@ -940,8 +940,8 @@ test('real grouped-index metadata fixes all four menu corners through mode and b
     const labelLeft = horizontal === 'left' ? 30 : width - 54, labelTop = vertical === 'top' ? 52 : height - 78;
     const anchor = { left: labelLeft, top: labelTop, right: labelLeft + 24, bottom: labelTop + 26, width: 24, height: 26 };
     const expected = { corner: `${vertical}-${horizontal}`, x: horizontal === 'left' ? anchor.right : anchor.left, y: vertical === 'top' ? anchor.top : anchor.bottom };
-    const group = f.indexElement.querySelectorAll('.edge-index__group').find(button => !button.hidden && button.dataset.members === '61,62,63');
-    assert.ok(group, 'real compact John-epistles group exists');
+    const group = f.indexElement.querySelectorAll('.edge-index__group').find(button => !button.hidden && button.dataset.members === '61,62,63,64');
+    assert.ok(group, 'the printed compact John-epistles/Jude cut exists');
     group.getBoundingClientRect = () => ({ ...anchor });
     const stored = Object.fromEntries(f.storage), writes = f.saved.length;
     group.dispatchEvent({ type: 'click' });

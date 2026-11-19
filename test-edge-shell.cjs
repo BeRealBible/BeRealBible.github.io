@@ -5,7 +5,8 @@ const fs=require('node:fs');
 const path=require('node:path');
 const root=__dirname;
 const requiredIds=['stage','book','book-volume','reference-cover','left-half','right-half','left-paper','right-paper','left-paper-edges','right-paper-edges','edge-index-host','location-button','book-name','chapter-name','prev','next','page-label','progress-label','read-block','position-pin','help-open','help-dialog','about-open','about-dialog','reading-tools','fit-book','focus-left','focus-right','zoom-in','zoom-out','zoom-value','viewport-map','map-window','gesture-feedback','demo-pan','demo-burst','book-picker','book-picker-title','book-picker-close','book-picker-back','book-picker-books','book-picker-chapters','reader-rule-loading','reader-version','reader-reload'];
-const retainedScripts=['book-material.js','bible-data.js','data/bible-source.js','paper-layout.js','paper-edition.js','rule-reader-bootstrap.js','paper-typography.js','paper-page.js','gesture-core.js','paper-physics.js','paper-renderer.js','paper-edges.js','immersion.js','reader-release.js'];
+const retainedScripts=['book-material.js','bible-data.js','data/bible-source.js','paper-layout.js','paper-edition.js','paper-typography.js','paper-page.js','gesture-core.js','paper-physics.js','paper-renderer.js','paper-edges.js','immersion.js','reader-release.js'];
+const physicalScripts=['v25-original-data.js','v25-original-render.js','v25-original-storage.js','v25-original-boot.js'];
 const retiredScripts=['ribbon-bookmarks.js','app.js','book-kinematics.js','book-solid.js','book-packet.js','book-depth.js','book-leaves.js','book-scene.js','book-index-layout.js','book-index.js','sticker-reader.js','sticker-index.js'];
 for(const entry of ['index.html','rules.html']){
   const html=fs.readFileSync(path.join(root,entry),'utf8');
@@ -15,13 +16,32 @@ for(const entry of ['index.html','rules.html']){
   assert.ok(ids.includes('reading-history'));
   assert.ok(!ids.includes('ribbon-bookmarks')&&!/ribbon-bookmarks\.css|(?:丝带|丝绸)书签/.test(html),`${entry}: retired ribbon UI and stylesheet must stay out of this release`);
   for(const id of requiredIds)assert.ok(ids.includes(id),`${entry}: missing #${id}`);
-  for(const file of [...retainedScripts,'edge-index.js','chapter-preview.js','edge-chapters.js','paper-jump.js','book-desk.js','reading-history.js','text-selection.js','edge-reader.js'])assert.ok(scripts.includes(file),`${entry}: missing ${file}`);
+  const physical=entry==='index.html',startup=physical?'v25-original-boot.js':'edge-reader.js';
+  const entryScripts=physical?physicalScripts:['rule-reader-bootstrap.js','edge-reader.js'];
+  for(const file of [...retainedScripts,'edge-index.js','chapter-preview.js','edge-chapters.js','paper-jump.js','book-desk.js','reading-history.js','text-selection.js',...entryScripts])assert.equal(scripts.filter(s=>s===file).length,1,`${entry}: expected exactly one ${file}`);
+  // In the released reader, preload does NOT execute the desk. The physical
+  // boot installs the PDF edition and then starts that very same controller.
+  if(physical){
+    assert.ok(!scripts.includes('edge-reader.js')&&!scripts.includes('rule-reader-bootstrap.js'),`${entry}: no competing static desk or fallback bootstrap`);
+    const preloads=[...html.matchAll(/<link\b[^>]*>/g)].map(m=>m[0]).filter(t=>/\bhref="edge-reader\.js(?:\?|")/.test(t));
+    assert.equal(preloads.length,1);assert.match(preloads[0],/\bid="v25-desk-controller"/);
+    assert.match(preloads[0],/\brel="preload"/);assert.match(preloads[0],/\bas="script"/);
+    for(const f of physicalScripts.slice(0,-1))assert.ok(scripts.indexOf(f)<scripts.indexOf(startup),`${entry}: ${f} must precede physical startup`);
+    assert.ok(scripts.indexOf('paper-page.js')<scripts.indexOf('v25-original-render.js'));
+    const boot=fs.readFileSync(path.join(root,startup),'utf8');
+    assert.match(boot,/querySelector\('#v25-desk-controller'\)\.getAttribute\('href'\)/);
+    const install=boot.indexOf('window.BIBLE_DATA=meta'),launch=boot.indexOf('script.src=asset');
+    assert.ok(install>=0&&launch>install,'V25 physical edition must be installed before launching the preloaded desk');
+    assert.equal((boot.match(/document\.head\.append\(script\)/g)||[]).length,1);
+  }else{
+    for(const f of physicalScripts)assert.ok(!scripts.includes(f),`${entry}: fallback must not start or apply the physical edition`);
+    assert.ok(!ids.includes('v25-desk-controller'));assert.ok(scripts.indexOf('rule-reader-bootstrap.js')<scripts.indexOf(startup));
+  }
   for(const file of retiredScripts)assert.ok(!scripts.includes(file),`${entry}: retired controller loaded: ${file}`);
-  assert.ok(scripts.indexOf('edge-index.js')<scripts.indexOf('edge-reader.js'),`${entry}: edge API loads before reader`);
-  for(const file of ['chapter-preview.js','edge-chapters.js','paper-jump.js','book-desk.js','reading-history.js','text-selection.js'])assert.ok(scripts.indexOf(file)<scripts.indexOf('edge-reader.js'),`${entry}: ${file} loads before reader`);
+  assert.ok(scripts.indexOf('edge-index.js')<scripts.indexOf(startup),`${entry}: edge API loads before reader`);
+  for(const file of ['chapter-preview.js','edge-chapters.js','paper-jump.js','book-desk.js','reading-history.js','text-selection.js'])assert.ok(scripts.indexOf(file)<scripts.indexOf(startup),`${entry}: ${file} loads before reader`);
   for(const file of ['edge-chapters.css','paper-jump.css','book-desk.css','reading-history.css','text-selection.css'])assert.ok(html.includes(`href="${file}?v=index-25`),`${entry}: new interaction styles loaded`);
   assert.ok(html.includes('纸质选章')&&html.includes('章号格子')&&html.includes('经文摘读')&&html.includes('连续翻过多张纸'),`${entry}: adaptive chapter menu and packet-jump instructions`);
-  assert.ok(scripts.indexOf('rule-reader-bootstrap.js')<scripts.indexOf('edge-reader.js'),`${entry}: layout bootstrap loads before reader`);
   assert.ok(!/id="(?:scene-controls|index-placement|physical-index-host|view-edge|view-open|right-edge-open|left-edge-open|paper-solid|book-leaves)"/.test(html),`${entry}: old scene entry remains`);
   assert.ok(!/合书|合起书|看书侧|切口|切槽|半圆|拨开|半秒/.test(html),`${entry}: old interaction instructions remain`);
   assert.ok(!/sticker-(?:reader|index)|贴纸/.test(html),`${entry}: retired sticker presentation remains`);

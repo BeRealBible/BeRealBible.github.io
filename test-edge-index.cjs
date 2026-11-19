@@ -5,7 +5,35 @@ const E=require('./edge-index.js');
 const data=require('./paper-layout.js').paginate(require('./data/bible-source.js'));
 const books=data.books,pageCount=data.pages.length;
 const legacyScope={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'bible-data.js'),'utf8'),legacyScope);
-const editions=[{name:'rule-bootstrap',data},{name:'bible-data',data:legacyScope.window.BIBLE_DATA}];
+const physicalScope={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'v25-original-data.js'),'utf8'),physicalScope);
+const physical=physicalScope.window.V25OriginalData.meta;
+assert.equal(physical.physical,true);assert.equal(physical.books.length,66);
+const editions=[{name:'published physical PDF/OCR',data:physical},{name:'rule-bootstrap',data},{name:'bible-data',data:legacyScope.window.BIBLE_DATA}];
+// Independent manual reading of the two reference photographs. Heights are
+// mark centres divided by local page height, not copied from production JS.
+const photograph=[
+  ['ot-a','GEN EXO LEV NUM DEU JOS JDG RUT 1SA+2SA 1KI+2KI 1CH+2CH',
+    [10.5,18.0,26.5,34.9,42.9,50.8,58.5,66.0,73.5,80.7,87.9]],
+  ['ot-b','EZR+NEH EST+JOB PSA+PRO ECC+SNG ISA JER+LAM EZK+DAN HOS+JOL AMO+OBA+JON MIC+NAM+HAB ZEP+HAG ZEC+MAL',
+    [7.4,14.9,22.5,30.1,38.3,45.7,53.2,60.9,68.3,76.1,83.9,92.1]],
+  ['nt-a','MAT MRK LUK JHN ACT ROM 1CO+2CO GAL+EPH PHP+COL 1TH+2TH 1TI+2TI',
+    [9.8,17.6,25.2,33.5,41.4,48.8,56.7,64.9,72.5,80.6,88.9]],
+  ['nt-b','TIT+PHM HEB+JAS 1PE+2PE 1JN+2JN+3JN+JUD REV',[9.3,17.5,25.1,33.2,41.2]]
+];
+const trackOrder=photograph.map(t=>t[0]);
+const centerY=item=>item.y+item.height/2;
+const centerX=item=>item.x+item.width/2;
+// Open-Matthew reference's native pixel coordinates: perspective and the
+// unequal OT/NT volumes matter, so these are not equal-width lane centres.
+const photoX={
+  'ot-a':[34,41,47,49.5,53.5,57.5,60.5,63,64,68.5,75],
+  'ot-b':[83,86,90,101.5,103,109,117,123.5,125,126.5,127,126.5],
+  'nt-a':[829,834,836.5,840,845,850.5,852,856,857.5,860,859.5],
+  'nt-b':[859,859.5,862.5,862.5,865.5]
+};
+const groupForBook=index=>E.GROUPS.find(g=>g.members.includes(index));
+const samuelGroup=()=>groupForBook(8).index;
+const splitBefore=(source,i)=>Math.max(0,2*E.carrierSheet(source[i])-2);
 function physicalRatio(book,side,spread,pages){
   const carrier=Math.ceil(book.first/2),split=Math.floor(spread/2),sheets=Math.ceil(pages/2);
   const value=side==='left'?(carrier-1)/Math.max(1,split-1):(carrier-split-1)/Math.max(1,sheets-split-1);
@@ -30,69 +58,127 @@ class Element extends Target {
   getBoundingClientRect(){return {x:101,y:202,left:101,top:202,right:114,bottom:226,width:13,height:24};}
   click(){return this.dispatch('click');}
 }
-function setup(){const doc=new Target();doc.createElement=tag=>new Element(tag,doc);const host=new Element('div',doc),events=[],metadata=[];
-  host.style.zIndex='6';const index=E.create(host,{books,pageCount,onSelect:(i,b,meta)=>{events.push(['select',i,b.code]);metadata.push(meta);},onExpand:side=>events.push(['expand',side])});
+function setup(edition=data){const doc=new Target();doc.createElement=tag=>new Element(tag,doc);const host=new Element('div',doc),events=[],metadata=[];
+  host.style.zIndex='6';const index=E.create(host,{books:edition.books,pageCount:edition.pages.length,onSelect:(i,b,meta)=>{events.push(['select',i,b.code]);metadata.push(meta);},onExpand:side=>events.push(['expand',side])});
   return {doc,host,index,events,metadata,children:index.element.children};
 }
 const isClass=(node,name)=>String(node.className||'').split(' ').includes(name);
 const classNodes=(fixture,name)=>fixture.children.filter(node=>isClass(node,name));
 const visibleBooks=fixture=>classNodes(fixture,'edge-index__book').filter(node=>!node.hidden);
 const visibleGroups=fixture=>classNodes(fixture,'edge-index__group').filter(node=>!node.hidden);
-test('reference groups remain exactly 23 OT plus 19 NT and partition all 66 books',()=>{
-  assert.equal(E.GROUPS.filter(g=>!g.nt).length,23);assert.equal(E.GROUPS.filter(g=>g.nt).length,19);
+test('the photos partition the 66 books into exactly 11 + 12 black and 11 + 5 red cuts',()=>{
+  assert.equal(E.GROUPS.length,39);
+  for(const [track,groups] of photograph){
+    const tagged=E.GROUPS.filter(g=>g.track===track);
+    assert.deepEqual(tagged.map(g=>g.members.map(i=>physical.books[i].code).join('+')),groups.split(' '));
+    assert.deepEqual(tagged.map(g=>g.row),Array.from({length:tagged.length},(_,i)=>i));
+    assert.ok(tagged.every(g=>g.nt===track.startsWith('nt')));
+  }
   assert.deepEqual(E.GROUPS.flatMap(g=>g.members),Array.from({length:66},(_,i)=>i));
-  assert.equal(E.GROUPS[10].label,'拉尼斯');assert.equal(E.GROUPS[39].label,'壹贰叁');
 });
 test('recto and verso of one physical sheet have the same side',()=>{
   assert.deepEqual([1,2,3,4].map(first=>E.carrierSheet({first})),[1,1,2,2]);
   assert.deepEqual([1,2,3,4].map(first=>E.sideOf({first},2)),['left','left','right','right']);
 });
-test('all actual spreads partition grouped members correctly without orphan or duplicate books',()=>{
-  for(let spread=0;spread<pageCount;spread+=2){
-    const geometry=E.layout(books,pageCount,spread),members=[];
+test('all physical PDF and fallback spreads partition grouped members exactly once, within the page edge',()=>{
+  for(const edition of editions){
+   const {books,pages}=edition.data;
+   for(let spread=0;spread<pages.length;spread+=2){
+    const geometry=E.layout(books,pages.length,spread),members=[];
     for(const group of geometry.groups){
       for(const index of group.bookIndices){assert.equal(group.side,E.sideOf(books[index],spread));members.push(index);}
-      assert.ok([...group.label].length<=3,'normal label must fit the reference vertical badge');
+      assert.ok(group.label,'normal cut must have a visible label');
       const band=geometry.bands[group.side];
       assert.ok(group.x>=band.x-1e-7&&group.x+group.width<=band.x+band.width+1e-7);
       assert.ok(group.y>=0&&group.y+group.height<=704);
     }
     assert.deepEqual(members.sort((a,b)=>a-b),Array.from({length:66},(_,i)=>i));
+   }
   }
 });
 test('a group straddling the reading page splits by members rather than following its first book',()=>{
-  const groups=E.layout(books,pageCount,262).groups.filter(g=>g.groupIndex===7);
-  assert.equal(groups.length,2);assert.deepEqual(groups.find(g=>g.side==='left').bookIndices,[8]);assert.deepEqual(groups.find(g=>g.side==='right').bookIndices,[9]);
-  assert.equal(groups.find(g=>g.side==='left').label,'撒上');assert.equal(groups.find(g=>g.side==='right').label,'撒下');
-  const john=E.layout(books,pageCount,1224).groups.filter(g=>g.groupIndex===39);
-  assert.deepEqual(john.find(g=>g.side==='left').bookIndices,[61,62]);assert.deepEqual(john.find(g=>g.side==='right').bookIndices,[63]);
-});
-test('normal bands use real page proportions and expanded bounds never inflate normal cover bounds',()=>{
-  const f=setup();f.index.update({spread:740});const before=f.index.getNormalBounds();
-  assert.equal(before.leftExtent,10+42*740/pageCount);assert.equal(before.rightExtent,32);
-  f.index.setExpanded('right');const b=f.index.getBounds();assert.equal(b.rightExtent,208);assert.equal(b.leftExtent,before.leftExtent);
-  assert.equal(b.normalRightExtent,before.rightExtent);assert.deepEqual(f.index.getNormalBounds(),before);
-});
-test('every normal spread keeps original y positions with disjoint OT/NT depth tracks and a 1px clear gap',()=>{
-  for(let spread=0;spread<pageCount;spread+=2){
-    const geometry=E.layout(books,pageCount,spread);
+  for(const {data:{books,pages}} of editions){
+    const groups=E.layout(books,pages.length,splitBefore(books,9)).groups.filter(g=>g.groupIndex===samuelGroup());
+    assert.equal(groups.length,2);assert.deepEqual(groups.find(g=>g.side==='left').bookIndices,[8]);assert.deepEqual(groups.find(g=>g.side==='right').bookIndices,[9]);
+    assert.equal(groups.find(g=>g.side==='left').label,'撒上');assert.equal(groups.find(g=>g.side==='right').label,'撒下');
+    assert.equal(centerY(groups[0]),centerY(groups[1]),'two halves of the same cut keep its original height');
+    const johnGroup=groupForBook(61),split=2*E.carrierSheet(books[61]);
+    const john=E.layout(books,pages.length,split).groups.filter(g=>g.groupIndex===johnGroup.index);
     for(const side of ['left','right']){
-      const items=geometry.groups.filter(item=>item.side===side),ot=items.filter(item=>!item.nt),nt=items.filter(item=>item.nt),mixed=ot.length&&nt.length;
-      const band=geometry.bands[side],ratio=side==='left'?spread/pageCount:(pageCount-spread)/pageCount;
-      assert.ok(Math.abs(band.width-Math.max(10+42*ratio,mixed?32:0))<1e-10);
-      for(const item of items){
-        const group=E.GROUPS[item.groupIndex],expectedY=(group.nt?38+28*group.row:30+26*group.row)*704/640-12;
-        assert.equal(item.y,expectedY);
-      }
-      if(mixed){
-        assert.ok(band.width>=32);
-        assert.ok(Math.max(...ot.map(item=>item.x+item.width))+3<=Math.min(...nt.map(item=>item.x))+1e-7);
-      }
-      for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)assert.equal(E.rectanglesOverlap(items[i],items[j],1),false,`normal overlap: spread ${spread}, ${side}, groups ${items[i].groupIndex}/${items[j].groupIndex}`);
+      const expected=johnGroup.members.filter(i=>E.sideOf(books[i],split)===side);
+      assert.deepEqual(john.find(g=>g.side===side)?.bookIndices??[],expected);
     }
   }
 });
-test('both editions preserve exact physical depth and avoid collisions on every expanded spread',()=>{
+test('normal bands use real page proportions and expanded bounds never inflate normal cover bounds',()=>{
+  const f=setup();f.index.update({spread:740});const before=f.index.getNormalBounds();
+  const unopened=E.layout(books,pageCount,0).bounds,finished=E.layout(books,pageCount,pageCount-1).bounds;
+  assert.ok(unopened.leftExtent<before.leftExtent&&before.leftExtent<finished.leftExtent);
+  assert.ok(unopened.rightExtent>before.rightExtent&&before.rightExtent>finished.rightExtent);
+  f.index.setExpanded('right');const b=f.index.getBounds();assert.equal(b.rightExtent,208);assert.equal(b.leftExtent,before.leftExtent);
+  assert.equal(b.normalRightExtent,before.rightExtent);assert.deepEqual(f.index.getNormalBounds(),before);
+});
+test('all 39 cut centres match the independently measured open photo within 1.5% of page height; the short track stops beside Acts',()=>{
+  const {books,pages}=physical,g=E.layout(books,pages.length,0),height=g.bands.right.height;
+  for(const [track,,centres] of photograph){
+    const rows=g.groups.filter(item=>item.side==='right'&&item.track===track).sort((a,b)=>a.row-b.row);
+    assert.equal(rows.length,centres.length);
+    rows.forEach((item,i)=>assert.ok(Math.abs(centerY(item)*100/height-centres[i])<=1.5,`${track} ${i}: height must match paper`));
+  }
+  const anchors=g.groups.filter(g=>g.track==='nt-a');
+  for(const item of g.groups.filter(g=>g.track==='nt-b')){
+    assert.ok(Math.abs(centerY(item)-centerY(anchors[item.row]))<=height*.01,'red short and long tracks line up');
+  }
+  const rev=g.groups.find(i=>i.bookIndices.includes(65)),acts=g.groups.find(i=>i.bookIndices.includes(43));
+  assert.ok(Math.abs(centerY(rev)-centerY(acts))<=height*.01);assert.ok(centerY(rev)/height<.43);
+});
+test('the open-Matthew reference spread shows two black tracks on the left and both red tracks on the right',()=>{
+  const {books,pages}=physical,spread=splitBefore(books,39),geometry=E.layout(books,pages.length,spread);
+  const visible=(side,track)=>geometry.groups.filter(g=>g.side===side&&g.track===track).length;
+  assert.deepEqual(trackOrder.map(t=>visible('left',t)),[11,12,0,0]);
+  assert.deepEqual(trackOrder.map(t=>visible('right',t)),[0,0,11,5]);
+  assert.ok(geometry.groups.filter(g=>g.side==='left').every(g=>!g.nt));
+  assert.ok(geometry.groups.filter(g=>g.side==='right').every(g=>g.nt));
+  for(const side of ['left','right']){
+    const rows=geometry.groups.filter(g=>g.side===side);
+    const anchor=rows.find(g=>g.row===0&&g.track.endsWith('-a'));
+    for(const item of rows){
+      const measured=(photoX[item.track][item.row]-photoX[anchor.track][0])/570;
+      const actual=(centerX(item)-centerX(anchor))/geometry.bands[side].height;
+      assert.ok(Math.abs(measured-actual)<.02,`horizontal offset of ${item.track}/${item.row}: ${actual} vs photo ${measured}`);
+    }
+  }
+});
+test('all normal spreads retain each cut height; tracks at the same height keep photographic order without occlusion',()=>{
+ for(const {name,data:{books,pages}} of editions){
+  const fixed=new Map(E.layout(books,pages.length,0).groups.map(g=>[g.groupIndex,centerY(g)]));
+  let previous;
+  for(let spread=0;spread<pages.length;spread+=2){
+    const geometry=E.layout(books,pages.length,spread);
+    if(previous){
+      assert.ok(geometry.bands.left.width>=previous.left.width-1e-8);
+      assert.ok(geometry.bands.right.width<=previous.right.width+1e-8);
+    }
+    previous=geometry.bands;
+    for(const side of ['left','right']){
+      const items=geometry.groups.filter(item=>item.side===side),band=geometry.bands[side];
+      assert.ok(band.width>=10-1e-8);
+      for(const item of items){
+        const group=E.GROUPS[item.groupIndex];assert.equal(item.track,group.track);assert.equal(item.row,group.row);
+        assert.ok(Math.abs(centerY(item)-fixed.get(item.groupIndex))<1e-7);
+      }
+      for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+        const a=items[i],b=items[j];
+        assert.equal(E.rectanglesOverlap(a,b),false,`normal overlap: spread ${spread}, ${side}, groups ${a.groupIndex}/${b.groupIndex}`);
+        if(a.track===b.track||a.y+a.height<=b.y||b.y+b.height<=a.y)continue;
+        const leftFirst=trackOrder.indexOf(a.track)<trackOrder.indexOf(b.track);
+        assert.ok(leftFirst?centerX(a)<centerX(b):centerX(b)<centerX(a),`${name} ${side}/${spread} track order`);
+      }
+    }
+  }
+ }
+});
+test('physical OCR and both fallback editions preserve exact physical depth and avoid collisions on every expanded spread',()=>{
   let crossTestamentStates=0;
   for(const edition of editions){
     const {books,pages}=edition.data;
@@ -149,38 +235,30 @@ test('recto and verso labels on the same carrier stay at the same x and separate
   }
 });
 
-test('normal same-testament tracks never reverse physical depth in either edition',()=>{
+test('normal marks within a photographic track never reverse member depth, on either side in any edition',()=>{
   for(const edition of editions){
     const {books,pages}=edition.data;
     for(let spread=0;spread<pages.length;spread+=2){
       const geometry=E.layout(books,pages.length,spread);
-      for(const side of ['left','right'])for(const nt of [false,true]){
-        const items=geometry.groups.filter(item=>item.side===side&&item.nt===nt).sort((a,b)=>a.bookIndices[0]-b.bookIndices[0]);
-        const mixed=geometry.groups.some(item=>item.side===side&&item.nt!==nt);
-        const band=geometry.bands[side],trackWidth=mixed?(band.width-2-3)/2:band.width-2;
-        const trackX=band.x+1+(mixed&&nt?trackWidth+3:0);
-        for(const item of items){
-          const ratio=physicalRatio(books[item.bookIndices[0]],side,spread,pages.length);
-          assert.ok(Math.abs(item.x-(trackX+ratio*Math.max(0,trackWidth-item.width)))<1e-10);
-        }
+      for(const side of ['left','right'])for(const track of trackOrder){
+        const items=geometry.groups.filter(item=>item.side===side&&item.track===track).sort((a,b)=>a.bookIndices[0]-b.bookIndices[0]);
         for(let i=1;i<items.length;i++){
           const previous=items[i-1],current=items[i];assert.ok(current.x>=previous.x,'normal canonical order must not reverse');
           const before=Math.ceil(books[previous.bookIndices[0]].first/2),after=Math.ceil(books[current.bookIndices[0]].first/2);
           if(before===after)assert.equal(current.x,previous.x);
-          else if(trackWidth>current.width)assert.ok(current.x>previous.x,'resolvable normal depths must remain distinct');
         }
       }
     }
   }
 });
 test('normal group buttons select the first actual member on that side',()=>{
-  const f=setup();f.index.update({spread:262});
-  const left=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='left');
-  const right=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='right');
+  const f=setup();f.index.update({spread:splitBefore(books,9)});
+  const left=visibleGroups(f).find(node=>+node.dataset.group===samuelGroup()&&node.dataset.side==='left');
+  const right=visibleGroups(f).find(node=>+node.dataset.group===samuelGroup()&&node.dataset.side==='right');
   left.click();right.click();assert.deepEqual(f.events,[['select',8,'1SA'],['select',9,'2SA']]);
 });
-test('expanded selection requests a chapter menu without collapsing and reaches each of the real 66 books',()=>{
-  const f=setup();f.index.update({spread:740});
+test('expanded selection requests a chapter menu without collapsing and reaches every physical-edition book, including Jude',()=>{
+  const f=setup(physical),books=physical.books;f.index.update({spread:740});
   for(let i=0;i<books.length;i++){
     const side=E.sideOf(books[i],740);f.index.setExpanded(side);const button=visibleBooks(f).find(node=>+node.dataset.book===i);assert.ok(button);
     const start=f.events.length;button.click();assert.deepEqual(f.events.slice(start),[['select',i,books[i].code]]);assert.equal(f.index.getExpanded(),side);
@@ -188,10 +266,16 @@ test('expanded selection requests a chapter menu without collapsing and reaches 
   }
   assert.equal(f.events.filter(event=>event[0]==='select').length,66);
 });
+test('the physical compact four-book John/Jude cut sends its exact members to the chapter selector',()=>{
+  const f=setup(physical),group=groupForBook(64);
+  const cut=visibleGroups(f).find(button=>+button.dataset.group===group.index&&button.dataset.side==='right');
+  assert.ok(cut);cut.click();assert.deepEqual(f.metadata.at(-1).bookIndices,[61,62,63,64]);
+  assert.equal(f.events.at(-1)[2],'1JN');
+});
 test('chapter requests carry only this side group members and a detached plain screen anchor',()=>{
-  const f=setup();f.index.update({spread:262});
-  const left=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='left');
-  const right=visibleGroups(f).find(node=>node.dataset.group==='7'&&node.dataset.side==='right');
+  const f=setup();f.index.update({spread:splitBefore(books,9)});
+  const left=visibleGroups(f).find(node=>+node.dataset.group===samuelGroup()&&node.dataset.side==='left');
+  const right=visibleGroups(f).find(node=>+node.dataset.group===samuelGroup()&&node.dataset.side==='right');
   left.click();right.click();assert.deepEqual(f.metadata.map(meta=>meta.bookIndices),[[8],[9]]);
   assert.deepEqual(f.metadata[0].anchor,{x:101,y:202,left:101,top:202,right:114,bottom:226,width:13,height:24});
   assert.equal(Object.getPrototypeOf(f.metadata[0].anchor),Object.prototype);

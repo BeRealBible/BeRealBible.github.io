@@ -18,9 +18,15 @@
   font-family:"Songti SC","STSong","SimSun","Noto Serif SC",serif;font-weight:600;line-height:1;
   text-shadow:none;
 }
-.edge-index__group span { writing-mode:vertical-rl;text-orientation:upright;pointer-events:none; }
+.edge-index__group span { display:block;white-space:pre;writing-mode:horizontal-tb;line-height:1;text-align:center;pointer-events:none; }
 .edge-index__ot { background:#2b2433; }
 .edge-index__nt { background:#8e2323; }
+.edge-index__group { color:#ffedbd; }
+.edge-index__group.edge-index__ot { background:#322b29; }
+.edge-index__group.edge-index__nt { background:#933932; }
+/* As in the open book: the straight edge faces the outside cover. */
+.edge-index__group[data-side="left"] { border-radius:0 100% 100% 0 / 0 50% 50% 0; padding-right:2px; }
+.edge-index__group[data-side="right"] { border-radius:100% 0 0 100% / 50% 0 0 50%; padding-left:2px; }
 .edge-index__book { z-index:30;border-radius:3px;font-family:"Songti SC","STSong","SimSun",serif;font-size:11px;font-weight:500; }
 .edge-index [aria-current="page"] { box-shadow:0 0 0 2px #d6b56b,0 0 7px #d6b56b70; }
 .edge-index button:focus-visible { outline:2px solid #e9c96e;outline-offset:3px; }
@@ -34,6 +40,6 @@
   .edge-index__group:hover:not(:disabled),.edge-index__book:hover:not(:disabled) { box-shadow:0 0 0 2px #e7c46a,inset 0 0 0 20px #ffffff17; }
 }
 @media (forced-colors:active) {
-  .edge-index__group,.edge-index__book { border:1px solid ButtonText;color:ButtonText;background:ButtonFace; }
+  .edge-index .edge-index__group,.edge-index__book { border:1px solid ButtonText;color:ButtonText;background:ButtonFace; }
   .edge-index [aria-current="page"] { color:HighlightText;background:Highlight; }
 }
