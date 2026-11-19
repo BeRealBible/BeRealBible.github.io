@@ -14,17 +14,21 @@
   }
   const same=(a,b)=>a.page===b.page&&a.ref===b.ref&&(a.bookCode&&b.bookCode?a.bookCode===b.bookCode:a.bookName===b.bookName);
   const validId=id=>typeof id==='string'&&/^r[0-9]+$/.test(id)&&Number.isSafeInteger(Number(id.slice(1)));
-  const fresh=()=>({version:1,activeId:null,serial:0,items:[]});
+  const fresh=()=>({version:1,activeId:null,serial:0,pinSerial:0,items:[]});
   function decode(raw,pageCount){
     let data;try{data=JSON.parse(raw);}catch{return fresh();}
     if(data?.version!==1||!Array.isArray(data.items))return fresh();
     const s=fresh(),seen=new Set();
     for(const item of data.items){
       const loc=location(item,pageCount);if(!loc||!validId(item.id)||seen.has(item.id))continue;
-      seen.add(item.id);s.items.push({...loc,id:item.id,pinned:item.pinned===true});
+      seen.add(item.id);
+      const pinned=item.pinned===true, pinOrder=pinned&&Number.isSafeInteger(item.pinOrder)&&item.pinOrder>0?item.pinOrder:0;
+      s.items.push({...loc,id:item.id,pinned,...(pinOrder?{pinOrder}:{})});
+      s.pinSerial=Math.max(s.pinSerial,pinOrder);
       s.serial=Math.max(s.serial,Number(item.id.slice(1)));
     }
     if(Number.isSafeInteger(data.serial)&&data.serial>=s.serial)s.serial=data.serial;
+    if(Number.isSafeInteger(data.pinSerial)&&data.pinSerial>=s.pinSerial)s.pinSerial=data.pinSerial;
     if(seen.has(data.activeId))s.activeId=data.activeId;
     return s;
   }
@@ -41,13 +45,12 @@
       const encoded=JSON.stringify(state);if(encoded===raw)return;
       try{if(storage?.setItem){storage.setItem(KEY,encoded);raw=encoded;}}catch{/* private/locked stores still work for this session */}
     }
-    function touch(e){state.items=[e,...state.items.filter(other=>other.id!==e.id)];}
     function trim(keep){
       const retained=new Set([current,keep].filter(id=>{const e=find(id);return e&&!e.pinned;}));
       for(const e of state.items)if(!e.pinned&&retained.size<MAX_RECENT)retained.add(e.id);
       state.items=state.items.filter(e=>e.pinned||retained.has(e.id));
     }
-    function list(){pull();return [...state.items.filter(e=>e.pinned),...state.items.filter(e=>!e.pinned)].map(copy);}
+    function list(){pull();return [...state.items.filter(e=>e.pinned).sort((a,b)=>(b.pinOrder||0)-(a.pinOrder||0)),...state.items.filter(e=>!e.pinned)].map(copy);}
     pull();
     function start(loc){
       pull();loc=location(loc,pageCount);if(!loc)return;
@@ -60,7 +63,7 @@
     function advance(loc){
       pull();loc=location(loc,pageCount);const e=find(current);if(!e||!loc)return null;
       if(same(e,loc)&&state.activeId===current)return copy(e);
-      Object.assign(e,loc);state.activeId=e.id;touch(e);save();return copy(e);
+      Object.assign(e,loc);state.activeId=e.id;save();return copy(e);
     }
     function jump(loc,requestedId){
       pull();loc=location(loc,pageCount);if(!loc)return null;
@@ -71,13 +74,17 @@
         // recreate it, or start moving the line that we just navigated away from.
         if(!e){current=null;state.activeId=null;save();return null;}
       }else e=state.items.find(record=>same(record,loc));
-      if(!e){e={...loc,id:'r'+(++state.serial),pinned:false};}
+      if(!e){e={...loc,id:'r'+(++state.serial),pinned:false};state.items.unshift(e);}
       else Object.assign(e,loc);
-      current=state.activeId=e.id;touch(e);trim();save();return copy(e);
+      current=state.activeId=e.id;trim();save();return copy(e);
     }
     function pin(id,on){
       pull();const e=find(id);if(!e)return false;
-      e.pinned=on===undefined?!e.pinned:!!on;trim(id);save();return true;
+      const next=on===undefined?!e.pinned:!!on;
+      if(e.pinned===next)return true;
+      e.pinned=next;
+      if(next)e.pinOrder=++state.pinSerial;else delete e.pinOrder;
+      trim(id);save();return true;
     }
     function remove(id){
       pull();const index=state.items.findIndex(e=>e.id===id);if(index<0)return false;

@@ -264,5 +264,26 @@ test('untouched records hide both actions on every input device; a pinned record
   assert.match(floating?.decl||'',/position\s*:\s*fixed/);
   assert.match(floating.decl,/translateY\(-100%\)/,'delete is strictly above the navigation strip');
 });
+
+test('opening an existing trail never reorders pins or other trails; only a fresh pin goes first',()=>{
+ const s=memory();let m=model(s), a=m.jump(loc(12)),b=m.jump(loc(20)),c=m.jump(loc(28)),d=m.jump(loc(40));
+ const ids=()=>m.list().map(e=>e.id);
+ assert.deepEqual(ids(),[d.id,c.id,b.id,a.id]);
+ m.jump(loc(12),a.id);m.advance(loc(14));assert.deepEqual(ids(),[d.id,c.id,b.id,a.id]);assert.equal(m.current(),a.id);
+ m.pin(b.id,true);m.pin(a.id,true);assert.deepEqual(ids(),[a.id,b.id,d.id,c.id]);
+ m.jump(loc(20),b.id);m.advance(loc(22));m.pin(b.id,true);assert.deepEqual(ids(),[a.id,b.id,d.id,c.id]);
+ m=model(s);assert.deepEqual(ids(),[a.id,b.id,d.id,c.id]);
+ m.pin(a.id,false);assert.deepEqual(ids(),[b.id,d.id,c.id,a.id]);
+ m.pin(a.id,true);assert.deepEqual(ids(),[a.id,b.id,d.id,c.id]);
+});
+
+test('existing saved order survives without a pin-order field',()=>{
+ const s=memory(), m=model(s), a=m.jump(loc(12)), b=m.jump(loc(20)), c=m.jump(loc(28));
+ const saved=JSON.parse(s.getItem(H.KEY));delete saved.pinSerial;
+ for(const item of saved.items)if(item.id!==a.id)item.pinned=true;
+ s.setItem(H.KEY,JSON.stringify(saved));
+ const legacy=model(s);legacy.jump(loc(20),b.id);assert.deepEqual(legacy.list().map(e=>e.id),[c.id,b.id,a.id]);
+ legacy.pin(a.id,true);assert.deepEqual(legacy.list().map(e=>e.id),[a.id,c.id,b.id]);
+});
 for(const [name,fn] of cases){fn();console.log('PASS '+name);}
 console.log(JSON.stringify({historyScenarios:cases.length}));
