@@ -29,7 +29,9 @@
       columns=Math.min(columns,Math.max(1,Math.floor((availableWidth-constants.PADDING-constants.NUMBER_GUTTER+constants.NUMBER_GAP)/(cell+constants.NUMBER_GAP))));
       width=Math.min(availableWidth,Math.max(220,columns*cell+(columns-1)*constants.NUMBER_GAP+constants.PADDING+constants.NUMBER_GUTTER));
     }
-    return {width,columns,maxHeight:Math.min(availableHeight,mode==='preview'?390:340)};
+    // A shared cut can hold several books. Let its continuous list use the
+    // available space, without making a short directory taller than its content.
+    return {width,columns,maxHeight:memberCount>1?availableHeight:Math.min(availableHeight,mode==='preview'?390:340)};
   }
   function viewportRect(viewport={}){
     const left=finite(viewport.left),top=finite(viewport.top),width=Math.max(1,finite(viewport.width,360)),height=Math.max(1,finite(viewport.height,640));
@@ -61,7 +63,7 @@
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,win=doc.defaultView,portal=doc.body||host,staticListeners=[],dynamicListeners=[];
     const root=doc.createElement('div');root.className='edge-chapters';root.hidden=true;
-    let opened=false,destroyed=false,members=[],selected=-1,hinge=null,openedFrame=null,dock=null,previousFocus=null,bookButtons=[],chapterButtons=[],mode='numbers';
+    let opened=false,destroyed=false,members=[],selected=-1,hinge=null,openedFrame=null,dock=null,previousFocus=null,contentButtons=[],chapterButtons=[],sectionCounts=[],mode='numbers';
     const add=(parent,tag,className)=>{const node=doc.createElement(tag);node.className=className;parent.appendChild(node);return node;};
     const listen=(target,type,fn,capture=false,list=staticListeners)=>{target.addEventListener(type,fn,capture);list.push([target,type,fn,capture]);};
     const stop=event=>event.stopPropagation();
@@ -78,7 +80,6 @@
     const header=add(sheet,'header','edge-chapters__header'),kicker=add(header,'div','edge-chapters__kicker');kicker.textContent='卷内目次';
     const heading=add(header,'div','edge-chapters__heading'),title=add(heading,'h2','edge-chapters__title');title.id='edge-chapters-title-'+(++instance);panel.setAttribute('aria-labelledby',title.id);
     const currentLabel=add(heading,'span','edge-chapters__current');currentLabel.hidden=true;
-    const bookbar=add(sheet,'div','edge-chapters__books');bookbar.setAttribute('role','group');bookbar.setAttribute('aria-label','选择书卷');
     const rule=add(sheet,'div','edge-chapters__rule'),eyebrow=add(rule,'span','edge-chapters__eyebrow');
     const grid=add(sheet,'div','edge-chapters__grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','选择章节');
     const footer=add(sheet,'footer','edge-chapters__footer'),opening=add(footer,'button','edge-chapters__opening');opening.type='button';opening.textContent='卷首';
@@ -86,7 +87,7 @@
     const corner=add(panel,'i','edge-chapters__corner');corner.setAttribute('aria-hidden','true');
     for(const type of ['pointerdown','pointerup','pointercancel','click','dblclick'])listen(root,type,stop);
     listen(outside,'click',event=>{stop(event);close();});listen(closeButton,'click',event=>{stop(event);close();});
-    listen(opening,'click',event=>{stop(event);if(opened&&selected>=0)choose(books[selected].first);});
+    listen(opening,'click',event=>{stop(event);if(opened&&members.length===1)choose(selected,books[selected].first);});
     function getViewport(){
       const visual=win?.visualViewport;
       return {left:finite(visual?.offsetLeft),top:finite(visual?.offsetTop),width:finite(visual?.width,finite(win?.innerWidth,doc.documentElement?.clientWidth||360)),height:finite(visual?.height,finite(win?.innerHeight,doc.documentElement?.clientHeight||640))};
@@ -111,11 +112,11 @@
       while(lo<hi){const m=(lo+hi)>>1;if(chapterButtons[m].getBoundingClientRect().bottom<=line)lo=m+1;else hi=m;}
       const button=chapterButtons[lo];if(!button)return null;
       const row=button.getBoundingClientRect();if(row.top>=view.bottom)return null;
-      return {book:selected,chapter:button.dataset.chapter,part:clamp((line-row.top)/Math.max(1,row.height),.03,.97)};
+      return {book:button.dataset.book,chapter:button.dataset.chapter,part:clamp((line-row.top)/Math.max(1,row.height),.03,.97)};
     }
     function restoreChapter(mark,scale){
-      if(!mark||mark.book!==selected)return;
-      const button=chapterButtons.find(b=>b.dataset.chapter===mark.chapter);if(!button)return;
+      if(!mark)return;
+      const button=chapterButtons.find(b=>b.dataset.book===mark.book&&b.dataset.chapter===mark.chapter);if(!button)return;
       const scroller=scrollPort(),view=scroller.getBoundingClientRect(),row=button.getBoundingClientRect();
       // The DOM reports rects in screen pixels, but scrollTop in book units.
       if(view.height&&row.height)scroller.scrollTop+=(row.top+mark.part*row.height-view.top-view.height*.25)/scale;
@@ -141,7 +142,8 @@
         }
       }
       const cell=viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
-      const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(mobile?40:36):cell+1);
+      const rows=sectionCounts.reduce((n,count)=>n+Math.ceil(count/size.columns),0);
+      const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?members.length*26:0)+rows*(mode==='preview'?(mobile?40:36):cell+1);
       const p=placeDock(dock,{width:size.width*s,height:Math.min(size.maxHeight*s,rect?.height||estimate*s)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
       layoutKey=key;restoreChapter(mark,s);
@@ -149,33 +151,22 @@
     function removeDynamic(){for(const [node,type,fn,capture] of dynamicListeners)node.removeEventListener(type,fn,capture);dynamicListeners.length=0;}
     function clear(node){for(const child of Array.from(node.children))child.remove();}
     function focusChapter(){
-      const target=chapterButtons.find(button=>button.getAttribute('aria-current')==='page')||chapterButtons[0]||opening;
+      const target=chapterButtons.find(button=>button.getAttribute('aria-current')==='page')||chapterButtons[0]||contentButtons[0]||opening;
       target.focus?.({preventScroll:true});target.scrollIntoView?.({block:'nearest',inline:'nearest'});
     }
-    function render(){
-      removeDynamic();clear(bookbar);clear(grid);bookButtons=[];chapterButtons=[];
-      const book=books[selected],entries=chapterEntries(book),current=typeof getCurrent==='function'?getCurrent()||{}:{};
-      root.dataset.book=String(selected);title.textContent=book.name;
-      const chapterUnit=book.code==='PSA'?'篇':'章';eyebrow.textContent=`共${entries.length}${chapterUnit}`;
-      const activeChapter=Number(current.chapter),hasCurrent=current.bookIndex===selected&&entries.some(entry=>entry.chapter===activeChapter);
-      currentLabel.hidden=!hasCurrent;currentLabel.textContent=hasCurrent?`读至${activeChapter}${chapterUnit}`:'';
-      hint.textContent=mode==='preview'?'点摘句翻页':'点章码翻页';
-      const size=entries.length<=3?'brief':entries.length<=25?'regular':'long';
-      for(const node of [root,panel]){node.dataset.mode=mode;node.dataset.count=String(entries.length);node.dataset.size=size;}
-      for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
-      bookbar.hidden=members.length<2;
-      if(members.length>1)for(const index of members){
-        const button=add(bookbar,'button','edge-chapters__book');button.type='button';button.dataset.book=String(index);button.textContent=books[index].name;button.title=books[index].name;
-        button.setAttribute('aria-pressed',String(index===selected));button.setAttribute('aria-label',`选择${books[index].name}`);
-        listen(button,'click',event=>{stop(event);if(!opened||destroyed)return;selected=index;render();position();focusChapter();},false,dynamicListeners);bookButtons.push(button);
-      }
+    function openingTarget(button,index){
+      const book=books[index];button.type='button';button.textContent='卷首';button.dataset.book=String(index);
+      button.dataset.page=String(book.first);button.title=book.name+'卷首';button.setAttribute('aria-label',`前往${book.name}卷首`);
+    }
+    function renderEntries(list,index,entries,current){
+      const book=books[index];
       for(const entry of entries){
-        const button=add(grid,'button','edge-chapters__chapter');button.type='button';button.dataset.book=String(selected);button.dataset.chapter=String(entry.chapter);button.dataset.page=String(entry.page);
+        const button=add(list,'button','edge-chapters__chapter');button.type='button';button.dataset.book=String(index);button.dataset.chapter=String(entry.chapter);button.dataset.page=String(entry.page);
         const number=add(button,'span','number edge-chapters__number');number.textContent=String(entry.chapter);
         button.title=`${book.name} 第 ${entry.chapter} 章`;button.setAttribute('aria-label',button.title);
         if(mode==='preview'){
           let preview=null;
-          try{preview=typeof getPreview==='function'?getPreview(selected,entry.chapter):null;}catch(_){/* Missing preview never fabricates scripture or blocks chapter access. */}
+          try{preview=typeof getPreview==='function'?getPreview(index,entry.chapter):null;}catch(_){/* Missing preview never fabricates scripture or blocks chapter access. */}
           const available=typeof preview?.text==='string'&&Boolean(preview.text.trim());button.dataset.preview=available?'available':'unavailable';
           if(available){
             const excerpt=add(button,'span','preview edge-chapters__preview');excerpt.textContent=preview.text;
@@ -183,31 +174,62 @@
             button.dataset.truncated=String(Boolean(preview.truncated));
           }
         }
-        if(current.bookIndex===selected&&Number(current.chapter)===entry.chapter)button.setAttribute('aria-current','page');
-        listen(button,'click',event=>{stop(event);if(opened&&!destroyed)choose(entry.page,entry.chapter);},false,dynamicListeners);chapterButtons.push(button);
+        if(current.bookIndex===index&&Number(current.chapter)===entry.chapter)button.setAttribute('aria-current','page');
+        listen(button,'click',event=>{stop(event);if(opened&&!destroyed)choose(index,entry.page,entry.chapter);},false,dynamicListeners);
+        chapterButtons.push(button);contentButtons.push(button);
       }
-      layoutKey='';sheet.scrollTop=0;grid.scrollTop=0;opening.dataset.page=String(book.first);opening.title=book.name+'卷首';opening.setAttribute('aria-label',`前往${book.name}卷首`);
+    }
+    function render(){
+      removeDynamic();clear(grid);contentButtons=[];chapterButtons=[];
+      const grouped=members.length>1,current=getCurrent?.()||{};
+      const sections=members.map(index=>({index,book:books[index],entries:chapterEntries(books[index])}));
+      sectionCounts=sections.map(s=>s.entries.length);
+      const count=sectionCounts.reduce((n,c)=>n+c,0),first=sections[0],unit=first.book.code==='PSA'?'篇':'章';
+      root.dataset.book=String(selected);title.textContent=grouped?'合签目录':first.book.name;
+      kicker.textContent=grouped?'书口目次':'卷内目次';eyebrow.textContent=grouped?`${members.length}卷`:`共${count}${unit}`;
+      const active=Number(current.chapter),hasCurrent=!grouped&&current.bookIndex===first.index&&first.entries.some(e=>e.chapter===active);
+      currentLabel.hidden=!hasCurrent;currentLabel.textContent=hasCurrent?`读至${active}${unit}`:'';
+      hint.textContent=mode==='preview'?'点摘句翻页':'点章码翻页';
+      const size=count<=3?'brief':count<=25?'regular':'long';
+      for(const node of [root,panel]){node.dataset.mode=mode;node.dataset.count=String(count);node.dataset.size=size;node.dataset.grouped=String(grouped);}
+      for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
+      opening.hidden=grouped;if(!grouped)openingTarget(opening,first.index);
+      for(const {index,book,entries} of sections){
+        let list=grid;
+        if(grouped){
+          const section=add(grid,'section','edge-chapters__section');section.dataset.book=String(index);
+          const head=add(section,'div','edge-chapters__section-head'),name=add(head,'h3','edge-chapters__book-title');
+          name.textContent=book.name;name.id=title.id+'-book-'+index;section.setAttribute('aria-labelledby',name.id);
+          const badge=add(head,'span','edge-chapters__section-count');badge.textContent=`共${entries.length}${book.code==='PSA'?'篇':'章'}`;
+          const start=add(head,'button','edge-chapters__opening');openingTarget(start,index);contentButtons.push(start);
+          listen(start,'click',event=>{stop(event);if(opened&&!destroyed)choose(index,book.first);},false,dynamicListeners);
+          list=add(section,'div','edge-chapters__list');
+        }
+        renderEntries(list,index,entries,current);
+      }
+      layoutKey='';sheet.scrollTop=0;grid.scrollTop=0;
     }
     function setMode(value){
       if(value!=='numbers'&&value!=='preview')throw new TypeError('Chapter menu mode must be numbers or preview');
       if(destroyed||value===mode)return mode;
-      const mark=opened?visibleChapter():null,active=doc.activeElement,chapter=chapterButtons.includes(active)?active.dataset.chapter:null,book=bookButtons.includes(active)?active.dataset.book:null;
+      const mark=opened?visibleChapter():null,active=doc.activeElement;
+      const key=contentButtons.includes(active)?{book:active.dataset.book,chapter:active.dataset.chapter}:null;
       mode=value;root.dataset.mode=mode;panel.dataset.mode=mode;
       for(const button of modeButtons)button.setAttribute('aria-pressed',String(button.dataset.mode===mode));
       if(opened){
         render();layout(mark);
-        const target=chapter!==null?chapterButtons.find(button=>button.dataset.chapter===chapter):book!==null?bookButtons.find(button=>button.dataset.book===book):null;
+        const target=key&&contentButtons.find(button=>button.dataset.book===key.book&&button.dataset.chapter===key.chapter);
         target?.focus?.({preventScroll:true});if(!mark)target?.scrollIntoView?.({block:'nearest',inline:'nearest'});
       }
       return mode;
     }
-    function choose(page,chapter){
-      if(!Number.isInteger(page)||page<0)return;const book=books[selected];close('select');if(typeof onSelect==='function')onSelect(page,{bookCode:book.code,ref:chapter?chapter+':1':null});
+    function choose(index,page,chapter){
+      if(!Number.isInteger(page)||page<0)return;const book=books[index];close('select');if(typeof onSelect==='function')onSelect(page,{bookCode:book.code,ref:chapter?chapter+':1':null});
     }
     function open(options={}){
       if(destroyed)return false;
       const requested=Array.isArray(options.bookIndices)?options.bookIndices:[options.index];
-      const valid=[...new Set(requested)].filter(index=>Number.isInteger(index)&&index>=0&&index<books.length);
+      const valid=[...new Set(requested)].filter(index=>Number.isInteger(index)&&index>=0&&index<books.length).sort((a,b)=>a-b);
       if(!valid.length)return false;
       if(!opened){previousFocus=doc.activeElement;hinge=chooseDock(options.anchor,getViewport());openedFrame=bookFrame();}
       members=valid;selected=members.includes(options.index)?options.index:members[0];
@@ -226,7 +248,7 @@
         event.preventDefault();event.stopPropagation();onZoom(event.key==='-'?1/1.2:1.2);return;
       }
       if(event.key!=='Tab')return;
-      const focusables=[...modeButtons,closeButton,...bookButtons,...chapterButtons,opening].filter(button=>!button.hidden&&!button.disabled);
+      const focusables=[...modeButtons,closeButton,...contentButtons,opening].filter(button=>!button.hidden&&!button.disabled);
       const first=focusables[0],last=focusables[focusables.length-1],active=doc.activeElement;
       if(!focusables.includes(active)||event.shiftKey&&active===first||!event.shiftKey&&active===last){event.preventDefault();event.stopPropagation();(event.shiftKey?last:first)?.focus?.({preventScroll:true});}
     }
