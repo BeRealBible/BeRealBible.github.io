@@ -51,3 +51,8 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
    of promoting one large zoomed spread (which can lose compositor tiles). */
 .stage[data-paper-paint="flat-touch"] #book{will-change:auto;filter:none}
 .stage[data-paper-paint="flat-touch"] #desk-surface{isolation:auto}
+
+/* The desk pans in its own coordinates. Focusing a clipped chapter trigger
+   must not also scroll the stage and offset pointer hit tests. */
+.stage[data-turn-style="smooth"],
+.stage[data-turn-style="smooth"] #desk-surface{overflow:clip}

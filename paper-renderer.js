@@ -191,8 +191,16 @@
     const dir=options.direction<0?-1:1,p=clamp(options.progress,0,1);
     const radius=clamp(options.radius??392,12,480),gy=clamp(options.grabY??600,0,704);
     const top=options.corner?options.corner==='top':gy<352,vertical=p===0||p===1?0:clamp(options.vertical||0,-210,210);
-    const us=knots(480,cols,radius),vs=knots(704,rows,gy),triangles=[],points=[];
+    // The older roll used one profile across the entire height of the sheet.
+    // No corner lag or vertical twist: corresponding points stay 704px apart.
+    if(options.smooth){cols=14;rows=1;}
+    const us=knots(480,cols,radius),vs=options.smooth?[0,704]:knots(704,rows,gy),triangles=[],points=[];
+    const profile=options.smooth?us.map(u=>P.point({direction:dir,radius,grabY:0,progress:p,vertical:0},u,0)):null;
     for(const v of vs){
+      if(profile){
+        for(const [i,q] of profile.entries())points.push({u:us[i],v,x:q.x,y:v+q.y-P.SLOPE*q.z,z:q.z});
+        continue;
+      }
       const from=(top?1:-1)*(v-gy)/704;
       const delay=.23*Math.max(0,from)*(1-smoothstep((p-.12)/.48));
       const progress=from>0?Math.max(0,(p-delay)/(1-delay)):p+.20*(-from)*p*(1-p);
@@ -291,13 +299,13 @@
       painter(c,index,r);cache.set(key,c);while(cache.size>4)cache.delete(cache.keys().next().value);
       return c;
     }
-    function prepare(front,back){
+    function prepare(front,back,light=false){
       const r=host.getBoundingClientRect(),scale=r.width/960||1,dpr=root.devicePixelRatio||1,vp=doc.documentElement;
       const x0=clamp(Math.floor(-r.left/scale)-8,-8,958),x1=clamp(Math.ceil((vp.clientWidth-r.left)/scale)+8,x0+2,968);
       const y0=clamp(Math.floor(-r.top/scale)-8,-220,922),y1=clamp(Math.ceil((vp.clientHeight-r.top)/scale)+8,y0+2,924);
       view={x:x0,y:y0,w:x1-x0,h:y1-y0};
-      ratio=Math.max(.25,Math.min(3,scale*dpr,Math.sqrt(3500000/(view.w*view.h))));
-      const tr=clamp(Math.ceil(scale*dpr*2)/2,1,2.5);images=[texture(front,tr),texture(back,tr)];
+      ratio=Math.max(.25,Math.min(3,scale*dpr,Math.sqrt((light?1100000:3500000)/(view.w*view.h))));
+      const tr=clamp(Math.ceil(scale*dpr*2)/2,1,light?1.5:2.5);images=[texture(front,tr),texture(back,tr)];
       if(gl?.isContextLost())fallback();
       // On context loss recover immediately to a separate 2D canvas (a canvas
       // with an allocated WebGL context cannot acquire another context type).
@@ -345,14 +353,14 @@
     const motion=movingInk(host,painter);
     let layer,defs,shadow,stock,group,nodes,faces,dir,prefix,lastOrder='',gridKey='',tiles,patches,pages,accelerated;
     function hide(){motion?.hide();layer?.remove();layer=patches=defs=group=stock=shadow=faces=tiles=nodes=null;lastOrder=gridKey='';delete host.dataset.curlProgress;delete host.dataset.curlHeight;delete host.dataset.curlCorner;}
-    function prepare(front,back,direction){
+    function prepare(front,back,direction,light=false){
       hide();dir=direction;prefix='turn-leaf-'+(++vectorSerial)+'-';
       layer=make('svg',{class:'paper-vector-turn',viewBox:'0 0 960 704','aria-hidden':'true'});defs=make('defs');layer.appendChild(defs);
       pages=[front,back];faces=null;
       shadow=make('path',{fill:'#4d3c2b'});stock=make('path',{fill:'#f8f3e4','fill-rule':'nonzero'});group=make('g');
       layer.append(shadow,stock,group);host.appendChild(layer);nodes=[];host.dataset.renderer='svg-curved-sheet';
       accelerated=!!motion;
-      if(accelerated)try{motion.prepare(front,back);}catch{motion.hide();accelerated=false;}
+      if(accelerated)try{motion.prepare(front,back,light);}catch{motion.hide();accelerated=false;}
       if(!accelerated)prepareVectors();
     }
     function prepareVectors(){
@@ -399,7 +407,7 @@
         n.shade.setAttribute('opacity',String(t.shade*arc));
       });}
       host.dataset.curlProgress=p.toFixed(4);host.dataset.curlHeight=Math.max(...s.points.map(q=>q.z)).toFixed(2);
-      host.dataset.curlCorner=options.corner||((options.grabY??600)<352?'top':'bottom');return maskFor(s).css;
+      host.dataset.curlCorner=options.smooth?'none':options.corner||((options.grabY??600)<352?'top':'bottom');return maskFor(s).css;
     }
     return {prepare,draw,hide};
   };

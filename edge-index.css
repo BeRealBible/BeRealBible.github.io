@@ -69,3 +69,16 @@
   .edge-index .edge-index__group { border:1px solid ButtonText;color:ButtonText;background:ButtonFace; }
   .edge-index [aria-current="page"] { color:HighlightText;background:Highlight; }
 }
+
+
+/* Slim preview: preserve the tab faces and their targets. Light falls from the
+   open pages onto the rounded stack; the exposed outer edge sits in shade. */
+.stage[data-edge-profile="slim"] .edge-index__band{
+  --edge-light:to right;
+  background:linear-gradient(var(--edge-light),#83715647,#fff5da26 20%,transparent 54%,#a28f6338 86%,#66563c4a),
+    repeating-linear-gradient(89deg,#876a4326 0 .65px,#fffaf423 .65px 1.5px,transparent 1.5px 3.9px),
+    #e8dec5;
+  border-radius:3px 0 0 4px;
+  box-shadow:inset 0 1px #fff6dfaa,inset 0 -1px #715f4b55;
+}
+.stage[data-edge-profile="slim"] .edge-index__band[data-side="right"]{--edge-light:to left;border-radius:0 3px 4px 0}

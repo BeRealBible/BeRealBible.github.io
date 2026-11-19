@@ -89,9 +89,9 @@
     const inferred=books.reduce((max,book)=>Math.max(max,Number(book.last)||Number(book.first)||0),0)+1;
     return Math.max(1,Number.isFinite(Number(pageCount))?Number(pageCount):inferred);
   }
-  function layout(books,pageCount,spread=0){
+  function layout(books,pageCount,spread=0,depthScale=1){
     const total=normalizePageCount(books,pageCount),page=clamp(Math.floor(Number(spread)||0),0,total);
-    const depth=cutDepths(books,total),split=Math.floor(page/2),at=depth(split),end=depth(Math.ceil(total/2));
+    const projected=cutDepths(books,total),depth=sheet=>projected(sheet)*depthScale,split=Math.floor(page/2),at=depth(split),end=depth(Math.ceil(total/2));
     const framed=constants.GROUP_WIDTH+4;
     const normalLeft=at+(books.some(b=>sideOf(b,page)==='left')?framed:constants.MIN_BAND);
     const normalRight=end-at+(books.some(b=>sideOf(b,page)==='right')?framed:constants.MIN_BAND);
@@ -114,7 +114,7 @@
     }
     return {bands,groups,bounds:{leftExtent:normalLeft,rightExtent:normalRight,normalLeftExtent:normalLeft,normalRightExtent:normalRight}};
   }
-  function create(host,{books,pageCount,onSelect}={}){
+  function create(host,{books,pageCount,onSelect,depthScale=1}={}){
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,root=doc.createElement('nav'),listeners=[];
     root.className='edge-index';root.setAttribute('aria-label','书口书卷目录');
@@ -152,7 +152,7 @@
     function position(el,item){el.style.left=item.x+'px';el.style.top=item.y+'px';el.style.width=item.width+'px';el.style.height=item.height+'px';}
     function markCurrent(el,yes){if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');}
     function paint(){
-      geometry=layout(books,pageCount,state.spread);
+      geometry=layout(books,pageCount,state.spread,depthScale);
       root.dataset.turning=String(Boolean(state.turning));
       for(const side of ['left','right'])position(bands[side],geometry.bands[side]);
       for(const button of groupButtons.values()){button.hidden=true;button._edgeItem=null;}

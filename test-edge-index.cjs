@@ -36,6 +36,16 @@ const samuelGroup=()=>groupForBook(8).index;
 const splitBefore=(source,i)=>Math.max(0,2*E.carrierSheet(source[i])-2);
 let checks=0;
 function test(name,fn){fn();checks++;console.log('PASS '+name);}
+test('slim paper stack preserves every V25 tab at every physical spread without overlap',()=>{
+  for(let page=0;page<physical.pageCount;page+=2){
+    const normal=E.layout(physical.books,physical.pageCount,page),slim=E.layout(physical.books,physical.pageCount,page,.70);
+    assert(slim.bands.left.width<=normal.bands.left.width&&slim.bands.right.width<=normal.bands.right.width);
+    assert.deepEqual(slim.groups.map(g=>[g.groupIndex,g.bookIndices,g.y,g.width,g.height]),
+      normal.groups.map(g=>[g.groupIndex,g.bookIndices,g.y,g.width,g.height]));
+    for(let i=0;i<slim.groups.length;i++)for(let j=i+1;j<slim.groups.length;j++)
+      assert(!E.rectanglesOverlap(slim.groups[i],slim.groups[j]));
+  }
+});
 class Target {
   constructor(){this.events=new Map();}
   addEventListener(type,listener){if(!this.events.has(type))this.events.set(type,new Set());this.events.get(type).add(listener);}

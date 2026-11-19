@@ -53,6 +53,17 @@ for(const direction of [-1,1])for(const corner of ['top','bottom']){
     }
   }
 }
+for(const direction of [-1,1]) for(const progress of [0,.05,.25,.5,.75,.99,1]){
+  const radius=350,s=R.vectorSurface({direction,radius,progress,grabY:50,vertical:180,smooth:true});
+  assert.equal(s.rows,1);
+  near(at(s,radius,0).x,480+direction*radius*(1-2*progress),.00025);
+  for(const u of s.us){
+    const top=at(s,u,0),bottom=at(s,u,704);
+    near(top.x,bottom.x);near(bottom.y-top.y,704);near(top.z,bottom.z);
+  }
+  const mask=R.vectorMask(s);
+  for(const sample of [176,352,528])near(boundaryAt(mask,sample),boundaryAt(mask,352));
+}
 class E{
   constructor(type){this.type=type;this.children=[];this.attrs={};this.dataset={};this.ownerDocument=doc;}
   setAttribute(k,v){this.attrs[k]=String(v);}

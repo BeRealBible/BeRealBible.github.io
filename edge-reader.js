@@ -11,6 +11,11 @@
   const flatTouch=document.documentElement.dataset.readerBuild==='index-25'&&
     (matchMedia('(pointer: coarse)').matches||/Android/i.test(navigator.userAgent));
   if(flatTouch)stage.dataset.paperPaint='flat-touch';
+  // An opt-in preview keeps the known safe static route available on Android.
+  const smoothTurn=document.documentElement.dataset.readerBuild==='index-25'&&
+    new URLSearchParams(location.search).get('curl')==='smooth'&&(!flatTouch||CSS.supports('zoom','1'));
+  if(smoothTurn){stage.dataset.turnStyle='smooth';stage.dataset.edgeProfile='slim';}
+  const reduceMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
   const LAST_PAGE=D.readingLastPage??D.pages.length-1;
   const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,MAX_SPREAD=Math.min(LAST_PAGE&~1,(D.pages.length-2)&~1);
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -30,7 +35,7 @@
     (canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
   const desk=window.PaperBookDesk?.create(stage,$('desk-surface'));let deskKey=null;
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
-  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters});
+  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,depthScale:smoothTurn ? .70 : 1});
   const readingPage=()=>{
     const a=D.pages[spread+1-readingSide],b=D.pages[spread+readingSide];
     return b.b>=0&&!b.blank&&b.start?b:a.b>=0&&!a.blank&&a.start?a:b;
@@ -154,11 +159,12 @@
     const side=direction>0?1:0;
     selection?.reset();
     const grabY=contact?.grabY??628;
+    const animate=!flatTouch||(smoothTurn&&!reduceMotion());
     fold={from:spread,target,direction,side,count:Math.abs(target-spread)/2,source,
       radius:contact?.radius??450,grabY,corner:grabY<352?'top':'bottom',vertical:0,
-      progress:0,settling:false,original:papers[side].innerHTML};
-    if(flatTouch){stage.dataset.foldState='dragging';return true;}
-    renderer.prepare(spread+side,direction>0?target:target+1,direction,fold.count);
+      progress:0,settling:false,animate,original:animate?papers[side].innerHTML:null};
+    if(!animate){stage.dataset.foldState='dragging';return true;}
+    renderer.prepare(spread+side,direction>0?target:target+1,direction,smoothTurn);
     papers[side].classList.add('under-curl');book.classList.add('curl-active');
     updateFold(0);
     // The opaque source leaf is already in place; only the portion uncovered
@@ -168,8 +174,8 @@
   }
   function updateFold(progress,vertical=0){
     if(!fold)return;const f=fold;f.progress=clamp(progress,0,1);f.vertical=clamp(vertical,-210,210);
-    if(flatTouch)return;
-    const covered=renderer.draw({progress:f.progress,radius:f.radius,grabY:f.grabY,vertical:f.vertical,corner:f.corner});
+    if(!f.animate)return;
+    const covered=renderer.draw({progress:f.progress,radius:f.radius,grabY:f.grabY,vertical:f.vertical,corner:f.corner,smooth:smoothTurn});
     const mask=typeof covered==='string'?covered:f.direction>0?'inset(0 0 0 '+covered+'px)':'inset(0 '+covered+'px 0 0)';
     papers[f.side].style.setProperty('--under-sheet-clip',mask);
     stage.dataset.foldProgress=f.progress.toFixed(4);
@@ -182,19 +188,19 @@
     if(!fold)return;const f=fold;cancelAnimationFrame(foldFrame);foldFrame=0;
     renderer.hide();book.classList.remove('curl-active');papers[f.side].classList.remove('under-curl');papers[f.side].style.removeProperty('--under-sheet-clip');fold=null;
     if(commit){preciseRef=null;spread=f.target;readingSide=focus==='left'||(focus==='custom'&&(view.w/2-x)/scale<480)?0:1;render();fitScale=measureFit();if(focus==='fit')scale=fitScale;constrain();transform();save();history?.advance(readingLocation());}
-    else if(!flatTouch){papers[f.side].innerHTML=f.original;selection?.refresh?.();applyMaterial();updateIndex();}
+    else if(f.animate){papers[f.side].innerHTML=f.original;selection?.refresh?.();applyMaterial();updateIndex();}
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     if(queuedTurns.length)turn(...queuedTurns.shift());
   }
   function settleFold(commit=true){
-    if(!fold||fold.settling)return;const f=fold;f.settling=true;
+    if(!fold||fold.settling)return;const f=fold;f.settling=true;f.commit=commit;
     stage.dataset.foldState=commit?'settling-forward':'settling-back';
     const start=f.progress,target=commit?1:0,vertical=f.vertical,remaining=Math.abs(target-start);
-    if(flatTouch||remaining<.0001||matchMedia('(prefers-reduced-motion: reduce)').matches){finishFold(commit);return;}
-    const started=performance.now(),duration=120+180*remaining;
+    if(!f.animate||remaining<.0001||reduceMotion()){finishFold(commit);return;}
+    const started=performance.now(),duration=smoothTurn?140+125*remaining:120+180*remaining;
     function frame(now){
       if(fold!==f)return;const t=clamp((now-started)/duration,0,1);
-      const eased=(1-Math.cos(t*Math.PI))/2;
+      const eased=smoothTurn?1-(1-t)**3:(1-Math.cos(t*Math.PI))/2;
       updateFold(start+(target-start)*eased,vertical*(1-eased));
       if(t===1)finishFold(commit);else foldFrame=requestAnimationFrame(frame);
     }
@@ -302,6 +308,10 @@
       band=candidate&&!candidate.disabled?candidate:null;
     suppressBandClick=null;
     if(jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
+    // A new touch should not be lost in the short release animation.
+    if(smoothTurn&&e.pointerType==='touch'&&fold?.settling&&pointers.size===0){
+      queuedTurns=[];finishFold(fold.commit);
+    }
     clearHold();
     // A still press on blank paper does nothing; a named cut keeps its native
     // click. Transfer pointer capture to the stage only after a drag starts.
@@ -314,7 +324,9 @@
     const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
-      edge:inwardDirection(bx,by,band),contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
+      edge:inwardDirection(bx,by,band),
+      touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
+      contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
       direction:0,trend:1,extreme:0};
     if(token&&!selection.isActive())holdTimer=setTimeout(()=>{
       holdTimer=null;if(gesture!==g||pointers.size!==1||g.kind!=='pending'||g.pinched)return;
@@ -347,7 +359,7 @@
     }
     rememberStroke(g,out);
     const progress=clamp(out/Math.max(1,2*fold.radius*g.baseScale),0,1),
-      vertical=out?clamp((c.y-g.start.y)/g.baseScale,-210,210):0;
+      vertical=!smoothTurn&&out?clamp((c.y-g.start.y)/g.baseScale,-210,210):0;
     if(fold.progress!==progress||fold.vertical!==vertical)updateFold(progress,vertical);
   }
   function releaseCurl(g,end){
@@ -369,7 +381,9 @@
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
       clearHold();
-      g.kind=g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35?'swipe':'pan';
+      const fitSwipe=g.touchFit&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35;
+      if(fitSwipe)g.edge=Math.sign(-dx);
+      g.kind=fitSwipe||(g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35)?'swipe':'pan';
       if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
