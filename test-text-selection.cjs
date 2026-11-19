@@ -51,8 +51,8 @@ class El{
   getBoundingClientRect(){return this.rect||{left:0,top:0,width:130,height:30};}
 }
 function scene(storage){
-  const writes=[],timers=new Map(),messages=[],listeners=new Map();
-  const win={navigator:{clipboard:{async writeText(t){writes.push(t);}}},setTimeout(fn,ms){timers.set(ms,fn);return ms;},clearTimeout(n){timers.delete(n);}};
+  const writes=[],timers=new Map(),messages=[],listeners=new Map(),tabs=[];
+  const win={open:(...args)=>tabs.push(args),navigator:{clipboard:{async writeText(t){writes.push(t);}}},setTimeout(fn,ms){timers.set(ms,fn);return ms;},clearTimeout(n){timers.delete(n);}};
   const doc={defaultView:win,createElement(n){return new El(n,this);},createElementNS(ns,n){return new El(n,this);}};
   win.addEventListener=(type,fn)=>listeners.set(type,fn);win.removeEventListener=type=>listeners.delete(type);
   const stage=doc.createElement('div');stage.rect={left:0,top:0,width:390,height:844};
@@ -70,7 +70,7 @@ function scene(storage){
   const svg=side=>papers[side].querySelector('svg'),node=side=>svg(side).querySelectorAll('text[data-role]')[0];
   const hit=(side,n)=>ctrl.hit(side*480+(n+.5)*20,10,node(side));
   const bar=()=>stage.children.find(e=>e.attrs.role==='toolbar'),marks=(side=0)=>svg(side).children.filter(e=>e.tag==='g');
-  return {ctrl,bar,marks,hit,timers,writes,messages,stage,svg,papers,storageEvent:key=>listeners.get('storage')?.({key})};
+  return {ctrl,bar,marks,hit,timers,writes,messages,tabs,stage,svg,papers,storageEvent:key=>listeners.get('storage')?.({key})};
 }
 test('hit tests in transformed glyph coordinates; whitespace neither selects nor intercepts a swipe',()=>{
   const {hit,ctrl,papers}=scene();assert.equal(hit(0,1).unit.text,'ONE');assert.equal(hit(0,3),null);
@@ -118,7 +118,7 @@ test('headings and English frontmatter are never attributed to a Bible verse',()
 });
 test('unlabelled-on-screen tools have accessible icon names and no visible selection count',()=>{
   const s=scene();s.ctrl.hold(s.hit(0,0));const buttons=s.bar().children;
-  assert.deepEqual(buttons.map(b=>b.attrs['aria-label']),['复制','高亮','退出']);
+  assert.deepEqual(buttons.map(b=>b.attrs['aria-label']),['复制','搜索','高亮','退出']);
   assert.ok(buttons.every(b=>b.tag==='button'&&b.children[0].tag==='svg'&&!b.textContent));
 });
 test('one-color annotation survives exit, repeated SVG redraw and a new reader; can be removed',()=>{
@@ -151,4 +151,40 @@ test('mixed saved/unsaved selection fills remaining marks; unavailable store kee
   s.ctrl.hold(s.hit(0,1));s.bar().querySelector('[data-highlight]').handlers.click[0]();
   s.ctrl.hold(s.hit(0,1));s.ctrl.tap(s.hit(0,5));const pen=s.bar().querySelector('[data-highlight]');assert.equal(pen.attrs['aria-pressed'],'false');pen.handlers.click[0]();
   assert.equal(s.marks().length,2);assert.match(s.messages.at(-1),/仅本次阅读/);
+});
+
+test('Google provider round-trips complete selected content and question; bad inputs never navigate',()=>{
+  const quote='In the beginning & light?\n( 创世记 1:1 )',question='“光”指什么？ #引文 + context';
+  const url=new URL(S.buildSearchURL(quote,question));
+  assert.equal(url.origin,'https://www.google.com');assert.equal(url.pathname,'/search');assert.equal(url.searchParams.get('q'),quote+'\n\n'+question);
+  assert.equal(S.buildSearchURL(quote,'   '),null);
+  assert.equal(S.buildSearchURL(quote,question,'constructor'),null);
+});
+test('search snapshots selected text, does not transmit on open, cancel or during IME, and submits only once',()=>{
+  const s=scene();s.ctrl.hold(s.hit(0,5));s.ctrl.tap(s.hit(0,0));
+  const search=s.bar().querySelector('[data-search]');
+  assert.equal(search.getAttribute('aria-expanded'),'false');
+  search.handlers.click[0]();
+  const form=()=>s.bar().children.find(e=>e.tag==='form');
+  assert.equal(search.getAttribute('aria-expanded'),'true');
+  assert.deepEqual(s.tabs,[]);
+  const event={preventDefault(){}},f=form(),submit=f.handlers.submit[0];
+  const input=f.children[0].children[0];
+  input.value=' ';submit(event);assert.deepEqual(s.tabs,[]);
+  input.value='中文？ & /';input.handlers.compositionstart[0]();submit(event);assert.deepEqual(s.tabs,[]);
+  input.handlers.compositionend[0]();
+  f.children[2].children[0].handlers.click[0]();assert.deepEqual(s.tabs,[]);assert.equal(form(),undefined);
+  assert.equal(search.getAttribute('aria-expanded'),'false');assert.equal(s.marks().length,2);assert.equal(s.ctrl.isActive(),true);
+  search.handlers.click[0]();const g=form();g.children[0].children[0].value='中文？ & /';
+  s.ctrl.tap(s.hit(0,8));g.handlers.submit[0](event);g.handlers.submit[0](event);
+  assert.equal(s.tabs.length,1);
+  const [href,target,features]=s.tabs[0];assert.equal(target,'_blank');assert.equal(features,'noopener,noreferrer');
+  assert.equal(new URL(href).searchParams.get('q'),'ONE TWO\n\n中文？ & /');
+  assert.equal(s.marks().length,2);assert.equal(s.ctrl.isActive(),true);
+});
+test('escape from the search editor cancels before a second escape exits selection',()=>{
+  const s=scene();s.ctrl.hold(s.hit(0,0));s.bar().querySelector('[data-search]').handlers.click[0]();
+  const event={key:'Escape',preventDefault(){},stopPropagation(){}};
+  s.bar().handlers.keydown[0](event);assert.ok(s.ctrl.isActive());assert.deepEqual(s.tabs,[]);
+  s.bar().handlers.keydown[0](event);assert.equal(s.ctrl.isActive(),false);
 });

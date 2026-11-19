@@ -101,6 +101,14 @@
     for(const u of list){if(verseOf(u)){plain();passages.push(u);}else{scripture();other.push(u);}}
     scripture();plain();return blocks.join('\n');
   }
+  // Each provider owns only query construction. No network work until submit.
+  const searchProviders=Object.freeze({
+    google(query){const url=new URL('https://www.google.com/search');url.searchParams.set('q',query);return url.href;}
+  });
+  function buildSearchURL(quote,question,provider='google'){
+    if(!quote?.trim()||!question?.trim()||!Object.hasOwn(searchProviders,provider))return null;
+    return searchProviders[provider](quote.trim()+'\n\n'+question.trim());
+  }
   function localPoint(svg,x,y){
     try{const p=svg.createSVGPoint();p.x=x;p.y=y;return p.matrixTransform(svg.getScreenCTM().inverse());}catch{return null;}
   }
@@ -117,7 +125,7 @@
   }
   function create({stage,papers,getPage,commands,storage,feedback=()=>{}}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map();
-    let active=null,bar=null,brief=null,flashTimer=null,serial=0,observer=null,refreshFrame=null;
+    let active=null,bar=null,searchForm=null,brief=null,flashTimer=null,serial=0,observer=null,refreshFrame=null;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
     // The old format is a page-wide array. Keep it as a read-only baseline;
     // independent per-passage overrides prevent two tabs from overwriting
@@ -194,21 +202,35 @@
     function reset(){
       serial++;clearBrief();if(refreshFrame!==null)win.cancelAnimationFrame(refreshFrame);refreshFrame=null;observer?.disconnect();observer=null;
       if(active){for(const mark of active.marks.values())mark.remove();active=null;}
-      bar?.remove();bar=null;delete stage.dataset.textSelection;
+      bar?.remove();bar=null;searchForm=null;delete stage.dataset.textSelection;
     }
     function anchorBar(){
       if(!bar||!active)return;
       if(!isCurrent(active.anchor)){reset();return;}
       const {entry,point}=active.anchor,sheet=entry.svg.getBoundingClientRect(),r=stage.getBoundingClientRect(),scale=sheet.width/480;
       if(!scale||!r.width||!r.height)return;
-      bar.style.maxWidth=Math.max(1,(r.width-12)/scale)+'px';bar.style.transform='scale('+scale+')';
+      const displayScale=searchForm?1:scale;
+      bar.style.maxWidth=Math.max(1,(r.width-12)/displayScale)+'px';bar.style.transform='scale('+displayScale+')';
       // Extra transparent hit padding, in screen pixels, never magnifies the ink.
       bar.style.setProperty('--ink-hit-pad',Math.max(0,(40/scale-29)/2)+'px');
       const bounds=bar.getBoundingClientRect(),pad=6,gap=14*scale,px=sheet.left-r.left+point.x*scale,py=sheet.top-r.top+point.y*scale;
       const within=(v,a,b)=>Math.max(a,Math.min(v,Math.max(a,b)));
-      bar.style.left=within(px-bounds.width*.5,pad,r.width-bounds.width-pad)+'px';
-      const upper=py-gap-bounds.height;
-      bar.style.top=within(upper>=pad?upper:py+gap,pad,r.height-bounds.height-pad)+'px';
+      // Use the visible selected ink, not just the last touch point. If the
+      // selection is tall, prefer an available side before overlaying it.
+      const rects=[...active.marks.values()].map(m=>m.getBoundingClientRect()).filter(b=>b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.left+r.width&&b.bottom>r.top&&b.top<r.top+r.height);
+      const top=rects.length?Math.min(...rects.map(b=>b.top-r.top)):py;
+      const bottom=rects.length?Math.max(...rects.map(b=>b.bottom-r.top)):py;
+      const left=rects.length?Math.min(...rects.map(b=>b.left-r.left)):px;
+      const right=rects.length?Math.max(...rects.map(b=>b.right-r.left)):px;
+      const centered=within(px-bounds.width*.5,pad,r.width-bounds.width-pad);
+      const upper=top-gap-bounds.height,lower=bottom+gap,maxY=r.height-bounds.height-pad;
+      let x=centered,y=upper>=pad?upper:lower;
+      if(upper<pad&&lower>maxY){
+        if(right+gap+bounds.width<=r.width-pad){x=right+gap;y=py-bounds.height*.5;}
+        else if(left-gap-bounds.width>=pad){x=left-gap-bounds.width;y=py-bounds.height*.5;}
+        else y=top>r.height-bottom?pad:maxY;
+      }
+      bar.style.left=x+'px';bar.style.top=within(y,pad,maxY)+'px';
     }
     function schedule(){if(active&&refreshFrame===null)refreshFrame=win.requestAnimationFrame(()=>{refreshFrame=null;anchorBar();});}
     function actionLabel(b,text){b.setAttribute('aria-label',text);b.setAttribute('title',text);}
@@ -231,6 +253,7 @@
     function syncPen(){
       const {size}=active.marks;
       bar.querySelector('[data-copy]').disabled=!size;
+      bar.querySelector('[data-search]').disabled=!size;
       const pen=bar.querySelector('[data-highlight]'),marked=allSaved();
       pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');
     }
@@ -250,6 +273,45 @@
       }
       reset();feedback('已复制选中文字');
     }
+    function closeSearch(){
+      if(!searchForm)return;
+      searchForm.remove();searchForm=null;delete bar.dataset.searchOpen;
+      const search=bar.querySelector('[data-search]');
+      search.setAttribute('aria-expanded','false');anchorBar();search.focus({preventScroll:true});
+    }
+    function openSearch(){
+      if(searchForm||!active?.marks.size)return;
+      const {entry}=active.anchor,quote=formatQuote(active.marks.keys(),entry.bookName,entry.units);
+      if(!quote.trim())return;
+      const form=doc.createElement('form'),label=doc.createElement('label'),field=doc.createElement('input');
+      const note=doc.createElement('small'),actions=doc.createElement('div');
+      const cancel=doc.createElement('button'),submit=doc.createElement('button');
+      form.className='paper-search-form';form.setAttribute('role','search');form.setAttribute('aria-label','搜索所选经文');
+      label.textContent='想问这段经文什么？';
+      field.type='text';field.name='question';field.required=true;field.autocomplete='off';field.enterKeyHint='search';
+      field.placeholder='输入你的问题';
+      let composing=false;
+      field.addEventListener('compositionstart',()=>{composing=true;});
+      field.addEventListener('compositionend',()=>{composing=false;});
+      note.textContent='点击搜索后，所选经文和问题会发送给 Google。';
+      cancel.type='button';cancel.textContent='取消';cancel.addEventListener('click',closeSearch);
+      submit.type='submit';submit.textContent='搜索';
+      actions.className='paper-search-actions';actions.append(cancel,submit);
+      label.appendChild(field);form.append(label,note,actions);
+      form.addEventListener('submit',event=>{
+        event.preventDefault();
+        if(composing||searchForm!==form||!active||!isCurrent(active.anchor))return;
+        const url=buildSearchURL(quote,field.value);
+        if(!url){field.focus({preventScroll:true});return;}
+        // Keep it synchronous with the user's submit gesture; do not pre-open
+        // a tab, send a preflight, or share opener/referrer with the provider.
+        win.open(url,'_blank','noopener,noreferrer');
+        closeSearch();
+      });
+      searchForm=form;bar.dataset.searchOpen='true';
+      bar.querySelector('[data-search]').setAttribute('aria-expanded','true');
+      bar.appendChild(form);anchorBar();field.focus({preventScroll:true});
+    }
     function initBar(){
       bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label','本页选文');
       function button(name,key,path,fn){
@@ -259,23 +321,28 @@
         b.addEventListener('click',fn);return b;
       }
       bar.append(button('复制','copy','M8 6V4.5A1.5 1.5 0 0 1 9.5 3h9A1.5 1.5 0 0 1 20 4.5v12M5.5 7h9a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 19.5v-11A1.5 1.5 0 0 1 5.5 7Z',copy),
+        button('搜索','search','M21 21l-5-5m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z',openSearch),
         button('高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10',highlight),
         button('退出','exit','m6 6 12 12m0-12L6 18',()=>{reset();stage.focus({preventScroll:true});}));
+      bar.querySelector('[data-search]').setAttribute('aria-expanded','false');
       stage.appendChild(bar);
       // Toolbar events must never become paper taps, drags, wheel pans or pinches.
       for(const type of ['pointerdown','pointermove','pointerup','pointercancel','click','wheel'])bar.addEventListener(type,e=>e.stopPropagation());
-      bar.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();reset();stage.focus({preventScroll:true});}});
+      bar.addEventListener('keydown',e=>{
+        if(searchForm)e.stopPropagation(); // Editing keys must not turn/zoom the book.
+        if(e.key==='Escape'){e.stopPropagation();e.preventDefault();if(searchForm)closeSearch();else{reset();stage.focus({preventScroll:true});}}
+      });
       if(win.MutationObserver){observer=new win.MutationObserver(schedule);observer.observe(stage,{attributes:true,attributeFilter:['data-scale','data-x','data-y']});}
     }
     function sameFace(t){if(t.entry===active.anchor.entry)return true;feedback('只能选择同一页的文字；请先复制或退出');return false;}
     function tap(t){
       if(!isCurrent(t))return false;
-      if(active){if(sameFace(t))toggle(t);return true;}
+      if(active){if(!searchForm&&sameFace(t))toggle(t);return true;}
       clearBrief();brief=draw(t,'brief');flashTimer=win.setTimeout(clearBrief,FLASH_MS);return true;
     }
     function hold(t){
       if(!isCurrent(t))return false;
-      if(active){if(sameFace(t)&&!active.marks.has(t.unit))toggle(t);return true;}
+      if(active){if(!searchForm&&sameFace(t)&&!active.marks.has(t.unit))toggle(t);return true;}
       clearBrief();active={marks:new Map(),anchor:t};stage.dataset.textSelection='active';initBar();toggle(t);return true;
     }
     stage.addEventListener('contextmenu',e=>{
@@ -298,5 +365,5 @@
     win.addEventListener?.('storage',changed);
     return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,mergeRects,FLASH_MS};
+  return {create,indexFace,copyText,formatQuote,buildSearchURL,mergeRects,FLASH_MS};
 });
