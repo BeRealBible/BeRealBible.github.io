@@ -66,7 +66,8 @@
   <section class="reader" aria-label="纸质圣经阅读器">
     <div class="reader-header">
       <button class="location" id="location-button" aria-label="选择章节"><span id="book-name">创世记</span><span class="location-ref" id="chapter-name">第 1 章</span><span aria-hidden="true">⌄</span></button>
-      <button class="icon-button" id="help-open" aria-label="手势说明">?</button>
+      <a id="open-original-pages" href="./paper.html" style="margin-inline-start:auto;margin-inline-end:8px;color:inherit;text-underline-offset:3px;font-size:14px;white-space:nowrap">纸本原排</a>
+<button class="icon-button" id="help-open" aria-label="手势说明">?</button>
     </div>
     <div class="stage-wrap">
       <div class="stage" id="stage" tabindex="0" role="region" aria-label="对开书页。轻点经文短暂高亮；长按经文可在同一页多选、复制或退出。在右页外缘向左拖动翻到下一页，左页外缘向右拖动翻回上一页；双指捏合缩放。点索引组打开纸质选章目录，点书口空白放大选卷。">
@@ -108,4 +109,6 @@
 <dialog id="about-dialog"><button class="dialog-close" data-close aria-label="关闭">×</button><div class="eyebrow">关于这次实验</div><h2>位置不动，<br>只是换一种拿书的方式。</h2><p>手机上，放大并移动观看；平板横屏，完整展开两页。经文不会随屏幕宽度重新排版。</p><p>细窄的书口索引随阅读进度分布在书页两侧。点一个索引组，浮出纸质选章目录；合并索引可在菜单内切换书卷，再点章号跳转。半透明纸质目录的一角紧贴所选书签，切换「章号格子」与「经文摘读」时锚点保持不动；紧凑摘读显示每章开头经文，大小随章节数量调整。点书口空白处可放大，逐卷选择。点外部或按 Esc 收起索引放大，继续阅读。顶部书卷名仍可打开完整的书卷章节目录。</p><p class="notice">规则排版试用版：现成和合本正文、标题与括注，按统一的字格、行距、双栏和章号规则自动分页。没有逐行位置表，也没有使用扫描页作阅读图像。已接回源资料中全书已有的诗行边界；本版对照 PDF 校准 16 字栏、36 行网格、开卷 32 行、镜像页边距、标点空白压缩和悬挂节号，并接回已有段落、诗节空行和题注；长诗行仍按统一栏宽自然折行。暂不补齐页底引注和专名等其余标记，因此试排页码、断行与原版仍有差异；不能宣称已经精确复刻。</p><p id="reader-version">体验版本 · index-25<br><a id="reader-reload" href="./?v=index-25">重新载入最新版</a>（保留阅读位置）</p><p>66 卷归入紧凑索引组，深紫旧约、暗红新约，放大后可独立选择每卷。此版更新正文摘录、滑动翻页与目录缩放，保留已有全文、正文 SVG、诗行、字号与分页；保留已有阅读位置。</p><div class="sources"><a href="https://www.bibleinmylanguage.com/chinese-bible-midsize-black-black-pvc-covered-chinese-union-version-the-most-popular-bible-in-mainland-china-with-thumb-index-golden-letters-on-cover-red-edges-cuv-holy-bible/" target="_blank" rel="noreferrer">内页风格参考 ↗</a><a href="https://ebible.org/cmn-cu89s/copyright.htm" target="_blank" rel="noreferrer">诗行结构来源：eBible ↗</a></div></dialog>
 <dialog id="help-dialog"><button class="dialog-close" data-close aria-label="关闭">×</button><div class="eyebrow">手势小抄</div><h2>点经文摘录，<br>拖页边翻页。</h2><dl><dt>轻点与长按经文</dt><dd>轻点的经文会浅浅亮起，片刻后淡出。长按进入摘录，再点同一页的其他经文可追加，再点一次取消。点双页图标，复制的经文末尾会附卷名、章节和译本；点笔尖可保留这一页的金色标记，再选中已标记的经文点笔尖即可移除。点小叉退出。对开中的另一页不能加入本次选段。</dd><dt>在外页边向内滑</dt><dd>从右页外边向左滑翻下一页；从左页外边向右滑翻回上一页。正文栏和行间拖动只移动视野，桌面背景不翻页。不用等长按：页角跟手掀起，手停纸也停。向前划开再松手翻过一页；往回收再松手，纸就落回原页。轻点留白不翻页。</dd><dt>放大后看细处</dt><dd>双指捏合缩放整本书。放大后拖动正文或行间都可以移动视野，双指捏合后可留一指接着移动。触控板两指横扫，整书适配时翻一页、放大时平移；纸质选章目录随书一起缩放。</dd><dt>点索引组，浮出章节菜单</dt><dd>书口里的小标签代表一卷或一组书卷。点组标签，打开纸质选章目录；合并组可切换书卷，再点章号直接跳转；也可切换「经文摘读」，通过每章开头的真实经文寻找章节。不需要切换书的角度。</dd><dt>点书口空白，放大独立选卷</dt><dd>书口放大后，各卷可分别点选并展开章节菜单；点外部或按 Esc 收起。顶部书卷名或阅读工具中的「书卷章节」仍可打开完整目录。</dd><dt>书下的最近跳转</dt><dd>从目录跳到一章后，继续翻页会更新同一条记录。点标签文字，视野横移到那本已摊开的书。切换最近记录不翻纸；只有选择目录才连续翻页。未置顶的标签只显示文字；鼠标移上、用键盘聚焦或在手机上长按该标签，才显示图钉和小叉。移开后小叉收起，已置顶的标签只保留实心图钉。点图钉置顶，再点取消；点小叉删除，误删可撤销。记录和高亮保存在此浏览器。</dd></dl><p class="notice">滑动翻过一张纸；跨书卷或跨章节跳转时，按距离连续翻过多张纸。纸页弯曲为轻量模拟；不同手机的触感仍需真机体验。</p></dialog>
 
-</body></html>
+<script>
+{const link=document.getElementById('open-original-pages');link.addEventListener('click',()=>{const name=document.getElementById('book-name')?.textContent.trim(),ch=document.getElementById('chapter-name')?.textContent.match(/\d+/);if(name&&ch){const url=new URL('./paper.html',location.href);url.searchParams.set('book',name);url.searchParams.set('ch',ch[0]);link.href=url.href}})}
+</script></body></html>
