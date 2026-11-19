@@ -11,7 +11,7 @@
   await Promise.all(Array.from({length:6},worker));
   const meta=D.finalize();let raw;try{raw=localStorage}catch{}
   const storage=window.makeV25PhysicalStorage(raw,meta,old);
-  window.PAPER_READER_STORAGE=storage;storage.migrateHighlights();
+  window.PAPER_READER_STORAGE=storage;storage.migrateHighlights();storage.migrateNoteHighlightIds();
   const hash=q.hash.slice(1),pv=q.searchParams.get('pdf'),ref=q.searchParams.get('ref'),book=q.searchParams.get('book'),ch=q.searchParams.get('ch');
   function route(key){if(!key)return null;if(/^\d{1,4}$/.test(key)){const p=+key;return p>0&&p<=D.count?{p}:null}
    const a=/^([A-Z0-9]{3})\.(\d+)(?::(\d+))?$/.exec(key);if(!a)return null;

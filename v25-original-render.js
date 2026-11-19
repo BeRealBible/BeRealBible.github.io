@@ -17,7 +17,7 @@
   const esc=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const db=()=>root.V25OriginalData||root.OriginalPaperData;
   const physical=(p,i)=>!!db()&&((root.BIBLE_DATA?.pages===db().pages)||(root.BIBLE_DATA?.physicalOriginal===true)||(db().pages&&db().pages[i]===p)||typeof p?.pdfPage==='number');
-  const font=w=>special.get(w)||FAMILY;
+  const font=w=>special.get(w)||(/^[①-⑫]$/.test(w)?'PaperRares':FAMILY);
   function metricsFor(word){
     let m=metrics.get(word);if(m)return m;
     ctx.font='100px '+font(word);const v=ctx.measureText(word),l=v.actualBoundingBoxLeft||0,r=v.actualBoundingBoxRight||v.width||100,a=v.actualBoundingBoxAscent||80,d=v.actualBoundingBoxDescent||0;
