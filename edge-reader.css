@@ -45,3 +45,9 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
 #book-picker-back{min-height:40px;margin:0 0 12px;padding:4px 0;color:#7b6141;font-size:12px}
 @media(max-width:420px){#book-picker{padding:26px 18px 20px}#book-picker-books{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}#book-picker-books button{font-size:12px}.paper-immersive .immersion-extra{max-width:calc(100% - 28px);flex-wrap:wrap}.immersion-extra button{flex:1 0 auto;padding-inline:9px}}
 @media(prefers-reduced-motion:reduce){.gesture-feedback{transition:none}}
+
+
+/* Touch V25: keep the entire page and cover in ordinary paint order instead
+   of promoting one large zoomed spread (which can lose compositor tiles). */
+.stage[data-paper-paint="flat-touch"] #book{will-change:auto;filter:none}
+.stage[data-paper-paint="flat-touch"] #desk-surface{isolation:auto}
