@@ -97,7 +97,7 @@ function fixture(startSpread = 2, options = {}) {
         // exercise growing/shrinking menus without pretending to render CSS.
         const count = Number(this.dataset.count) || 1, preview = this.dataset.mode === 'preview';
         const columns = preview ? ((options.width || 980) < 520 ? 1 : 2) : count <= 9 ? 3 : 6;
-        const naturalHeight = 112 + this.querySelectorAll('.edge-chapters__section').length * 30 + Math.ceil(count / columns) * (preview ? 76 : 32);
+        const naturalHeight = 112 + (this.querySelectorAll('.edge-chapters__book').length > 1 ? 32 : 0) + Math.ceil(count / columns) * (preview ? 76 : 32);
         const width = parseFloat(this.style.width) || this.clientWidth;
         const height = Math.min(naturalHeight, parseFloat(this.style.maxHeight) || naturalHeight);
         const left = parseFloat(this.style.left) || 0, top = parseFloat(this.style.top) || 0;
@@ -817,17 +817,16 @@ test('same-spread chapter selection updates exact face without manufacturing a p
 });
 test('normal grouped edge opens all member books and lets a later member choose its chapter', () => {
   const data = currentRuleData();
-  for (const code of ['PHM', '2JN','JUD']) for(const mode of ['numbers','preview']){
+  for (const code of ['PHM', '2JN']) {
     const index = data.books.findIndex(book => book.code === code), selected = data.books[index];
     const f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true });
     const group = f.indexElement.querySelectorAll('.edge-index__group').find(button => !button.hidden && button.dataset.members?.split(',').includes(String(index)));
     assert.ok(group); group.dispatchEvent({ type: 'click' }); assert.equal(f.chaptersOpen, true); assert.equal(f.jumpCalls.length, 0);
-    if(mode==='preview')clickChapterMode(f,'preview');
-    assert.deepEqual(f.chapterElement.querySelectorAll('.edge-chapters__section').map(s=>s.dataset.book),group.dataset.members.split(','));
-    assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__book').length,0);
-    const target=f.chapterElement.querySelectorAll('.edge-chapters__chapter').find(n=>n.dataset.book===String(index)&&n.dataset.chapter==='1');
-    assert.equal(+target.dataset.page,selected.chapters[0].page);
-    target.dispatchEvent({type:'click'}); assert.equal(spread(f), 20); f.finishJump();
+    const memberButtons = f.chapterElement.querySelectorAll('.edge-chapters__book');
+    assert.equal(memberButtons.length, group.dataset.members.split(',').length);
+    memberButtons.find(button => Number(button.dataset.book) === index).dispatchEvent({ type: 'click' });
+    assert.equal(f.chapterElement.dataset.book, String(index));
+    f.chooseChapter(selected.chapters[0].page); assert.equal(spread(f), 20); f.finishJump();
     assert.equal(f.el('book-name').textContent, selected.name); assert.equal(f.position.page, selected.chapters[0].page);
   }
 });
@@ -934,7 +933,7 @@ test('all 150 Psalm preview chapters remain reachable and navigate to their real
   }
   assert.equal(f.chaptersOpen, false);
 });
-test('real grouped-index metadata fixes all four menu corners through both modes of the joined chapter list with zero gap', () => {
+test('real grouped-index metadata fixes all four menu corners through mode and book changes with zero gap', () => {
   const data = currentRuleData();
   for (const [width, height] of [[980, 720], [390, 844]]) for (const horizontal of ['left', 'right']) for (const vertical of ['top', 'bottom']) {
     const f = fixture(20, { data, realIndexDom: true, realChaptersDom: true, manualJump: true, width, height, measureChapterPanel: true });
@@ -946,12 +945,7 @@ test('real grouped-index metadata fixes all four menu corners through both modes
     group.getBoundingClientRect = () => ({ ...anchor });
     const stored = Object.fromEntries(f.storage), writes = f.saved.length;
     group.dispatchEvent({ type: 'click' });
-    assert.equal(f.chaptersOpen, true);
-    const verifyBooks=()=>{
-      assert.deepEqual(f.chapterElement.querySelectorAll('.edge-chapters__section').map(section=>section.dataset.book),['61','62','63','64']);
-      assert.deepEqual(f.chapterElement.querySelectorAll('.edge-chapters__chapter').map(ch=>ch.dataset.book+':'+ch.dataset.chapter),['61:1','61:2','61:3','61:4','61:5','62:1','63:1','64:1']);
-    };
-    verifyBooks();
+    assert.equal(f.chaptersOpen, true); assert.equal(f.chapterElement.dataset.book, '61');
     const panel = f.chapterElement.querySelector('.edge-chapters__panel');
     function assertDock() {
       for (const node of [f.chapterElement, panel]) {
@@ -966,8 +960,11 @@ test('real grouped-index metadata fixes all four menu corners through both modes
     }
     const numbers = assertDock(); clickChapterMode(f, 'preview'); const preview = assertDock();
     assert.ok(numbers.width !== preview.width || numbers.height !== preview.height, 'mode switch genuinely changes the measured menu size');
-    verifyBooks();assertDock();
-    clickChapterMode(f, 'numbers');verifyBooks();assertDock();
+    f.chapterElement.querySelectorAll('.edge-chapters__book').find(button => button.dataset.book === '62').dispatchEvent({ type: 'click' });
+    assert.equal(f.chapterElement.dataset.book, '62'); assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 1); assertDock();
+    clickChapterMode(f, 'numbers'); assertDock();
+    f.chapterElement.querySelectorAll('.edge-chapters__book').find(button => button.dataset.book === '61').dispatchEvent({ type: 'click' });
+    assert.equal(f.chapterElement.querySelectorAll('.edge-chapters__chapter').length, 5); assertDock();
     f.event('keydown', { key: 'Escape', target: f.context.document.activeElement }); assert.equal(f.chaptersOpen, false);
     assert.deepEqual(Object.fromEntries(f.storage), stored);
   }
