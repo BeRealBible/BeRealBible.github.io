@@ -32,6 +32,7 @@
   root.mountVerseFinder=({navigate,interrupt,origin,restore,camera})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more');
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
+    const preview=document.createElement('section');preview.id='vf-preview';preview.setAttribute('aria-label','搜索结果经文预览');panel.append(preview);
     const key='paper:v25:slip:1',clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
     const trigger=document.createElement('button');trigger.className='rh-toggle';trigger.type='button';trigger.title='搜索经文（Ctrl / ⌘ + K）';trigger.setAttribute('aria-label','搜索经文');
     trigger.append(tab.querySelector('svg').cloneNode(true));
@@ -82,7 +83,7 @@
     bookButton.onclick=()=>{closeGroups();switchScope('book:'+origin().bookCode);};
     // Anchor a row, not raw scrollTop: wrapping and line counts vary by width.
     function remember(i){
-      if(panel.hidden||scroll.hidden||!list.children.length)return;
+      if(mode==='preview'||panel.hidden||scroll.hidden||!list.children.length)return;
       const top=scroll.scrollTop,bottom=top+scroll.clientHeight,rows=list.children;
       let r=rows[i??current];
       if(!r||r.offsetTop<top||r.offsetTop>=bottom){
@@ -92,7 +93,7 @@
     }
     let restoredTop=-1,restoredBox="";
     const boxKey=()=>[scroll.clientWidth,scroll.clientHeight,list.offsetHeight].join("/");
-    function restoreRow(){const r=list.children[anchor?.i];if(r&&!panel.hidden&&!scroll.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;restoredBox=boxKey();}}
+    function restoreRow(){const r=list.children[anchor?.i];if(r&&mode!=='preview'&&!panel.hidden&&!scroll.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;restoredBox=boxKey();}}
     new ResizeObserver(()=>{if(!panel.hidden)restoreRow();}).observe(list);
     function persist(){
       clearTimeout(saveTimer);
@@ -119,10 +120,11 @@
       const z=next?c.scale:Math.min(c.scale,1.15,roomW/147,roomH/120);
       const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
         height=Math.min(next?432:242,roomH/z,next?Infinity:avail*.44/z),
-        show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
+        show=mode==='browse'||mode==='preview'||(mode==='read'&&next),g=[next,w,height,z].join(':');
       if(!anchor&&!panel.hidden)remember();
       const wasHidden=panel.hidden;
       panel.hidden=!show;tab.hidden=mode==='off'||show;panel.dataset.layout=next?'wide':'narrow';
+      panel.toggleAttribute('data-preview',mode==='preview');
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
       function place(node,scale){
         node.dataset.dockX=px;node.dataset.dockY=py;node.dataset.paperX=mount.bx;node.dataset.paperY=mount.by;
@@ -152,19 +154,46 @@
         if(hx<0||hx>c.w||hy<0||hy>c.h)mount=null;
       }
       scopeUI();interrupt();root.PaperImmersion?.hideChrome();setMode('browse');
-      if(edit)input.focus({preventScroll:true});else $('vf-close').focus({preventScroll:true});
+      if(edit)input.focus({preventScroll:true});else if(current>=0&&anchor?.i===current)landOnResult();else $('vf-close').focus({preventScroll:true});
     }
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
     trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=tuck;
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
     $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true);stage.focus({preventScroll:true});};
-    root.V25PaperDock.onTap(stage,()=>{if(!panel.hidden)tuck();});
+    root.V25PaperDock.onTap(stage,()=>{if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
-      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();if(!choices.hidden)closeGroups(true);else tuck();}
+      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();if(mode==='preview')backToResults();else if(!choices.hidden)closeGroups(true);else tuck();}
     });
     scroll.addEventListener('scroll',()=>{if(!panel.hidden&&restoredBox&&boxKey()!==restoredBox){restoreRow();return;}if(!panel.hidden&&wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
+    function landOnResult(focus=true){
+      const b=list.children[current];if(!b||panel.hidden)return;
+      restoreRow();
+      if(b.offsetTop+b.offsetHeight<=scroll.scrollTop||b.offsetTop>=scroll.scrollTop+scroll.clientHeight){
+        scroll.scrollTop=b.offsetTop;remember(current);
+      }
+      if(focus)b.focus({preventScroll:true});
+      if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+        b.animate([{backgroundColor:'#e7c894',boxShadow:'inset 3px 0 #906634'},{backgroundColor:'#dfcda84a',boxShadow:'inset 2px 0 #9b7447'}],{duration:650,easing:'ease-out'});
+      }
+    }
+    function backToResults(){setMode('browse');landOnResult();persist();}
+    function previewResult(i,focus=true){
+      const r=results[i],b=list.children[i];if(!r||!b)return;
+      const prev=current;current=i;seen.add(i);if(list.children[prev])decorate(list.children[prev],prev);decorate(b,i);
+      if(focus){input.blur();remember(i);}
+      const [chapter,verse]=r.ref.split(':').map(Number);
+      const face=root.V25VerseSlip(preview,[{code:r.code,chapter,verse}],{
+        onBack:backToResults,
+        onJump:()=>{
+          setMode('read');navigate(r.page,{bookCode:r.code,ref:r.ref,search:true});
+          layout();if(wide)landOnResult(false);stage.focus({preventScroll:true});persist();
+        }
+      });
+      if(!face)return;
+      mode='preview';layout();face.align();if(focus)face.back.focus({preventScroll:true});persist();
+    }
     function append(count=24){
       const from=list.children.length;
       for(let i=from;i<Math.min(results.length,from+count);i++){
@@ -173,12 +202,7 @@
         const at=r.text.indexOf(q);
         if(at>=0&&q){const mark=document.createElement('mark');mark.textContent=q;excerpt.append(r.text.slice(0,at),mark,r.text.slice(at+q.length));}
         else excerpt.textContent=r.text;
-        b.append(ref,excerpt);decorate(b,i);b.onclick=()=>{
-          const prev=current;current=i;seen.add(i);if(list.children[prev])decorate(list.children[prev],prev);decorate(b,i);
-          remember(i);input.blur();setMode('read');
-          navigate(r.page,{bookCode:r.code,ref:r.ref,search:true});
-          if(!wide)stage.focus({preventScroll:true});layout();persist();
-        };list.append(b);
+        b.append(ref,excerpt);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
       }
       more.hidden=list.children.length>=results.length;
     }
@@ -203,8 +227,9 @@
     root.addEventListener('pagehide',()=>{remember();persist();});
     let stored;try{stored=JSON.parse(sessionStorage.getItem(key));}catch{}
     refresh(true);
-    if(stored?.start&&['browse','read','tucked'].includes(stored.mode)){
+    if(stored?.start&&['browse','preview','read','tucked'].includes(stored.mode)){
       start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true);trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
+      if(mode==='preview')previewResult(current,false);
     }
     return {layout};
   };

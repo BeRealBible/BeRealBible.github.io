@@ -9,7 +9,6 @@
   const selector='[data-footnote-anchor]';
   const anchorOf=node=>node?.closest?.(selector);
   const inside=(element,node)=>!!node?.nodeType&&element.contains(node);
-  const field=(tag,cls,text,parent)=>{const el=doc.createElement(tag);el.className='footnote-preview__'+cls;el.textContent=text;parent.appendChild(el);return el;};
   const clamp=(x,a,b)=>Math.max(a,Math.min(x,b));
   let current=null,timer=0,raf=0,keyFocus=false;
   const cancel=()=>{clearTimeout(timer);timer=0;};
@@ -82,34 +81,11 @@
     const api=window.PaperFootnotePassages,note=api?.byOrdinal(Number(button.dataset.notePage),Number(button.dataset.noteOrdinal));
     const verses=api?.resolve(button.dataset.parallel||note?.citation,window.BIBLE_SOURCE);
     if(!verses?.length)return; // Unknown references must never produce guessed text.
-    const fragment=doc.createDocumentFragment(),head=doc.createElement('div'),go=doc.createElement('button'),scroll=doc.createElement('div');
-    head.className='citation-head';go.className='citation-jump';go.type='button';head.append(go);
-    scroll.className='citation-scroll';scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','引用经文及上下文');
-    const groups=[];let dest;
-    function aim(v){
-      if(dest===v)return;dest=v;
-      go.textContent='跳转 ↗ '+v.short+' '+v.ref;go.setAttribute('aria-label','跳转至'+v.short+' '+v.ref);go.title=go.getAttribute('aria-label');
-    }
-    for(const rows of window.V25CitationContext(verses,window.BIBLE_SOURCE)){
-      const block=doc.createElement('div'),starts=[];block.className='citation-block';scroll.append(block);
-      for(const v of rows){
-        const row=field('p','verse','',block);row.dataset.ref=v.code+'.'+v.ref;row.toggleAttribute('data-cited',v.cited);
-        const no=doc.createElement('span');no.className='verse-no';no.textContent=v.ref;row.append(no,doc.createTextNode(v.text));
-        if(v.start)starts.push({row,v});
-      }
-      groups.push({block,starts});
-    }
-    const first=groups[0]?.starts[0];if(!first)return;
-    const peek=9;aim(first.v);
-    scroll.onscroll=()=>{
-      const at=scroll.scrollTop+peek+1,group=groups.findLast(g=>g.block.offsetTop<=at)||groups[0];
-      aim((group.starts.findLast(s=>s.row.offsetTop<=at)||group.starts[0]).v);
-    };
-    go.onclick=()=>{
-      const {code,ref}=dest;hide();stage.focus({preventScroll:true});
+    const slip=window.V25VerseSlip(tip,verses,{onJump:({code,ref})=>{
+      hide();stage.focus({preventScroll:true});
       window.dispatchEvent(new CustomEvent('v25-read-citation',{detail:{code,ref}}));
-    };
-    fragment.append(head,scroll);
+    }});
+    if(!slip)return;
     // The print compositor's normal Song body uses an 11.8-unit em.
     // Sample this sheet's actual body transforms rather than a UI font size.
     const sample=button.closest('.paper')?.querySelectorAll('svg text[data-role="body"]')||[];
@@ -117,15 +93,9 @@
       const m=glyph.transform.baseVal.getItem(0)?.matrix,sz=Number(glyph.getAttribute('font-size'))*Math.abs(m?.d);
       if(sz>0)em.push(sz);if(em.length===31)break;}
     em.sort((a,b)=>a-b);tip.style.fontSize=(.9*(em[em.length>>1]||11.8))+'px';
-    current=button;tip.replaceChildren(fragment);tip.hidden=false;tip.scrollTop=0;
+    current=button;tip.hidden=false;tip.scrollTop=0;
     describe(button,true);position();
-    if(current){
-      const start=Math.max(0,first.row.offsetTop-peek);
-      // Even the last verse of a book can open at the reading line.
-      const tail=start-(scroll.scrollHeight-scroll.clientHeight);
-      if(tail>0)scroll.style.paddingBottom=tail+'px';
-      scroll.scrollTop=start;watch(button);
-    }
+    if(current){slip.align();watch(button);}
   }
   function scheduleHide(){cancel();timer=setTimeout(()=>{if(!keyFocus)hide();},260);}
   doc.addEventListener('pointerover',e=>{
