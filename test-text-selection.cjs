@@ -235,3 +235,19 @@ test('Ctrl/Cmd+C uses the same clipboard text and does not intercept editing con
   assert.deepEqual(writes,[['text/plain','\u8d77\u521d\u795e\u5275\u9020']]);
   assert.ok(cancelled);assert.equal(s.ctrl.isActive(),false);
 });
+
+test('highlight preview and saved ink match the padded tap-focus footprint',()=>{
+  const storage=new Map();storage.setItem=(k,v)=>storage.set(k,v);storage.getItem=k=>storage.get(k);
+  const {ctrl,marks,hit,bar}=scene(storage);
+  const geometry=()=>marks()[0].children[0].attrs;
+  ctrl.tap(hit(0,1));
+  const focus={...geometry()};
+  assert.ok(Number(focus.y)<0);
+  assert.ok(Number(focus.y)+Number(focus.height)>12);
+  ctrl.hold(hit(0,1));
+  assert.match(marks()[0].attrs.class,/--selected/);
+  assert.deepEqual(geometry(),focus);
+  bar().querySelector('[data-highlight]').handlers.click[0]();
+  assert.match(marks()[0].attrs.class,/--saved/);
+  assert.deepEqual(geometry(),focus);
+});
