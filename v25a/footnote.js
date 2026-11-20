@@ -43,9 +43,11 @@
     const rightward=(rect.left+rect.right)/2<x+width/2;
     const px=clamp(rightward?rect.left:rect.right,x+margin,x+width-margin);
     const py=up?rect.top:rect.bottom,roomW=Math.max(1,rightward?x+width-margin-px:px-x-margin);
-    const scale=window.V25aPaperDock.sizeScale(bookScale,width<640,roomW,roomH,175,100);
-    tip.style.width=Math.min(320,roomW/scale)+'px';
-    tip.style.maxHeight=Math.min(420,roomH/scale)+'px';
+    const narrow=width<640,limitW=Math.min(roomW,narrow?Math.min(width*.61,222):Infinity),
+      limitH=Math.min(roomH,narrow?Math.min(height*.26,158):Infinity);
+    const scale=narrow?Math.min(bookScale,1.18,limitW/125,limitH/58):bookScale;
+    tip.style.width='max-content';tip.style.maxWidth=Math.min(narrow?194:247,limitW/scale)+'px';
+    tip.style.maxHeight=Math.min(narrow?142:285,limitH/scale)+'px';
     tip.style.transformOrigin=(rightward?'left':'right')+' '+(up?'bottom':'top');
     tip.style.transform='scale('+scale+')';
     tip.style.left=(rightward?px:px-tip.offsetWidth)+'px';tip.style.top=(up?py-tip.offsetHeight:py)+'px';
@@ -84,15 +86,16 @@
     const verses=api.passages(note,window.BIBLE_SOURCE);
     if(!verses?.length)return; // Unknown references must never produce guessed text.
     const fragment=doc.createDocumentFragment();
-    field('div','citation','原注 '+(note.marker||'')+' '+note.citation,fragment);
-    let section,group='';
     for(const v of verses){
-      const next=v.code+'.'+v.chapter;
-      if(next!==group){group=next;section=doc.createElement('section');fragment.appendChild(section);
-        field('h3','heading',v.name+' '+v.chapter+(v.code==='PSA'?' 篇':' 章'),section);}
-      const row=field('p','verse','',section);row.dataset.ref=next+':'+v.verse;
-      field('span','number',String(v.verse),row);field('span','text',v.text,row);
+      const row=field('p','verse',v.text,fragment);row.dataset.ref=v.code+'.'+v.chapter+':'+v.verse;
     }
+    // The print compositor's normal Song body uses an 11.8-unit em.
+    // Sample this sheet's actual body transforms rather than a UI font size.
+    const sample=button.closest('.paper')?.querySelectorAll('svg text[data-role="body"]')||[];
+    const em=[];for(const glyph of sample){if(!/^\p{Unified_Ideograph}$/u.test(glyph.textContent))continue;
+      const m=glyph.transform.baseVal.getItem(0)?.matrix,sz=Number(glyph.getAttribute('font-size'))*Math.abs(m?.d);
+      if(sz>0)em.push(sz);if(em.length===31)break;}
+    em.sort((a,b)=>a-b);tip.style.fontSize=(.9*(em[em.length>>1]||11.8))+'px';
     current=button;tip.replaceChildren(fragment);tip.hidden=false;tip.scrollTop=0;
     describe(button,true);position();if(current)watch(button);
   }
