@@ -4,6 +4,23 @@ const Page=require('./paper-page.js'),Layout=require('./paper-layout.js'),Bible=
 const books=Bible.books.filter(b=>['JHN','2JN'].includes(b.code)),D=Layout.paginate({...Bible,books});
 const index=i=>S.indexFace(D.pages[i],Page.commands(D.pages[i],i,D.books).filter(c=>c.role!=='footer-rule'));
 
+test('V25 Acts 7:54–56 copies the complete split verse from either physical page',()=>{
+  const fs=require('node:fs'),vm=require('node:vm'),window={};
+  vm.runInNewContext(fs.readFileSync(require.resolve('./v25-original-data.js'),'utf8'),{window,atob});
+  const db=window.V25OriginalData,first=db.lookup('ACT','7:56'),last=first+1;
+  const load=n=>{const k=Math.floor(n/32);db.installPack(k,require('./paper-pages/'+db.packs[k]));};
+  load(first);load(last);
+  const face=n=>S.indexFace(db.pages[n],db.get(n)[3].map((w,j)=>({...db.tags(n)[j],text:w[4],physicalInk:true}))).units;
+  const left=face(first),sel=left.filter(u=>/^verse:7:5[4-6]$/.test(u.group));
+  const expected='众人听见这话，就极其恼怒，向司提反咬牙切齿。但司提反被圣灵充满，定睛望天，看见神的荣耀，又看见耶稣站在神的右边，就说：“我看见天开了，人子站在神的右边。”\n( 使徒行传 7:54-56 和合本 )';
+  assert.match(S.clipboardQuote(sel,'使徒行传',left),/神的右\n/);
+  assert.equal(S.physicalClipboardQuote(sel,'使徒行传',left,db,first),expected);
+  const right=face(last);
+  assert.equal(S.physicalClipboardQuote(right.filter(u=>u.group==='verse:7:56'),'使徒行传',right,db,last),
+    '就说：“我看见天开了，人子站在神的右边。”\n( 使徒行传 7:56 和合本 )');
+  assert.equal(S.physicalClipboardQuote(sel.slice(0,2),'使徒行传',left,db,first),S.clipboardQuote(sel.slice(0,2),'使徒行传',left));
+});
+
 test('a wrapped verse copies the printed scripture, not superscripts, headings or other verses',()=>{
   const i=D.books.find(b=>b.code==='2JN').first,model=index(i);
   for(const [v,text] of books[1].chapters[0].verses){

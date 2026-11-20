@@ -7,7 +7,7 @@
   const SVG='http://www.w3.org/2000/svg';
 
   // Source references, not line numbers: a verse may wrap or cross the gutter
-  // between columns. Only commands drawn on this face are included in the copy.
+  // between columns. Selection and highlighting stay on this face.
   function indexFace(page,commands){
     const groups=new Map(),lookup=commands.map(()=>[]),units=[];
     let rowKey='',ref=page.start||'1:1';
@@ -124,6 +124,43 @@
   function clipboardQuote(items,bookName,faceUnits){
     return formatQuote(items,bookName,faceUnits,u=>clipboardText(u.text));
   }
+  // The reviewed ink and tags are the same source the renderer uses. Never
+  // infer continuation from an adjacent page's text or substitute another edition.
+  function physicalClipboardQuote(items,bookName,faceUnits,db,index){
+    const local=()=>clipboardQuote(items,bookName,faceUnits),page=db?.pages[index];
+    if(!page||page.b<0)return local();
+    const selected=new Map(),neighbors=[];
+    for(const unit of items){
+      if(!verseOf(unit))continue;
+      if(!selected.has(unit.group))selected.set(unit.group,[]);
+      selected.get(unit.group).push(unit);
+    }
+    for(const step of [-1,1]){
+      let groups=new Set(selected.keys());
+      for(let n=index+step;groups.size&&db.pages[n]?.b===page.b;n+=step){
+        const tags=db.tags(n);
+        groups=new Set(tags.filter(t=>t.role==='body'&&groups.has(t.group)).map(t=>t.group));
+        if(groups.size)neighbors.push({n,tags,groups});
+      }
+    }
+    if(!neighbors.length)return local();
+    const additions=new Map();
+    for(const {n,tags,groups} of neighbors.sort((a,b)=>a.n-b.n)){
+      const ink=db.get(n)?.[3];
+      if(!ink)throw Error('Missing continuation page');
+      tags.forEach((t,j)=>{
+        if(t.role!=='body'||!groups.has(t.group))return;
+        if(!additions.has(t.group))additions.set(t.group,['','']);
+        additions.get(t.group)[n<index?0:1]+=ink[j][4];
+      });
+    }
+    const prefix=new Map(),suffix=new Map();
+    for(const [group,[before,after]] of additions){
+      const units=selected.get(group).sort((a,b)=>a.order-b.order);
+      prefix.set(units[0],before);suffix.set(units.at(-1),after);
+    }
+    return formatQuote(items,bookName,faceUnits,u=>clipboardText((prefix.get(u)||'')+u.text+(suffix.get(u)||'')));
+  }
   // Each provider owns only query construction. No network work until submit.
   const searchProviders=Object.freeze({
     google(query){const url=new URL('https://www.google.com/search');url.searchParams.set('q',query);return url.href;}
@@ -216,7 +253,7 @@
       const list=commands(page,index,books).filter(c=>c.role!=='footer-rule');
       if(nodes.length!==list.length)return null; // Never select a stale curl face.
       const book=books[page.b],key=recordKey(page,index,book);
-      const entry={svg,index,side,nodes,list,mapping:new WeakMap(),bookName:book?.name,key,...indexFace(page,list)};
+      const entry={svg,index,side,nodes,list,mapping:new WeakMap(),bookName:book?.name,key,page,...indexFace(page,list)};
       nodes.forEach((el,i)=>entry.mapping.set(el,i));cache.set(svg,entry);return entry;
     }
     function hit(x,y,target){
@@ -362,18 +399,26 @@
     }
     // Clipboard event for Ctrl/Cmd+C on the focused paper reader. Inputs
     // (including the search box and manual-copy fallback) keep normal Copy.
+    function selectionQuote(){
+      const {entry}=active.anchor,db=win.V25OriginalData;
+      const physical=db?.pages[entry.index]===entry.page?db:null;
+      return physicalClipboardQuote([...active.marks.keys()],entry.bookName,entry.units,physical,entry.index);
+    }
     function keyboardCopy(e){
       if(!active?.marks.size||!isCurrent(active.anchor)||!e.clipboardData||
         e.target?.closest?.('textarea,input,[contenteditable]'))return;
-      const {entry}=active.anchor;
-      try{e.clipboardData.setData('text/plain',clipboardQuote(active.marks.keys(),entry.bookName,entry.units));}
+      let text;
+      try{text=selectionQuote();}catch{e.preventDefault();feedback('未能读取完整经文，请重试');return;}
+      try{e.clipboardData.setData('text/plain',text);}
       catch{return;}
       e.preventDefault();reset();feedback('\u5df2\u590d\u5236\u9009\u4e2d\u6587\u5b57');
     }
     stage.addEventListener('copy',keyboardCopy);
     async function copy(){
       if(!active?.marks.size)return;
-      const version=serial,{entry}=active.anchor,text=clipboardQuote(active.marks.keys(),entry.bookName,entry.units);
+      const version=serial;
+      let text;
+      try{text=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
       let ok=false;
       try{if(win.navigator?.clipboard?.writeText){await win.navigator.clipboard.writeText(text);ok=true;}}catch{}
       if(version!==serial||!active)return;
@@ -479,5 +524,5 @@
     win.addEventListener?.('storage',changed);
     return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,clipboardQuote,buildSearchURL,mergeRects,verseBands,physicalRows};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,buildSearchURL,mergeRects,verseBands,physicalRows};
 });
