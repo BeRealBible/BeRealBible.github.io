@@ -770,6 +770,10 @@
       if(next===null)return;
       if(chapters?.isOpen())zoomWithChapterMenu(next/scale);else zoom(next);
     }});
+  window.addEventListener('v25-read-citation',e=>{
+    const {code,ref}=e.detail||{},page=window.V25OriginalData.lookup(code,ref);
+    if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
+  });
   finder=window.mountVerseFinder({
     navigate:(page,requested)=>jump(page,null,null,requested),
     origin:()=>({...readingLocation(),pose:capturePose()}),

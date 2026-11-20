@@ -76,3 +76,5 @@
   #vf-tab svg{width:14px;height:14px}
   #reading-history :is(.pcz-button,.rh-toggle) svg{width:14px;height:14px}
 }
+#footnote-preview a.footnote-preview__verse{color:inherit;text-decoration:none;cursor:pointer}
+#footnote-preview a.footnote-preview__verse:is(:hover,:focus-visible){background:#dfcda84a;text-decoration:underline;text-decoration-color:#a69070;text-underline-offset:.18em}

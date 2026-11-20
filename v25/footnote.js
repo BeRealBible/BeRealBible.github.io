@@ -1,10 +1,10 @@
-/* Read-only verse previews for the printed citations. No routing or storage. */
+/* One paper slip for printed footer notes and heading parallels. */
 (() => {
   'use strict';
   const doc=document,stage=doc.getElementById('stage'),book=doc.getElementById('book');
   if(!stage||!book||doc.getElementById('footnote-preview'))return;
   const tip=doc.createElement('aside');tip.id='footnote-preview';tip.hidden=true;
-  tip.className='footnote-preview';tip.setAttribute('role','tooltip');tip.lang='zh-CN';
+  tip.className='footnote-preview';tip.setAttribute('role','group');tip.setAttribute('aria-label','引用经文');tip.lang='zh-CN';
   doc.body.appendChild(tip);
   const selector='[data-footnote-anchor]';
   const anchorOf=node=>node?.closest?.(selector);
@@ -82,12 +82,17 @@
     if(current===button)return;
     hide();
     const api=window.PaperFootnotePassages,note=api?.byOrdinal(Number(button.dataset.notePage),Number(button.dataset.noteOrdinal));
-    if(!note)return;
-    const verses=api.passages(note,window.BIBLE_SOURCE);
+    const verses=api?.resolve(button.dataset.parallel||note?.citation,window.BIBLE_SOURCE);
     if(!verses?.length)return; // Unknown references must never produce guessed text.
     const fragment=doc.createDocumentFragment();
     for(const v of verses){
-      const row=field('p','verse',v.text,fragment);row.dataset.ref=v.code+'.'+v.chapter+':'+v.verse;
+      const row=field('a','verse',v.text,fragment),ref=v.chapter+':'+v.verse;row.dataset.ref=v.code+'.'+ref;
+      row.href='#'+row.dataset.ref;row.setAttribute('aria-label','阅读'+v.name+' '+ref+'：'+v.text);
+      row.onclick=e=>{
+        if(e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+        e.preventDefault();hide();stage.focus({preventScroll:true});
+        window.dispatchEvent(new CustomEvent('v25-read-citation',{detail:{code:v.code,ref}}));
+      };
     }
     // The print compositor's normal Song body uses an 11.8-unit em.
     // Sample this sheet's actual body transforms rather than a UI font size.
@@ -112,7 +117,8 @@
   doc.addEventListener('focusin',e=>{
     const a=anchorOf(e.target);
     if(a){show(a);keyFocus=!!current&&a.matches(':focus-visible');}
-    else if(current&&!tip.contains(e.target)&&!e.target.closest?.('.pcz-control,.zoom-tools')&&e.target!==stage)hide();
+    else if(current&&tip.contains(e.target)){cancel();keyFocus=true;}
+    else if(current&&!e.target.closest?.('.pcz-control,.zoom-tools')&&e.target!==stage)hide();
   });
   doc.addEventListener('focusout',e=>{if(current===e.target){keyFocus=false;if(!inside(tip,e.relatedTarget))scheduleHide();}});
   doc.addEventListener('click',e=>{const a=anchorOf(e.target);if(a)show(a);});
@@ -120,7 +126,9 @@
   doc.addEventListener('pointerdown',e=>{if(current&&!stage.contains(e.target)&&!tip.contains(e.target)&&!e.target.closest?.('.pcz-control,.zoom-tools'))hide();},true);
   doc.addEventListener('keydown',e=>{
     if(!current)return;
-    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hide();return;}
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(tip.contains(doc.activeElement))current.focus({preventScroll:true});hide();return;}
+    if(e.key==='Tab'&&!e.shiftKey&&e.target===current){e.preventDefault();tip.querySelector('a')?.focus({preventScroll:true});return;}
+    if(e.key==='Tab'&&e.shiftKey&&e.target===tip.firstElementChild){e.preventDefault();current.focus({preventScroll:true});return;}
     if(e.target===current&&tip.scrollHeight>tip.clientHeight+1){
       const shifts={ArrowDown:40,ArrowUp:-40,PageDown:tip.clientHeight*.85,PageUp:-tip.clientHeight*.85,Home:-Infinity,End:Infinity};
       if(Object.hasOwn(shifts,e.key)){e.preventDefault();e.stopPropagation();
