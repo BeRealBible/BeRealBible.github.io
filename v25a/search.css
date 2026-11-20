@@ -13,3 +13,10 @@
 .vf-found{fill:#9b411d!important}#verse-finder button:focus-visible,#vf-tab:focus-visible{outline:2px solid #8b6740;outline-offset:-2px}
 #vf-scroll{position:relative}#vf-list{position:static}
 #verse-finder{-webkit-text-size-adjust:none;text-size-adjust:none;--serif:"Songti SC","Noto Serif CJK SC",SimSun,serif}
+
+#verse-finder[data-compact] .vf-head h2,#verse-finder[data-compact] .vf-top small{display:none}
+#verse-finder[data-compact] .vf-top{justify-content:flex-end}
+#vf-tab:before{content:"";position:absolute;inset:-4px}
+
+/* Camera-bound paper must not lag a live zoom or pan. */
+#verse-finder,#vf-tab,#footnote-preview{transition:none!important;animation:none!important}

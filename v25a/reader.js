@@ -133,7 +133,7 @@
     stage.dataset.scale=scale.toFixed(4);stage.dataset.x=x.toFixed(2);stage.dataset.y=y.toFixed(2);
     ['fit-book','focus-left','focus-right'].forEach((id,i)=>$(id).classList.toggle('active',focus===['fit','left','right'][i]));
     $('surface-caption').style.opacity=scale>fitScale*1.2?'0':'1';
-    updateIndex();chapters?.reposition?.();finder?.layout();
+    updateIndex();chapters?.reposition?.();finder?.layout();window.dispatchEvent(new Event('v25a-camera-changed'));
   }
   function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
   function fit(){interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
@@ -190,6 +190,11 @@
     x=at.x-(at.x-x)/scale*next;y=at.y-(at.y-y)/scale*next;
     scale=next;focus=scale===fitScale?'fit':'custom';constrain();transform();save();
   }
+  // The loose paper overlays live outside the stage; zoom the book, not the web page.
+  window.addEventListener('v25a-paper-zoom',e=>{
+    const {factor,x:ax,y:ay}=e.detail||{},r=stage.getBoundingClientRect();
+    if(!fold&&!jumpState&&Number.isFinite(factor)&&factor>0)zoom(scale*factor,{x:ax-r.left,y:ay-r.top});
+  });
   function resize(){
     if(view.w===stage.clientWidth&&view.h===stage.clientHeight)return;
     const widthChanged=view.w!==stage.clientWidth;
