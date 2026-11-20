@@ -1,0 +1,78 @@
+#verse-finder,#vf-tab{position:absolute;z-index:31;box-sizing:border-box;color:#4b392b;font-family:var(--serif,serif)}
+#verse-finder{display:flex;flex-direction:column;transform-origin:0 0;background:linear-gradient(100deg,#e6d7b8 0,#faf2dc 9px,#f8f0de 77%,#efe3c9);border:1px solid #a9916866;border-radius:2px 6px 5px 2px;box-shadow:1px 4px 10px #46301933,inset 3px 0 #b7a17b60;overflow:hidden}
+#verse-finder[hidden],#vf-tab[hidden]{display:none}
+.vf-head{padding:9px 14px 0}.vf-top,.vf-foot{display:flex;align-items:center;justify-content:space-between}.vf-top small{font:10px var(--ui);letter-spacing:.14em;color:#806c50}.vf-top button,.vf-foot button{min-height:32px;font:12px var(--ui);color:#755938}
+.vf-head h2{margin:1px 0 8px;font:600 20px var(--serif);letter-spacing:.1em}
+#vf-form{display:flex;border-bottom:1px solid #aa916c;background:#fff9eb6b}#vf-input{width:0;flex:1;min-width:0;border:0;background:none;font:16px var(--serif);padding:6px;color:inherit}#vf-form button{padding:5px;font:13px var(--ui)}
+#vf-status{margin:8px 0 6px;color:#78684e;font:11px/1.35 var(--ui)}#vf-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;padding:0 13px;scrollbar-width:thin;scrollbar-color:#baaa8e transparent}
+#vf-list button{text-align:left;display:block;width:100%;padding:9px 5px;border-top:1px dotted #baa888;color:inherit}
+#vf-list strong,#vf-list span{display:block}#vf-list strong{font:600 12px var(--ui);margin-bottom:3px;color:#775733}#vf-list span{font:15px/1.58 var(--serif)}
+#vf-list button[data-seen] strong:after{content:' · 已看';font:10px var(--ui);color:#887a63}#vf-list button[aria-current=true]{background:#dfcda84a;box-shadow:inset 2px 0 #9b7447}
+#vf-list mark{color:inherit;background:#ebca8e8c}#vf-more,#vf-examples button{color:#795b3b;font:13px var(--serif);min-height:34px}
+.vf-foot{padding:3px 10px;border-top:1px solid #b8a58675;background:#f0e6d0}#vf-tab{writing-mode:vertical-rl;min-width:32px;min-height:70px;letter-spacing:.13em;font-size:13px;color:#fff1cf;background:linear-gradient(90deg,#796643,#8e7853);border:1px solid #695635;box-shadow:1px 2px 4px #47321b40;border-radius:2px 6px 6px 2px}
+.vf-found{fill:#9b411d!important}#verse-finder button:focus-visible,#vf-tab:focus-visible{outline:2px solid #8b6740;outline-offset:-2px}
+#vf-scroll{position:relative}#vf-list{position:static}
+#verse-finder{-webkit-text-size-adjust:none;text-size-adjust:none;--serif:"Songti SC","Noto Serif CJK SC",SimSun,serif}
+
+#verse-finder[data-compact] .vf-head h2,#verse-finder[data-compact] .vf-top small{display:none}
+#verse-finder[data-compact] .vf-top{justify-content:flex-end}
+#vf-tab:before{content:"";position:absolute;inset:-4px}
+
+/* Camera-bound paper must not lag a live zoom or pan. */
+#verse-finder,#vf-tab,#footnote-preview{transition:none!important;animation:none!important}
+/* Preview-only: print content, not tutorial chrome. */
+#footnote-preview{line-height:1.34;padding:5px 8px;border-radius:2px;text-size-adjust:none;-webkit-text-size-adjust:none}
+#footnote-preview .footnote-preview__verse{display:block;margin:0}
+#footnote-preview .footnote-preview__verse+.footnote-preview__verse{margin-top:.16em}
+.edge-chapters__sheet{padding-top:8px}.edge-chapters__header{min-height:20px;padding-right:66px}
+.edge-chapters__books,.edge-chapters__header{margin-bottom:3px}
+.vf-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 3px;padding:6px 8px 0}
+#vf-close{padding:0 3px;min-width:23px;min-height:25px;color:#735e47}
+#vf-status{grid-column:1/-1;margin:3px 0}#vf-status:empty{display:none}
+@media(max-width:639px){
+.edge-chapters__sheet{padding:6px 7px 5px 10px}.edge-chapters__title{font-size:10.5px}.edge-chapters__header{min-height:16px;padding-right:56px}
+.edge-chapters__modes{right:5px}.edge-chapters .edge-chapters__mode{padding:1px 4px;font-size:8px;min-height:15px}
+.edge-chapters .edge-chapters__number{font-size:10px}.edge-chapters [data-mode=preview] .edge-chapters__chapter{min-height:23px}
+.edge-chapters .edge-chapters__preview{font-size:10px;line-height:1.28}.edge-chapters__panel[data-narrow=true] .edge-chapters__sheet{padding:17px 6px 5px 9px}
+.edge-chapters__panel[data-narrow=true] .edge-chapters__header{padding-right:2px}
+#vf-tab{min-width:24px;min-height:53px;font-size:10px}
+}
+#verse-finder[data-layout=narrow] #vf-list span{font:10.5px/1.34 var(--serif)}#verse-finder[data-layout=narrow] #vf-list strong{font-size:9px;margin-bottom:2px}
+#verse-finder[data-layout=narrow] #vf-list button{padding:5px 2px}#verse-finder[data-layout=narrow] #vf-scroll{padding:0 8px}#verse-finder[data-layout=narrow] #vf-status{font-size:9px}#verse-finder[data-layout=narrow] #vf-form button,#verse-finder[data-layout=narrow] #vf-more,#verse-finder[data-layout=narrow] .vf-foot button{font-size:10px;min-height:22px}
+#verse-finder[data-layout=narrow] #vf-input{font-size:12px;padding:3px;min-height:23px}#verse-finder[data-layout=narrow] #vf-input:focus{font-size:16px}
+#verse-finder[data-layout=narrow] .vf-foot{padding:0 5px}
+#verse-finder *{transition-property:none}
+
+#vf-scopes{grid-column:1/-1;display:flex;align-items:center;gap:5px;margin:4px 0 1px}
+#vf-scopes button{min-width:0;max-width:48%;padding:2px 4px;min-height:22px;background:transparent;color:#766047;border:0;border-radius:0;font:11px/1.2 var(--serif);cursor:pointer}
+#vf-group::after{content:"";display:inline-block;width:.4em;height:.4em;margin:0 1px .2em .45em;border:solid currentColor;border-width:0 1px 1px 0;transform:rotate(45deg)}
+#vf-group[aria-expanded=true]::after{transform:rotate(225deg);vertical-align:-.16em}
+#vf-scopes button[aria-pressed=true],#vf-group[data-current]{color:#70482c;box-shadow:inset 0 -1px #99754f}
+#verse-finder[data-layout=narrow] #vf-scopes{gap:3px}
+#verse-finder[data-layout=narrow] #vf-scopes button{font-size:10px}
+/* A second face inside the same slip: never a system picker or a backdrop. */
+#vf-groups:not([hidden]){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0 8px;padding:2px 0;min-height:0;max-height:176px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#baaa8e transparent}
+#vf-groups button{text-align:left;min-height:25px;padding:2px 5px;border-top:1px dotted #baa88880;color:#694f36;font:12px/1.3 var(--serif)}
+#vf-groups button[aria-pressed=true]{background:#dfcda86b;box-shadow:inset 2px 0 #98744b}
+#verse-finder[data-layout=narrow] #vf-groups button{font-size:10.5px;min-height:22px}
+#vf-tab:not([hidden]){display:grid;place-items:center;writing-mode:horizontal-tb;padding:0;min-width:0;min-height:0;width:29px;height:35px}
+#vf-tab svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;fill:none}
+
+/* No right-hand menu in the minimal reader. Give its former reserve (and the
+   desktop max-width gutter) back to the scrollable history strip. */
+.paper-immersive body[data-minimal-reader] #reading-history{
+  --rail-gap:clamp(2px,.65vw,8px);--tool-width:clamp(28px,5vw,36px);
+  padding-left:max(4px,env(safe-area-inset-left));padding-right:max(4px,env(safe-area-inset-right))
+}
+#reading-history .rh-rail{max-width:none;gap:var(--rail-gap)}
+#reading-history :is(.pcz-button,.rh-toggle){display:inline-grid;place-items:center;padding:0;width:var(--tool-width);min-width:0;height:34px;min-height:0;border-radius:5px}
+#reading-history :is(.pcz-button,.rh-toggle) svg{width:15px;height:15px}
+#reading-history .rh-track{padding-inline:1px;gap:clamp(3px,.5vw,6px)}
+#reading-history .rh-chip{padding-inline:clamp(4px,.7vw,8px)}
+#reading-history .rh-pin svg{width:10px;height:10px}
+#reading-history .rh-item[data-pinned] .rh-pin{flex-basis:24px;width:24px}
+@media(max-width:639px){
+  #vf-tab:not([hidden]){width:26px;height:31px}
+  #vf-tab svg{width:14px;height:14px}
+  #reading-history :is(.pcz-button,.rh-toggle) svg{width:14px;height:14px}
+}
