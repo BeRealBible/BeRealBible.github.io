@@ -36,6 +36,46 @@
     const [l,iw,a,ih]=metricsFor(text,fontSpec),sx=width/iw*f.s,sy=height/ih*f.s,xx=f.ox+x*f.s,yy=f.oy+y*f.s;
     return {text,x:xx,y:yy,w:width*f.s,h:height*f.s,sx,sy,tx:xx+l*sx,ty:yy+a*sy,family,weight,fontSpec,box:w};
   }
+  // Page/column/row membership is taken from the release's existing ink order.
+  // Ordinary Song body Han shares one isotropic em. Position, not scale,
+  // absorbs fitting, and only within short runs of adjacent source slots.
+  const BODY_EM=.118,HAN=/^\p{Unified_Ideograph}$/u,GAP=.30,SEMANTIC_GAP=5.5;
+  function typesetBody(words,p){
+    const raw=p[3];
+    const rows=root.V25LiveRows?.infer(raw,words).rows||[];
+    for(const row of rows){
+      const list=row.members.map(j=>words[j]);
+      const placed=list.map(c=>{
+        if(c.role!=='body'||c.weight!==400||!HAN.test(c.text)||c.family!==FAMILY||c.hideHatch)return null;
+        const [l,iw,a,ih]=metricsFor(c.text,c.fontSpec);
+        return {c,l,a,w:iw*BODY_EM,h:ih*BODY_EM};
+      });
+      const estimates=placed.filter(Boolean).filter(z=>z.c.h>=7).map(z=>z.c.y+z.a*BODY_EM).sort((a,b)=>a-b);
+      if(!estimates.length)continue;
+      const baseline=estimates[estimates.length>>1];
+      for(let j=0;j<list.length;){
+        if(!placed[j]){j++;continue;}
+        const start=j++;
+        while(j<list.length&&placed[j]&&list[j].x-(list[j-1].x+list[j-1].w)<SEMANTIC_GAP)j++;
+        const run=placed.slice(start,j),first=list[start],last=list[j-1],next=list[j];
+        const originalRight=last.x+last.w,total=run.reduce((n,z)=>n+z.w,0);
+        // Leave genuine gaps, verse markers and punctuation in their places.
+        const ceiling=next?Math.min(originalRight+1.2,Math.max(originalRight,next.x-GAP)):originalRight+1.2;
+        const startX=first.x,end=Math.min(ceiling,Math.max(originalRight,startX+total+GAP*(run.length-1)));
+        // A compact caption, congested punctuation or ambiguous slot remains
+        // in its accepted source pose rather than introducing an overlap.
+        if(end-startX+1e-7<total)continue;
+        const gap=run.length>1?Math.max(0,(end-startX-total)/(run.length-1)):0;
+        let x=startX;
+        for(const z of run){
+          const c=z.c;
+          c.x=x;c.y=baseline-z.a*BODY_EM;c.w=z.w;c.h=z.h;
+          c.sx=c.sy=BODY_EM;c.tx=x+z.l*BODY_EM;c.ty=baseline;
+          x+=z.w+gap;
+        }
+      }
+    }
+  }
   function model(i){
     const store=db(),p=store.get(i);if(!p)return null;
     if(p[0]!==i)throw Error('Physical page identity mismatch: '+i);
@@ -45,6 +85,7 @@
       const heading=root.V25HeadingFrames?.classify(store.sha,i,n,w)??(t.role==='heading');
       return {...word(w,f,heading),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
     });
+    typesetBody(words,p);
     const v={version,p,tags,words,f};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
   }
   function text(c){
