@@ -47,3 +47,5 @@ html.paper-immersive,.paper-immersive body,.paper-immersive .stage-wrap{backgrou
 
 /* V25's minimal reader leaves only the book, zoom and recent jumps visible. */
 .paper-immersive body[data-minimal-reader] :is(.reader-header,.reading-tools,.reader-footer,.gesture-feedback) { display:none !important; }
+
+.pcz-button svg{width:19px;height:19px;vertical-align:middle;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}

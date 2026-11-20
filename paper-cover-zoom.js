@@ -23,6 +23,12 @@
     const control=el('div','pcz-control'),button=el('button','pcz-button','比例'),panel=el('div','pcz-panel');
     const heading=el('label','pcz-label','阅读比例'),value=el('output','pcz-value','100%'),range=el('input','pcz-range');
     const shelf=history?.querySelector('.rh-rail');
+    if(doc.documentElement?.dataset.readerBuild==='index-25'){
+      button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4m4-4h8M12 8v8"/></svg>';
+      button.setAttribute('aria-label','阅读比例');button.title='阅读比例';
+      heading.classList.add('immersion-sr-only');
+      win.addEventListener('paper-reader-chrome-hidden',()=>show(false));
+    }
     button.type='button';button.setAttribute('aria-expanded','false');button.setAttribute('aria-controls','pcz-panel');
     panel.id='pcz-panel';panel.hidden=true;range.id='pcz-range';range.type='range';range.min='100';range.step='1';
     heading.htmlFor=range.id;value.setAttribute('for',range.id);

@@ -65,7 +65,7 @@ test('edition-specific reader storage keeps history apart from other layout and 
 // Model ordinary native buttons: Enter/Space trigger click and click bubbles.
 // Detecting a jump on pin/delete needs a real ancestor chain; calling each
 // listener in isolation masks precisely that regression.
-function shelf(storage=memory()){
+function shelf(storage=memory(),compact=false){
   const listeners=new Map(),requests=[],timers=new Map();let now=0,id=0;
   function tick(ms){const end=now+ms;while(timers.size){const [n,task]=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];if(task.at>end)break;
     now=task.at;timers.delete(n);task.fn();}now=end;}
@@ -119,6 +119,7 @@ function shelf(storage=memory()){
       if(!down.defaultPrevented&&this.localName==='button'&&(key==='Enter'||key===' '))this.click();}
   }
   doc.createElement=t=>new Node(t);doc.createElementNS=(_,t)=>new Node(t);doc.documentElement=new Node('html');
+  if(compact)doc.documentElement.dataset.readerBuild='index-25';
   const host=new Node('section');doc.documentElement.append(host);
   const ui=H.create({host,pageCount:120,storage,onNavigate:(...args)=>requests.push(args)});
   const find=(label,base=host)=>base.find(n=>n.attrs['aria-label']===label);
@@ -126,6 +127,16 @@ function shelf(storage=memory()){
   const row=id=>{const n=host.querySelector('.rh-item[data-id="'+id+'"]');assert.ok(n,id);return n;};
   return {host,ui,requests,doc,row,button,find,listeners,tick,timers};
 }
+test('V25 history starts folded and re-folds when immersive tools are hidden',()=>{
+  const s=shelf(memory(),true),toggle=s.button('浏览历史'),track=s.host.querySelector('.rh-track');
+  assert.ok(toggle.innerHTML.includes('<svg'));
+  assert.equal(track.hidden,true);
+  toggle.click();assert.equal(track.hidden,false);
+  assert.equal(toggle.attrs['aria-expanded'],'true');
+  s.listeners.get('paper-reader-chrome-hidden')();
+  assert.equal(track.hidden,true);
+  assert.equal(toggle.attrs['aria-expanded'],'false');
+});
 const ptr=(node,type,pointerType,extra={})=>node.fire(type,{pointerType,pointerId:1,clientX:40,clientY:20,isPrimary:true,button:0,buttons:type==='pointerdown'?1:0,...extra});
 const compatibilityClick=node=>node.click({detail:1,pointerType:'touch',pointerId:1});
 function threeTabs(){

@@ -79,3 +79,12 @@ html.paper-immersive { --immersion-inset: 18px; --immersion-bottom: max(14px, en
   .paper-immersive .reader-header, .paper-immersive .reading-tools, .paper-immersive .reader-footer,
   .paper-immersive .immersion-extra, .immersion-dock { transition-duration: .01ms; }
 }
+
+/* V25's menu is part of the same transient chrome as the bottom controls. */
+.paper-immersive[data-reader-build="index-25"][data-reader-chrome="hidden"] .immersion-dock{
+  opacity:0;visibility:hidden;pointer-events:none;
+}
+.paper-immersive[data-reader-build="index-25"] #zoom-value svg{
+  width:17px;height:17px;vertical-align:middle;fill:none;stroke:currentColor;
+  stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;
+}

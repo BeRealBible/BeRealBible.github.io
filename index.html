@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="fonts.css?v=index-25&h=6d379c62a957">
   <link rel="stylesheet" href="fonts-extra.css?v=index-25&h=9754c054be54">
   <link rel="stylesheet" href="style.css?v=index-25&h=f555e6e7c996">
-  <link rel="stylesheet" href="immersion.css?v=index-25&h=5c64ea61bcc0">
+  <link rel="stylesheet" href="immersion.css?v=index-25&h=9c7fafb81df8">
   <script src="book-material.js?v=index-25&h=be921a972af3" defer></script>
   <script src="bible-data.js?v=index-25&h=9e166abd621a" defer></script>
   <script src="data/bible-source.js?v=index-25&h=4fef74158e5a" defer></script>
@@ -31,9 +31,9 @@
   <script src="chapter-preview.js?v=index-25&h=6f6328ec9d22" defer></script>
   <script src="edge-chapters.js?v=index-25&h=7e04a6c93742" defer></script>
   <script src="paper-jump.js?v=index-25&h=736f53e5321b" defer></script>
-  <link rel="stylesheet" href="reading-history.css?v=index-25&h=af827bc6b9cf">
+  <link rel="stylesheet" href="reading-history.css?v=index-25&h=3908e7835d21">
   <link rel="stylesheet" href="text-selection.css?v=index-25&h=bceacb14b2dc">
-  <script src="reading-history.js?v=index-25&h=0e44afcce519" defer></script>
+  <script src="reading-history.js?v=index-25&h=14bfb0e9f6e0" defer></script>
   <script src="text-selection.js?v=index-25&h=093c16c7bda1" defer></script>
   <link rel="stylesheet" href="book-desk.css?v=index-25&h=a4f58a5689e4">
   <script src="book-desk.js?v=index-25&h=214f33efde16" defer></script>
@@ -42,15 +42,15 @@
   <script src="footnote-passages.js?v=index-25&h=0b6254049a75" defer></script>
   <script src="v25-footnote-targets.js?v=index-25&h=2cbfd4b35f1a" defer></script>
   <script src="footnote-preview.js?v=index-25&h=cc15f29b313f" defer></script>
-  <link id="v25-desk-controller" rel="preload" as="script" href="edge-reader.js?v=index-25&h=fed6393b7d23">
+  <link id="v25-desk-controller" rel="preload" as="script" href="edge-reader.js?v=index-25&h=b8e6548d6ab9">
   <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=d8e57602ca3f" defer></script>
-  <script src="immersion.js?v=index-25&h=5481938463a4" defer></script>
+  <script src="immersion.js?v=index-25&h=3a70d304667a" defer></script>
 
   <script src="reader-release.js?v=index-25&h=4570de647195" defer></script>
   <style>#reader-rule-loading{position:fixed;inset:0;z-index:9999;display:grid;place-content:center;padding:32px;background:#e8e1d4;color:#493f32;text-align:center;font:16px/1.8 system-ui,sans-serif}#reader-rule-loading p{max-width:30em}#reader-rule-loading a{color:#8b3939}html[data-rule-layout="ready"] #reader-rule-loading{display:none}</style>
 <link rel="stylesheet" href="fonts-rares.css?v=index-25&h=189bacd36390"><link rel="stylesheet" href="v25-original-fonts.css?v=index-25&h=dcb07d93a1ae">
-<link rel="stylesheet" href="paper-cover-zoom.css?v=index-25&h=1c73ca4bcc1a">
-<script src="paper-cover-zoom.js?v=index-25&h=fe0b1a65a964" defer></script>
+<link rel="stylesheet" href="paper-cover-zoom.css?v=index-25&h=852fdcd6d851">
+<script src="paper-cover-zoom.js?v=index-25&h=6690000cbb24" defer></script>
 </head>
 <body data-paper-scene="reading" data-minimal-reader>
 <div id="reader-rule-loading" role="status"><strong>纸页 · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./?v=index-25">加载遇到问题？重新打开</a></div>
@@ -96,7 +96,7 @@
     </div>
     <div class="reading-tools" id="reading-tools">
       <div class="focus-group" role="group" aria-label="阅读视角"><button id="fit-book" class="active">对开</button><button id="focus-left">左页</button><button id="focus-right">右页</button></div>
-      <div class="zoom-tools"><button id="zoom-out" aria-label="缩小">−</button><button id="zoom-value" title="恢复对开视角">100%</button><button id="zoom-in" aria-label="放大">＋</button></div>
+      <div class="zoom-tools"><button id="zoom-out" aria-label="缩小">−</button><button id="zoom-value" aria-label="恢复对开视角" title="恢复对开视角"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg></button><button id="zoom-in" aria-label="放大">＋</button></div>
     </div>
     <footer class="reader-footer">
       <button class="nav-button" id="prev" aria-label="向前翻一页">←</button>

@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const root = document.documentElement;
+  const v25 = root.dataset.readerBuild === 'index-25';
   let scene = 'reading';
   let chromeVisible = false;
   let initialized = false;
@@ -37,6 +38,7 @@
       group.setAttribute('aria-hidden', String(!visible));
     });
     root.dataset.readerChrome = visible ? 'visible' : 'hidden';
+    if (v25 && !visible) window.dispatchEvent(new Event('paper-reader-chrome-hidden'));
     if (menuButton) {
       menuButton.setAttribute('aria-expanded', String(visible));
       menuButton.setAttribute('aria-label', visible ? '收起阅读工具' : '展开阅读工具');
@@ -44,7 +46,7 @@
   }
 
   function showChrome() {
-    if (scene !== 'reading' || document.body?.hasAttribute('data-minimal-reader')) return;
+    if (scene !== 'reading' || (!v25 && document.body?.hasAttribute('data-minimal-reader'))) return;
     chromeVisible = true;
     setControlsVisible(true);
     scheduleHide();
@@ -53,7 +55,7 @@
   function hideChrome() {
     window.clearTimeout(hideTimer);
     if (keyboardMode && groups.some(group => group.contains(document.activeElement))) {
-      menuButton?.focus({ preventScroll: true });
+      (v25 ? document.getElementById('stage') : menuButton)?.focus({ preventScroll: true });
     }
     chromeVisible = false;
     heldControls = 0;
@@ -146,7 +148,8 @@
     if (initialized) return;
     initialized = true;
     if (document.body.hasAttribute('data-minimal-reader')) {
-      groups = [document.querySelector('.reader-header'), document.getElementById('reading-tools'), document.querySelector('.reader-footer')].filter(Boolean);
+      groups = [document.querySelector('.reader-header'), document.getElementById('reading-tools'), document.querySelector('.reader-footer'), v25 && document.getElementById('reading-history')].filter(Boolean);
+      groups.forEach(protectControlInteraction);
       root.classList.add('paper-immersive');
       setScene(scene);
       window.dispatchEvent(new Event('resize'));
@@ -154,7 +157,7 @@
     }
     document.body.insertAdjacentHTML('beforeend', `
       <div class="immersion-dock" id="immersion-dock" role="group" aria-label="阅读入口">
-        <button id="immersion-menu" class="immersion-quiet-button" aria-label="展开阅读工具" aria-expanded="false" aria-controls="reading-tools immersion-extra">
+        <button id="immersion-menu" class="immersion-quiet-button" aria-label="展开阅读工具" aria-expanded="false" aria-controls="reading-tools immersion-extra reading-history">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg><span class="immersion-sr-only">阅读工具</span>
         </button>
       </div>
@@ -183,7 +186,8 @@
     installDialog = document.getElementById('immersion-install-dialog');
     installStatus = document.getElementById('immersion-install-status');
     groups = [document.querySelector('.reader-header'), document.getElementById('reading-tools'),
-      document.querySelector('.reader-footer'), document.getElementById('immersion-extra')].filter(Boolean);
+      document.querySelector('.reader-footer'), document.getElementById('immersion-extra'),
+      v25 && document.getElementById('reading-history'), v25 && dock].filter(Boolean);
     groups.forEach(protectControlInteraction);
     menuButton.addEventListener('click', () => chromeVisible ? hideChrome() : showChrome());
     document.getElementById('immersion-directory').addEventListener('click', () => {
@@ -223,6 +227,12 @@
   window.addEventListener('paper-reader-tap', () => chromeVisible ? hideChrome() : showChrome());
   document.addEventListener('keydown', event => {
     if (event.key === 'Tab') keyboardMode = true;
+    if (v25 && event.key === 'Enter' && event.target === document.getElementById('stage')) {
+      event.preventDefault();
+      keyboardMode = true;
+      if (chromeVisible) hideChrome();
+      else { showChrome(); (menuButton || document.querySelector('#reading-history button'))?.focus({ preventScroll: true }); }
+    }
     if (event.key === 'Escape' && !document.querySelector('dialog[open]')) hideChrome();
   });
   document.addEventListener('fullscreenchange', syncFullscreen);

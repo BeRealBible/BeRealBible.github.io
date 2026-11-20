@@ -118,7 +118,7 @@
       book.style.zoom=String(scale);book.style.left=x/scale+'px';book.style.top=y/scale+'px';
       book.style.transform='none';
     }else book.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
-    $('zoom-value').textContent=Math.round(scale/fitScale*100)+'%';
+    if(!v25)$('zoom-value').textContent=Math.round(scale/fitScale*100)+'%';
     coverZoom?.sync(scale,fitScale,MAX_SCALE);
     $('zoom-in').disabled=scale>=MAX_SCALE;$('zoom-out').disabled=scale<=fitScale;
     stage.dataset.scale=scale.toFixed(4);stage.dataset.x=x.toFixed(2);stage.dataset.y=y.toFixed(2);
@@ -241,25 +241,32 @@
     }
     startPanFrame=requestAnimationFrame(frame);
   }
-  function offerStartShortcut(){
-    if(!atClippedSpreadEnd())return;
+  function offerStartShortcut(direction){
+    const forward=direction>0,pad=18;
+    const targetX=()=>forward?pad:view.w-pad-960*scale;
+    const targetY=()=>forward?pad:view.h-pad-704*scale;
+    const needsPan=()=>(960*scale>view.w+2&&Math.abs(x-targetX())>24)||
+      (704*scale>view.h+2&&Math.abs(y-targetY())>24);
+    if(!needsPan())return;
     if(!startShortcut){
       startShortcut=document.createElement('button');startShortcut.type='button';
       startShortcut.id='spread-start-shortcut';startShortcut.className='spread-start-shortcut';
-      startShortcut.textContent='↖ 回左上';startShortcut.setAttribute('aria-label','从当前跨页左上角开始阅读');
       startShortcut.hidden=true;stage.append(startShortcut);
-      startShortcut.addEventListener('click',()=>{
-        if(startShortcutSpread!==spread||startShortcut.hidden||fold||jumpState||!atClippedSpreadEnd()){
-          hideStartShortcut();return;
-        }
-        hideStartShortcut();columnReading=null;panToReadingPoint(18,18,0,'spreadStartPan');
-      });
       startShortcut.addEventListener('keydown',e=>{
         if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hideStartShortcut();}
       });
     }
     hideStartShortcut();startShortcutSpread=spread;startShortcut.hidden=false;
-    startShortcutTimer=setTimeout(hideStartShortcut,2000);
+    startShortcut.textContent=forward?'↖ 回左上':'↘ 到右下';
+    startShortcut.setAttribute('aria-label',forward?'从当前跨页左上角开始阅读':'回到上一跨页的右下角');
+    startShortcut.onclick=()=>{
+      if(startShortcutSpread!==spread||startShortcut.hidden||fold||jumpState||!needsPan()){
+        hideStartShortcut();return;
+      }
+      hideStartShortcut();columnReading=null;
+      panToReadingPoint(targetX(),targetY(),forward?0:1,'spreadStartPan');
+    };
+    startShortcutTimer=setTimeout(hideStartShortcut,4000);
   }
   // Cache actual ink extents per displayed spread, in the same physical
   // coordinates as the camera. Printed blank columns never become stops.
@@ -370,7 +377,7 @@
     selection?.reset({keepFocus:true});
     const grabY=contact?.grabY??628;
     const animate=!noTurnMotion&&(!flatTouch||smoothTurn)&&!reduceMotion();
-    const offerStart=v25&&direction>0&&target-spread===2&&atClippedSpreadEnd();
+    const offerStart=v25&&Math.abs(target-spread)===2;
     fold={from:spread,target,direction,side,count:Math.abs(target-spread)/2,source,offerStart,
       radius:contact?.radius??450,grabY,corner:grabY<352?'top':'bottom',vertical:0,
       progress:0,settling:false,animate,original:animate?papers[side].innerHTML:null};
@@ -402,7 +409,7 @@
     else if(f.animate){papers[f.side].innerHTML=f.original;selection?.refresh?.();applyMaterial();updateIndex();}
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     if(queuedTurns.length)turn(...queuedTurns.shift());
-    else if(commit&&f.offerStart)offerStartShortcut();
+    else if(commit&&f.offerStart)offerStartShortcut(f.direction);
   }
   function settleFold(commit=true){
     if(!fold||fold.settling)return;const f=fold;f.settling=true;f.commit=commit;
@@ -511,6 +518,11 @@
     const margin=Math.min(28,32/scale);
     return bx<=margin?-1:bx>=960-margin?1:0;
   }
+  function horizontalPaperEdge(bx,by,band){
+    if(!v25||band||!onPaper(bx,by))return 0;
+    const margin=Math.min(24,28/scale);
+    return by<=margin?1:by>=704-margin?-1:0;
+  }
   function panTo(px,py){
     const oldX=x,oldY=y;x=px;y=py;constrain();
     if(Math.abs(x-oldX)<.00001&&Math.abs(y-oldY)<.00001)return false;
@@ -540,7 +552,7 @@
     const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
-      edge:inwardDirection(bx,by,band),column:mobileReadingColumn(e.pointerType),
+      edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,column:mobileReadingColumn(e.pointerType),
       restrictForward:mobileClippedReading(e.pointerType),spreadEnd:atClippedSpreadEnd(),
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
       contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
@@ -559,8 +571,11 @@
     }else if(out<=g.extreme)g.extreme=out;
     else if(out-g.extreme>=6){g.trend=1;g.extreme=out;}
   }
+  function curlTravel(g,dx,dy){
+    return g.verticalTurn?g.rim*dy:-g.edge*dx;
+  }
   function trackCurl(g,c,e){
-    const dx=c.x-g.start.x;
+    const dx=c.x-g.start.x,dy=c.y-g.start.y;
     // A contact holds one leaf until release. Going past its origin can only
     // flatten that leaf; it cannot silently pick up the opposite page.
     if(!g.direction){
@@ -568,19 +583,19 @@
       if(startFold(g.direction,1,'swipe',g.contact))stage.classList.add('curl-dragging');
     }
     if(!fold)return;
-    const out=Math.max(0,-g.direction*dx);
+    const out=Math.max(0,curlTravel(g,dx,dy));
     // A mobile browser may batch a peak and a reversal into the same frame.
     // Read all the samples for intent, but paint just the latest position.
     for(const sample of e.getCoalescedEvents?.()||[]){
-      rememberStroke(g,Math.max(0,-g.direction*(dx+sample.clientX-e.clientX)));
+      rememberStroke(g,Math.max(0,curlTravel(g,dx+sample.clientX-e.clientX,dy+sample.clientY-e.clientY)));
     }
     rememberStroke(g,out);
     const progress=clamp(out/Math.max(1,2*fold.radius*g.baseScale),0,1),
-      vertical=!smoothTurn&&out?clamp((c.y-g.start.y)/g.baseScale,-210,210):0;
+      vertical=!g.verticalTurn&&!smoothTurn&&out?clamp((c.y-g.start.y)/g.baseScale,-210,210):0;
     if(fold.progress!==progress||fold.vertical!==vertical)updateFold(progress,vertical);
   }
   function releaseCurl(g,end){
-    const out=-fold.direction*(end.x-g.start.x);
+    const out=curlTravel(g,end.x-g.start.x,end.y-g.start.y);
     // After a deliberate stroke, resting the finger never changes the intent.
     // Speed, hold duration and crossing halfway are not release requirements.
     return g.trend>0&&out>=SWIPE_MIN;
@@ -598,13 +613,18 @@
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
       clearHold();
-      const fitSwipe=g.touchFit&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35;
+      const fitSwipe=g.touchFit&&!g.rim&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35;
       if(fitSwipe)g.edge=Math.sign(-dx);
+      const rimSwipe=g.rim&&!g.token&&!selection?.isActive()&&
+        (-dx*g.leaf>=Math.abs(dy)*1.35||dy*g.rim>=Math.abs(dx)*1.35);
+      if(rimSwipe&&!fitSwipe){
+        g.edge=g.leaf;g.verticalTurn=dy*g.rim>=Math.abs(dx)*1.35;
+      }
       const edgeSwipe=g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35;
       const allowedEdgeSwipe=edgeSwipe&&(g.edge<0||!g.restrictForward||g.spreadEnd);
       const columnIntent=g.column?.atBottom&&g.column.next&&!selection?.isActive()&&
         isReadingDownStroke(dx,dy);
-      g.kind=fitSwipe||allowedEdgeSwipe?'swipe':columnIntent?'column':'pan';
+      g.kind=fitSwipe||rimSwipe||allowedEdgeSwipe?'swipe':columnIntent?'column':'pan';
       if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
@@ -631,6 +651,9 @@
       stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';if(g.pinched)save();return;
     }
     if(g.kind==='pending'&&g.token){selection.tap(g.token);stage.dataset.lastGesture='text-tap';return;}
+    if(v25&&g.kind==='pending'&&!g.band&&!selection?.isActive()){
+      window.dispatchEvent(new Event('paper-reader-tap'));return;
+    }
     if(g.kind==='swipe'&&fold){
       const commit=releaseCurl(g,end);stage.dataset.lastGesture=commit?'swipe-turn':'swipe-return';settleFold(commit);return;
     }

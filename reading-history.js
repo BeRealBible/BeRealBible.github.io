@@ -109,7 +109,15 @@
     const shell=host.closest('.reader');
     const el=(tag,cls,txt)=>{const n=doc.createElement(tag);if(cls)n.className=cls;if(txt)n.textContent=txt;return n;};
     const button=(cls,txt,title,fn)=>{const b=el('button',cls,txt);b.type='button';b.setAttribute('aria-label',title);b.title=title;b.addEventListener('click',fn);return b;};
-    const shelf=el('div','rh-rail'),caption=el('span','rh-caption','最近跳转'),track=el('div','rh-track');
+    const shelf=el('div','rh-rail'),track=el('div','rh-track');
+    const compact=doc.documentElement.dataset?.readerBuild==='index-25';
+    const caption=compact?button('rh-toggle','','浏览历史',()=>setHistoryOpen(track.hidden)):
+      el('span','rh-caption','最近跳转');
+    if(compact){
+      caption.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 4v5h5M3.7 9a8.5 8.5 0 1 1 .8 7M12 7v5l3 2"/></svg>';
+      track.id='rh-recent';track.hidden=true;
+      caption.setAttribute('aria-controls',track.id);caption.setAttribute('aria-expanded','false');
+    }
     track.setAttribute('role','group');track.setAttribute('aria-label','最近阅读位置');
     const status=el('span','rh-sr');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
     let controls=new Map(),removedId=null,shown=null,via=null,modality=null,pending=null,blocked=null;
@@ -178,6 +186,12 @@
       const id=removedId;removedId=null;const ok=model.undo();render();
       if(ok){status.textContent='已恢复记录';focusControl(id,'chip');}
     });
+    function setHistoryOpen(open){
+      track.hidden=!open;caption.setAttribute('aria-expanded',String(open));
+      undoButton.hidden=!open||!model.canUndo();
+      if(!open){clearShown();cancelHold();}
+    }
+    if(compact)listen(win,'paper-reader-chrome-hidden',()=>setHistoryOpen(false));
     shelf.append(caption,track,undoButton,status);
     host.append(shelf);shell?.classList.add('has-history-shelf');doc.documentElement.classList.add('paper-history-on');
     function navigate(id){
@@ -232,7 +246,7 @@
         del.tabIndex=-1;
         item.append(chip,pin,del);track.appendChild(item);controls.set(e.id,{item,chip,pin,del});
       }
-      track.scrollLeft=scroll;undoButton.hidden=!model.canUndo();
+      track.scrollLeft=scroll;undoButton.hidden=track.hidden||!model.canUndo();
       if(restore)focusControl(...restore);
       if(keep)reveal(keep,how);
     }

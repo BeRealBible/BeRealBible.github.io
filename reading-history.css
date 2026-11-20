@@ -40,3 +40,19 @@
 .rh-item[data-reveal=touch]{--rh-action-width:34px}
 @media(max-width:560px){.rh-rail{gap:6px}.rh-caption{font-size:10px}.rh-caption::before{margin-right:4px}.rh-chip{max-width:min(23ch,30vw)}}
 @media (forced-colors:active){.rh-item,.rh-track{border:1px solid CanvasText}.rh-chip[aria-current=page]{outline:2px solid Highlight}.rh-pin[aria-pressed=true]{color:Highlight}}
+
+/* Overlay the book without changing its camera or reserving an empty ledge. */
+.paper-immersive[data-reader-build="index-25"] .reader.has-history-shelf .stage-wrap{bottom:0}
+.paper-immersive[data-reader-build="index-25"] #reading-history{
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .24s,visibility .24s;
+}
+.paper-immersive[data-reader-build="index-25"][data-reader-chrome="visible"][data-reader-scene="reading"] #reading-history{
+  opacity:1;visibility:visible;pointer-events:auto;
+}
+.rh-track[hidden]{display:none}
+.rh-toggle{
+  display:inline-grid;place-items:center;flex:none;width:42px;height:36px;padding:0;
+  color:inherit;border:1px solid #8067474d;border-radius:8px;background:#fbf4e595;
+}
+.rh-toggle[aria-expanded="true"]{background:#eadbc4}
+.rh-toggle svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}

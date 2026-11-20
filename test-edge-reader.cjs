@@ -127,6 +127,7 @@ function fixture(startSpread = 2, options = {}) {
     dispatchEvent: event => dispatch(events, 'document:' + event.type, event), hidden: false
   };
   doc.body = el('body'); doc.documentElement = el('html');
+  if (options.v25) doc.documentElement.dataset.readerBuild = 'index-25';
   el('stage-wrap').classList.add('stage-wrap');
   el('stage-wrap').appendChild(el('stage')); el('stage').appendChild(el('book'));
   el('book').appendChild(el('book-volume'));
@@ -189,7 +190,7 @@ function fixture(startSpread = 2, options = {}) {
     close() { chapterOpenState = null; chapterCalls.push({ type: 'close', at: now }); },
     isOpen: () => Boolean(chapterOpenState), destroy() { chapterOpenState = null; }
   };
-  const context = {
+  const context = { URLSearchParams, location: { search: "" },
     console, document: doc, navigator: {}, performance: { now: () => now },
     PaperPhysics: Physics, PaperGestures: Gestures, PaperBookMaterial: Material, PaperPage: Page, PaperEdges: Edges,
     PaperSheetRenderer: Renderer, PaperTextSelection: options.selectionModule, PaperReadingHistory: {create(args){historyOptions=args;return options.historyModule?.create(args)||{start(){},advance(){},jump(_loc,id){return id?{id}:null;}};}}, PaperBookDesk:options.deskModule,
@@ -296,6 +297,58 @@ const scenarios = [];
 const test = (name, fn) => scenarios.push({ name, fn });
 const spread = f => Number(f.el('stage').dataset.spread);
 const state = f => f.el('stage').dataset.foldState;
+test('V25 turns from the top and bottom margins use the grabbed leaf', () => {
+  for (const side of ['left', 'right']) for (const [localY, dy] of [[8, 70], [696, -70]]) {
+    const f = fixture(20, { v25: true });
+    const p = f.at(side, 200, localY);
+    f.emit('pointerdown', p.x, p.y);
+    f.emit('pointerup', p.x, p.y + dy);
+    f.advance(1000);
+    assert.equal(spread(f), side === 'left' ? 18 : 22);
+  }
+});
+test('V25 vertical movement from the page interior does not turn a page', () => {
+  const f = fixture(20, { v25: true });
+  const p = f.at('right', 200, 310);
+  f.emit('pointerdown', p.x, p.y);
+  f.emit('pointerup', p.x, p.y + 70);
+  f.advance(1000);
+  assert.equal(spread(f), 20);
+});
+test('V25 offers opposite reading corners after forward and backward turns without changing zoom', () => {
+  const f = fixture(20, { v25: true, width: 390, height: 600,
+    pose: { zoom: 4, centerX: 490, centerY: 352, focus: 'custom' } });
+  const stage = f.el('stage'), z = stage.dataset.scale;
+  f.click('next'); f.advance(1000);
+  const shortcut = stage.querySelector('#spread-start-shortcut');
+  assert.ok(shortcut && !shortcut.hidden);
+  assert.match(shortcut.textContent, /↖/);
+  shortcut.dispatchEvent({ type: 'click' }); f.advance(1000);
+  assert.equal(f.position.page, 22);
+  assert.equal(Number(stage.dataset.x), 18);
+  assert.equal(Number(stage.dataset.y), 18);
+  f.click('prev'); f.advance(1000);
+  assert.equal(shortcut.hidden, false);
+  assert.match(shortcut.textContent, /↘/);
+  shortcut.dispatchEvent({ type: 'click' }); f.advance(1000);
+  assert.equal(f.position.page, 21);
+  assert.ok(Math.abs(Number(stage.dataset.x) + 960 * Number(z) - (390 - 18)) < .1);
+  assert.ok(Math.abs(Number(stage.dataset.y) + 704 * Number(z) - (600 - 18)) < .1);
+  assert.equal(stage.dataset.scale, z);
+});
+test('V25 only signals immersive toolbar toggle for a blank tap, never text or drags',()=>{
+  const word={},f=fixture(20,{v25:true,selectionModule:{create:()=>({
+    hit:(_x,_y,t)=>t===word?{}:null,isActive:()=>false,reset(){},tap(){}
+  })}});
+  let toggles=0;f.context.addEventListener('paper-reader-tap',()=>++toggles);
+  const p=f.at('right',200,310);
+  f.emit('pointerdown',p.x,p.y);f.emit('pointerup',p.x,p.y);
+  assert.equal(toggles,1);
+  f.emit('pointerdown',p.x,p.y,1,'mouse',word);f.emit('pointerup',p.x,p.y,1,'mouse',word);
+  f.emit('pointerdown',p.x,p.y);f.emit('pointerup',p.x,p.y+70);
+  f.swipe();
+  assert.equal(toggles,1);
+});
 function wheelAt(f,point,dx,dy,extra={}){
   const event={type:'wheel',clientX:point.x,clientY:point.y,deltaX:dx,deltaY:dy,target:f.el('right-paper'),...extra};
   f.el('stage').dispatchEvent(event);return event;
