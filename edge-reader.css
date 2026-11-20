@@ -56,3 +56,5 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
    must not also scroll the stage and offset pointer hit tests. */
 .stage[data-turn-style="smooth"],
 .stage[data-turn-style="smooth"] #desk-surface{overflow:clip}
+
+.stage[data-edge-profile="slim"] #edge-index-host{z-index:10}

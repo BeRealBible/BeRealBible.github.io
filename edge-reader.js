@@ -11,10 +11,15 @@
   const flatTouch=document.documentElement.dataset.readerBuild==='index-25'&&
     (matchMedia('(pointer: coarse)').matches||/Android/i.test(navigator.userAgent));
   if(flatTouch)stage.dataset.paperPaint='flat-touch';
-  // An opt-in preview keeps the known safe static route available on Android.
-  const smoothTurn=document.documentElement.dataset.readerBuild==='index-25'&&
-    new URLSearchParams(location.search).get('curl')==='smooth'&&(!flatTouch||CSS.supports('zoom','1'));
-  if(smoothTurn){stage.dataset.turnStyle='smooth';stage.dataset.edgeProfile='slim';}
+  const v25=document.documentElement.dataset.readerBuild==='index-25';
+  const curl=v25?new URLSearchParams(location.search).get('curl'):null;
+  // The ordinary physical V25 entry includes the tested full reader. An
+  // explicit no-motion route and the system's accessibility setting remain.
+  const smoothProfile=v25&&(D.physical===true||curl==='smooth');
+  const noTurnMotion=curl==='off';
+  const smoothTurn=smoothProfile&&!noTurnMotion&&(!flatTouch||CSS.supports('zoom','1'));
+  if(smoothProfile)stage.dataset.edgeProfile='slim';
+  if(smoothTurn)stage.dataset.turnStyle='smooth';
   const reduceMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
   const LAST_PAGE=D.readingLastPage??D.pages.length-1;
   const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,MAX_SPREAD=Math.min(LAST_PAGE&~1,(D.pages.length-2)&~1);
@@ -35,7 +40,7 @@
     (canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
   const desk=window.PaperBookDesk?.create(stage,$('desk-surface'));let deskKey=null;
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
-  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,depthScale:smoothTurn ? .70 : 1});
+  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,depthScale:smoothProfile ? .70 : 1});
   const readingPage=()=>{
     const a=D.pages[spread+1-readingSide],b=D.pages[spread+readingSide];
     return b.b>=0&&!b.blank&&b.start?b:a.b>=0&&!a.blank&&a.start?a:b;
@@ -159,7 +164,7 @@
     const side=direction>0?1:0;
     selection?.reset();
     const grabY=contact?.grabY??628;
-    const animate=!flatTouch||(smoothTurn&&!reduceMotion());
+    const animate=!noTurnMotion&&(!flatTouch||smoothTurn)&&!reduceMotion();
     fold={from:spread,target,direction,side,count:Math.abs(target-spread)/2,source,
       radius:contact?.radius??450,grabY,corner:grabY<352?'top':'bottom',vertical:0,
       progress:0,settling:false,animate,original:animate?papers[side].innerHTML:null};

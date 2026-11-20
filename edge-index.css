@@ -82,3 +82,7 @@
   box-shadow:inset 0 1px #fff6dfaa,inset 0 -1px #715f4b55;
 }
 .stage[data-edge-profile="slim"] .edge-index__band[data-side="right"]{--edge-light:to left;border-radius:0 3px 4px 0}
+
+/* A turn locks chapter actions, not their print color. Keep the stable
+   fore-edge above even the moving sheet's shadow; only the leaf is shaded. */
+.stage[data-edge-profile="slim"] .edge-index__group:disabled{opacity:1}
