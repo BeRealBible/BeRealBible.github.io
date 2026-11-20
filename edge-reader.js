@@ -128,6 +128,45 @@
   }
   function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
   function fit(){interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
+  // Paper identities identify a spread, not its chapter/verse position.
+  // Use the exact destination's printed ink in the existing coordinate system.
+  function positionReadingAnchor(requested){
+    if(!v25||!D.physical||!requested?.ref||
+      (960*scale<=view.w+2&&704*scale<=view.h+2))return null;
+    const page=requested.page,side=page-spread,p=D.pages[page];
+    if(side<0||side>1||D.books[p?.b]?.code!==requested.bookCode)return null;
+    const match=/^(\d+):(\d+)(?:[-–]\d+)?$/.exec(requested.ref);
+    if(!match)return null;
+    const [,ch,ver]=match,number=+ver;
+    const ink=(Page.commands?.(p,page,D.books)||[]).filter(c=>{
+      if(!c.physicalInk||c.hideHatch||!['body','verse','chapter','heading'].includes(c.role)||
+        ![c.x,c.y,c.w,c.h].every(Number.isFinite))return false;
+      const ref=/^(\d+):(\d+)(?:[-–](\d+))?$/.exec(c.ref);
+      return ref&&ref[1]===ch&&number>=+ref[2]&&number<=+(ref[3]||ref[2]);
+    });
+    const first=ink.find(c=>c.role!=='heading');
+    if(!first)return null;
+    const id=side*2+((first.x+first.w/2)<240?0:1);
+    const lane=readingColumns().find(c=>c.id===id);
+    const left=side*480+first.x,right=left+first.w;
+    // Prefer a full reading column, but on a very large zoom the exact
+    // start can be farther along its line than the window is wide.
+    if(960*scale>view.w+2){
+      const pad=Math.min(18,view.w*.08);
+      x=Math.min(pad-(lane?.left??left)*scale,view.w-pad-right*scale);
+      if(left*scale+x<pad&&first.w*scale<view.w-pad*2)x=pad-left*scale;
+    }
+    if(704*scale>view.h+2){
+      const lead=ink.slice(0,ink.indexOf(first)).filter(c=>c.role==='heading'&&
+        (c.x+c.w/2<240)===(first.x+first.w/2<240)&&first.y-c.y<=48&&c.y<=first.y);
+      const top=Math.min(first.y,...lead.map(c=>c.y));
+      y=Math.min(Math.min(88,view.h*.15)-top*scale,view.h-18-(first.y+first.h)*scale);
+    }
+    focus='custom';return id;
+  }
+  function preferReadingColumn(id){
+    if(id!==null)columnReading={spread,id,x,scale};
+  }
   function focusPage(side,arriving=false){
     if(!arriving)interrupt();focus=side;readingSide=side==='left'?0:1;render({keepFocus:true});const e=envelope(),outer=side==='left'?-e.left:e.right-960;
     scale=clamp((view.w-32)/(480+outer),fitScale,MAX_SCALE);
@@ -135,7 +174,7 @@
     // its outer column and compact book index readable; pan to the inner column.
     if(view.w<560)scale=Math.max(1,scale);
     x=view.w<560&&side==='right'?view.w-18-e.right*scale:16+(side==='left'?outer:-480)*scale;
-    y=18;constrain();transform();save();
+    y=18;const id=positionReadingAnchor(arriving?preciseRef:null);constrain();preferReadingColumn(id);transform();save();
   }
   function zoom(next,at={x:view.w/2,y:view.h/2}){
     interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
@@ -402,9 +441,13 @@
       if(jumpState!==transaction)return; // A cancelled/replaced animation cannot move the saved bookmark.
       jumpState=null;spread=target;readingSide=page&1;preciseRef=requested?.ref?{page,bookCode:requested.bookCode,ref:requested.ref}:null;render();fitScale=measureFit();
       if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus||'custom';}
-      else if(view.w<560&&focus!=='fit'){focusPage(page%2?'right':'left',true);}
+      else if(v25&&D.physical&&preciseRef&&view.w<560)scale=Math.max(1,fitScale,scale);
       else if(focus==='fit')scale=fitScale;
-      constrain();transform();save();stage.dataset.lastGesture=destinationKey?'book-switch':'directory';stage.dataset.jumpState='committed';
+      const lane=pose?null:positionReadingAnchor(preciseRef);
+      // For explicit front matter or unmatched source metadata, keep the
+      // existing small-screen page fallback, rather than guessing a line.
+      if(lane===null&&!pose&&view.w<560&&focus!=='fit')focusPage(page%2?'right':'left',true);
+      constrain();preferReadingColumn(lane);transform();save();stage.dataset.lastGesture=destinationKey?'book-switch':'directory';stage.dataset.jumpState='committed';
       const location=readingLocation(),row=history?.jump(location,entryId);deskKey=destinationKey||row?.id||null;
       feedback(`${location.bookName} · ${location.ref||'卷首'}`);
     };
@@ -675,7 +718,7 @@
   }
   // On a phone a single page is the useful initial reading window; whole-book
   // fit remains available, and both index bands stay reachable by pan.
-  else if(view.w<560)focusPage(readingSide?'right':'left');
+  else if(view.w<560)focusPage(readingSide?'right':'left',true);
   deskKey=history?.start(readingLocation())?.id||null;
   coverZoom=window.PaperCoverZoom?.mount({doc:document,win:window,stage,history:$('reading-history'),
     onZoom(percent){
