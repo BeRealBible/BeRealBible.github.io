@@ -26,6 +26,7 @@
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
+  let finder=null,searchAnchor=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
   let suppressBandClick=null, coverZoom=null;
@@ -81,11 +82,19 @@
       $(side+'-paper-edges').innerHTML=window.PaperEdges.render(side,depth);
     }
   }
+  function markSearchInk(){
+    if(!preciseRef?.search||preciseRef.page!==spread+readingSide)return;
+    const [ch,v]=preciseRef.ref.split(':').map(Number);
+    papers[readingSide].querySelectorAll('text[data-ref]').forEach(el=>{
+      const m=/^(\d+):(\d+)(?:-(\d+))?$/.exec(el.dataset.ref);
+      if(m&&+m[1]===ch&&+m[2]<=v&&v<=+(m[3]||m[2]))el.classList.add('vf-found');
+    });
+  }
   function render({reusePages=false,keepFocus=false}={}){
     if(!reusePages){
       selection?.reset({keepFocus});
       papers.forEach((paper,i)=>paper.innerHTML=svgPage(spread+i));
-      selection?.refresh?.();
+      selection?.refresh?.();markSearchInk();
     }
     const b=currentBook(),p=readingPage(),ref=readingLocation().ref||'1:1',last=preciseRef?.page===readingLocation().page?ref:p.end||ref;
     $('book-name').textContent=b.name;
@@ -124,7 +133,7 @@
     stage.dataset.scale=scale.toFixed(4);stage.dataset.x=x.toFixed(2);stage.dataset.y=y.toFixed(2);
     ['fit-book','focus-left','focus-right'].forEach((id,i)=>$(id).classList.toggle('active',focus===['fit','left','right'][i]));
     $('surface-caption').style.opacity=scale>fitScale*1.2?'0':'1';
-    updateIndex();chapters?.reposition?.();
+    updateIndex();chapters?.reposition?.();finder?.layout();
   }
   function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
   function fit(){interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
@@ -177,11 +186,13 @@
     y=18;const id=positionReadingAnchor(arriving?preciseRef:null);constrain();preferReadingColumn(id);transform();save();
   }
   function zoom(next,at={x:view.w/2,y:view.h/2}){
-    interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
+    searchAnchor=null;interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
     x=at.x-(at.x-x)/scale*next;y=at.y-(at.y-y)/scale*next;
     scale=next;focus=scale===fitScale?'fit':'custom';constrain();transform();save();
   }
   function resize(){
+    if(view.w===stage.clientWidth&&view.h===stage.clientHeight)return;
+    const widthChanged=view.w!==stage.clientWidth;
     const pose=capturePose(),dock=chapters?.getDock?.();
     if(!dock)interrupt(true);view={w:stage.clientWidth,h:stage.clientHeight};
     if(!view.w||!view.h)return;fitScale=measureFit();
@@ -193,6 +204,10 @@
     }
     if(focus==='fit')scale=fitScale;
     else{scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;}
+    if(widthChanged&&searchAnchor&&searchAnchor===preciseRef){
+      if(view.w<640)scale=Math.max(1,scale);
+      positionReadingAnchor(searchAnchor);
+    }
     constrain();transform();
   }
   function zoomWithChapterMenu(factor){
@@ -446,7 +461,7 @@
     jumpState=transaction;
     const complete=()=>{
       if(jumpState!==transaction)return; // A cancelled/replaced animation cannot move the saved bookmark.
-      jumpState=null;spread=target;readingSide=page&1;preciseRef=requested?.ref?{page,bookCode:requested.bookCode,ref:requested.ref}:null;render();fitScale=measureFit();
+      jumpState=null;spread=target;readingSide=page&1;preciseRef=requested?.ref?{page,bookCode:requested.bookCode,ref:requested.ref,search:!!requested.search}:null;render();fitScale=measureFit();
       if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus||'custom';}
       else if(v25&&D.physical&&preciseRef&&view.w<560)scale=Math.max(1,fitScale,scale);
       else if(focus==='fit')scale=fitScale;
@@ -455,17 +470,11 @@
       // existing small-screen page fallback, rather than guessing a line.
       if(lane===null&&!pose&&view.w<560&&focus!=='fit')focusPage(page%2?'right':'left',true);
       constrain();preferReadingColumn(lane);transform();save();stage.dataset.lastGesture=destinationKey?'book-switch':'directory';stage.dataset.jumpState='committed';
-      if(requested?.search){
-        const [ch,v]=requested.ref.split(':').map(Number);
-        papers[readingSide].querySelectorAll('text[data-ref]').forEach(el=>{
-          const m=/^(\d+):(\d+)(?:-(\d+))?$/.exec(el.dataset.ref);
-          if(m&&+m[1]===ch&&+m[2]<=v&&v<=+(m[3]||m[2]))el.classList.add('vf-found');
-        });
-      }
+      searchAnchor=requested?.search?preciseRef:null;
       const location=readingLocation(),row=history?.jump(location,entryId);deskKey=destinationKey||row?.id||null;
       feedback(`${location.bookName} · ${location.ref||'卷首'}`);
     };
-    if(flatTouch){complete();return;}
+    if(flatTouch||requested?.search){complete();return;}
     if(destinationKey){
       if(destinationKey===deskKey&&target===spread){complete();return;}
       stage.dataset.jumpState='switching';
@@ -533,7 +542,7 @@
   function panTo(px,py){
     const oldX=x,oldY=y;x=px;y=py;constrain();
     if(Math.abs(x-oldX)<.00001&&Math.abs(y-oldY)<.00001)return false;
-    hideStartShortcut();hideColumnShortcut();focus='custom';transform();return true;
+    searchAnchor=null;hideStartShortcut();hideColumnShortcut();focus='custom';transform();return true;
   }
   function pointerDown(e){
     const touchLabel=e.pointerType==='touch'?e.target?.closest?.('.edge-index__group'):null;
@@ -612,7 +621,7 @@
     const g=gesture,c=centroid();g.end=c;
     if(g.pinched){
       if(pointers.size===1){if(g.tail&&!g.cancelled)panTo(g.baseX+c.x-g.start.x,g.baseY+c.y-g.start.y);return;}
-      scale=clamp(g.baseScale*distance()/Math.max(1,g.baseDistance),fitScale,MAX_SCALE);
+      searchAnchor=null;scale=clamp(g.baseScale*distance()/Math.max(1,g.baseDistance),fitScale,MAX_SCALE);
       x=c.x-(g.start.x-g.baseX)/g.baseScale*scale;y=c.y-(g.start.y-g.baseY)/g.baseScale*scale;
       focus=scale===fitScale?'fit':'custom';constrain();transform();return;
     }
@@ -741,7 +750,7 @@
   $('demo-pan').onclick=()=>{focusPage('right');feedback('拖动正文平移；从书页外缘向书心拖动翻页');};
   stage.dataset.scene='reading';stage.dataset.textHoldMs=String(TEXT_HOLD_MS);
   window.PaperImmersion?.setScene?.('reading');
-  document.fonts?.addEventListener?.('loadingdone',()=>{const n=spread;requestAnimationFrame(()=>{if(n===spread&&!fold&&!jumpState&&!gesture&&!selection?.isActive()){papers.forEach((paper,i)=>paper.innerHTML=svgPage(n+i));selection?.refresh?.();}})});
+  document.fonts?.addEventListener?.('loadingdone',()=>{const n=spread;requestAnimationFrame(()=>{if(n===spread&&!fold&&!jumpState&&!gesture&&!selection?.isActive()){papers.forEach((paper,i)=>paper.innerHTML=svgPage(n+i));selection?.refresh?.();markSearchInk();}})});
   render();resize();
   if(saved?.zoom>1&&Number.isFinite(saved.centerX)&&Number.isFinite(saved.centerY)){
     scale=clamp(fitScale*saved.zoom,fitScale,MAX_SCALE);x=view.w/2-saved.centerX*scale;y=view.h/2-saved.centerY*scale;focus=saved.focus||'custom';constrain();transform();
@@ -756,7 +765,16 @@
       if(next===null)return;
       if(chapters?.isOpen())zoomWithChapterMenu(next/scale);else zoom(next);
     }});
-  window.mountVerseFinder((page,requested)=>jump(page,null,null,requested),interrupt);
+  finder=window.mountVerseFinder({
+    navigate:(page,requested)=>jump(page,null,null,requested),
+    origin:()=>({...readingLocation(),pose:capturePose()}),
+    restore:o=>jump(o.page,o.pose,null,{ref:o.ref,bookCode:o.bookCode}),
+    camera:()=>({x,y,scale,w:view.w,h:view.h,side:readingSide,
+      inkX:()=>{const box=papers[readingSide].querySelector('.vf-found:not([visibility=hidden])')?.getBoundingClientRect();
+        return box?box.left+box.width/2-stage.getBoundingClientRect().left:null;}
+    }),
+    interrupt
+  });
   coverZoom?.sync(scale,fitScale,MAX_SCALE);
   if(!flatTouch)coverZoom?.openOnce();
   new ResizeObserver(resize).observe(stage);window.addEventListener('resize',resize);
