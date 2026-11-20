@@ -2,6 +2,13 @@
 (function(root){
   'use strict';
   const norm=s=>s.normalize('NFKC').replace(/\s+/gu,'').toLowerCase();
+  const groups={
+    '摩西五经':'GEN EXO LEV NUM DEU','历史书':'JOS JDG RUT 1SA 2SA 1KI 2KI 1CH 2CH EZR NEH EST',
+    '诗歌智慧书':'JOB PSA PRO ECC SNG','大先知书':'ISA JER LAM EZK DAN','小先知书':'HOS JOL AMO OBA JON MIC NAM HAB ZEP HAG ZEC MAL',
+    '四福音书':'MAT MRK LUK JHN','使徒行传':'ACT','保罗书信':'ROM 1CO 2CO GAL EPH PHP COL 1TH 2TH 1TI 2TI TIT PHM',
+    '希伯来书':'HEB','普通书信':'JAS 1PE 2PE 1JN 2JN 3JN JUD','启示录':'REV'
+  };
+  const category=new Map(Object.entries(groups).flatMap(([group,codes])=>codes.split(' ').map(code=>[code,group])));
   function catalogue(source,lookup){
     const rows=[],byBook=new Map();
     for(const b of source.books){
@@ -12,15 +19,16 @@
         rows.push({book:b.name,code:b.code,ref,page,text,key:norm(text)});
       }
     }
-    return raw=>{
+    return (raw,scope="all")=>{
       const q=norm(raw);
       if(!q)return [];
       const addr=/^(.+?)(\d+)(?:章|:)(\d+)节?$/.exec(q);
-      if(addr&&byBook.has(addr[1]))return rows.filter(r=>r.code===byBook.get(addr[1])&&r.ref===+addr[2]+':'+(+addr[3]));
-      return rows.filter(r=>r.key.includes(q));
+      const book=addr&&byBook.get(addr[1]),ref=book&&(+addr[2]+':'+(+addr[3]));
+      return rows.filter(r=>(scope==='all'||scope==='book:'+r.code||scope===category.get(r.code))&&
+        (book?r.code===book&&r.ref===ref:r.key.includes(q)));
     };
   }
-  if(typeof module==='object'&&module.exports){module.exports={catalogue};return;}
+  if(typeof module==='object'&&module.exports){module.exports={catalogue,groups};return;}
   root.mountVerseFinder=({navigate,interrupt,origin,restore,camera})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more');
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
@@ -30,6 +38,30 @@
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',timer,saveTimer,geom='',wide=false;
+    let scope='all',trails={};
+    const groupSelect=$('vf-group'),allButton=$('vf-all'),bookButton=$('vf-book'),bookNames=new Map(root.BIBLE_SOURCE.books.map(b=>[b.code,b.name]));
+    for(const name of Object.keys(groups))groupSelect.add(new Option(name,name));
+    function scopeUI(){
+      const local=scope.startsWith('book:'),code=local?scope.slice(5):origin().bookCode;
+      allButton.setAttribute('aria-pressed',String(scope==='all'));bookButton.setAttribute('aria-pressed',String(local));
+      bookButton.textContent=local?(bookNames.get(code)||'本卷'):'本卷';
+      bookButton.title='只搜'+(bookNames.get(code)||'当前书卷');bookButton.setAttribute('aria-label',bookButton.title);
+      groupSelect.value=Object.hasOwn(groups,scope)?scope:'';groupSelect.toggleAttribute('data-current',!!groupSelect.value);
+    }
+    const trail=()=>({current,seen:[...seen],anchor,count:list.children.length});
+    function applyTrail(t){
+      if(!t)return;
+      current=t.current;seen=new Set(t.seen);append(Math.max(0,t.count-list.children.length));Array.from(list.children).forEach(decorate);
+      anchor=t.anchor;restoreRow();
+    }
+    function switchScope(next){
+      if(q!==input.value.trim())refresh();
+      if(scope===next)return;
+      remember();trails[scope]=trail();scope=next;mode='browse';refresh(true);applyTrail(trails[next]);scopeUI();layout();persist();
+    }
+    allButton.onclick=()=>switchScope('all');
+    bookButton.onclick=()=>switchScope('book:'+origin().bookCode);
+    groupSelect.onchange=()=>switchScope(groupSelect.value||'all');
     // Anchor a row, not raw scrollTop: wrapping and line counts vary by width.
     function remember(i){
       if(panel.hidden||!list.children.length)return;
@@ -40,12 +72,13 @@
       }
       anchor={i:+r.dataset.i,dy:r.offsetTop-top};
     }
-    let restoredTop=-1,layoutUntil=0;
-    function restoreRow(){const r=list.children[anchor?.i];if(r&&!panel.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;}}
+    let restoredTop=-1,restoredBox="";
+    const boxKey=()=>[scroll.clientWidth,scroll.clientHeight,list.offsetHeight].join("/");
+    function restoreRow(){const r=list.children[anchor?.i];if(r&&!panel.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;restoredBox=boxKey();}}
     new ResizeObserver(()=>{if(!panel.hidden)restoreRow();}).observe(list);
     function persist(){
       clearTimeout(saveTimer);
-      try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({mode,start,q,current,seen:[...seen],anchor,count:list.children.length}));}catch{}
+      try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({mode,start,q,scope,trails,...trail()}));}catch{}
     }
     let mount=null;
     function layout(){
@@ -66,12 +99,11 @@
       const toRight=roomRight>=roomLeft,below=avail-margin-py,above=py-margin;
       const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
       const z=next?c.scale:Math.min(c.scale,1.15,roomW/147,roomH/120);
-      const w=Math.min(next?306:202,roomW/z,next?(c.w/2-10)/z:c.w*.63/z),
-        height=Math.min(next?432:208,roomH/z,next?Infinity:avail*.40/z),
+      const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
+        height=Math.min(next?432:242,roomH/z,next?Infinity:avail*.44/z),
         show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
       if(!anchor&&!panel.hidden)remember();
       const wasHidden=panel.hidden;
-      if(g!==geom||wasHidden)layoutUntil=performance.now()+140;
       panel.hidden=!show;tab.hidden=mode==='off'||show;panel.dataset.layout=next?'wide':'narrow';
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
       function place(node,scale){
@@ -100,20 +132,19 @@
         const c=camera(),hx=c.x+mount.bx*c.scale,hy=c.y+mount.by*c.scale;
         if(hx<0||hx>c.w||hy<0||hy>c.h)mount=null;
       }
-      interrupt();root.PaperImmersion?.hideChrome();setMode('browse');
+      scopeUI();interrupt();root.PaperImmersion?.hideChrome();setMode('browse');
       if(edit)input.focus({preventScroll:true});else $('vf-close').focus({preventScroll:true});
     }
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
     trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=tuck;
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
-    $('vf-end').onclick=()=>{setMode('off');start=null;input.value='';refresh(true);stage.focus({preventScroll:true});};
+    $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true);stage.focus({preventScroll:true});};
     root.V25aPaperDock.onTap(stage,()=>{if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
       else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();tuck();}
     });
-    for(const name of ['pointerdown','wheel','keydown'])scroll.addEventListener(name,()=>{layoutUntil=0;},{passive:true});
-    scroll.addEventListener('scroll',()=>{if(performance.now()<layoutUntil){restoreRow();return;}if(!panel.hidden&&wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
+    scroll.addEventListener('scroll',()=>{if(!panel.hidden&&restoredBox&&boxKey()!==restoredBox){restoreRow();return;}if(!panel.hidden&&wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
     function append(count=24){
       const from=list.children.length;
@@ -134,9 +165,9 @@
     }
     function refresh(force=false){
       clearTimeout(timer);const next=input.value.trim();if(next===q&&!force)return;
-      q=next;current=-1;seen.clear();anchor=null;
+      if(q!==next)trails={};q=next;current=-1;seen.clear();anchor=null;
       if(q&&!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r));
-      results=q?lookup(q):[];list.replaceChildren();scroll.scrollTop=0;append();
+      results=q?lookup(q,scope):[];list.replaceChildren();scroll.scrollTop=0;append();
       $('vf-status').textContent=q?(results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();
     }
@@ -154,9 +185,7 @@
     let stored;try{stored=JSON.parse(sessionStorage.getItem(key));}catch{}
     refresh(true);
     if(stored?.start&&['browse','read','tucked'].includes(stored.mode)){
-      start=stored.start;input.value=stored.q;refresh(true);current=stored.current;seen=new Set(stored.seen);
-      append(Math.max(0,stored.count-list.children.length));Array.from(list.children).forEach(decorate);
-      anchor=stored.anchor;mode=stored.mode;layout();persist();
+      start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true);trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
     }
     return {layout};
   };
