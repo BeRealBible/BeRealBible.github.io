@@ -34,19 +34,38 @@
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
     const key='paper:v25a:slip:1',clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
     const trigger=document.createElement('button');trigger.className='rh-toggle';trigger.type='button';trigger.title='搜索经文（Ctrl / ⌘ + K）';trigger.setAttribute('aria-label','搜索经文');
-    trigger.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></svg>';
+    trigger.append(tab.querySelector('svg').cloneNode(true));
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',timer,saveTimer,geom='',wide=false;
     let scope='all',trails={};
-    const groupSelect=$('vf-group'),allButton=$('vf-all'),bookButton=$('vf-book'),bookNames=new Map(root.BIBLE_SOURCE.books.map(b=>[b.code,b.name]));
-    for(const name of Object.keys(groups))groupSelect.add(new Option(name,name));
+    const groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),bookButton=$('vf-book'),bookNames=new Map(root.BIBLE_SOURCE.books.map(b=>[b.code,b.name]));
+    for(const name of Object.keys(groups)){
+      const b=document.createElement('button');b.type='button';b.textContent=name;
+      b.onclick=()=>{closeGroups(true);switchScope(name);};choices.append(b);
+    }
+    function closeGroups(focus=false){
+      if(choices.hidden)return;
+      choices.hidden=true;scroll.hidden=false;groupButton.setAttribute('aria-expanded','false');
+      layout();restoreRow();if(focus)groupButton.focus({preventScroll:true});
+    }
+    groupButton.onclick=()=>{
+      if(!choices.hidden){closeGroups(true);return;}
+      remember();choices.hidden=false;scroll.hidden=true;groupButton.setAttribute('aria-expanded','true');layout();
+      (choices.querySelector('[aria-pressed=true]')||choices.firstChild).focus({preventScroll:true});
+    };
+    choices.addEventListener('keydown',e=>{
+      const keys={ArrowRight:1,ArrowLeft:-1,ArrowDown:2,ArrowUp:-2},items=[...choices.children];
+      if(Object.hasOwn(keys,e.key)){e.preventDefault();items[(items.indexOf(e.target)+keys[e.key]+items.length)%items.length].focus();}
+    });
+    input.addEventListener('focus',()=>closeGroups());
     function scopeUI(){
       const local=scope.startsWith('book:'),code=local?scope.slice(5):origin().bookCode;
       allButton.setAttribute('aria-pressed',String(scope==='all'));bookButton.setAttribute('aria-pressed',String(local));
       bookButton.textContent=local?(bookNames.get(code)||'本卷'):'本卷';
       bookButton.title='只搜'+(bookNames.get(code)||'当前书卷');bookButton.setAttribute('aria-label',bookButton.title);
-      groupSelect.value=Object.hasOwn(groups,scope)?scope:'';groupSelect.toggleAttribute('data-current',!!groupSelect.value);
+      const grouped=Object.hasOwn(groups,scope);groupButton.textContent=grouped?scope:'分类';groupButton.toggleAttribute('data-current',grouped);
+      for(const b of choices.children)b.setAttribute('aria-pressed',String(b.textContent===scope));
     }
     const trail=()=>({current,seen:[...seen],anchor,count:list.children.length});
     function applyTrail(t){
@@ -59,12 +78,11 @@
       if(scope===next)return;
       remember();trails[scope]=trail();scope=next;mode='browse';refresh(true);applyTrail(trails[next]);scopeUI();layout();persist();
     }
-    allButton.onclick=()=>switchScope('all');
-    bookButton.onclick=()=>switchScope('book:'+origin().bookCode);
-    groupSelect.onchange=()=>switchScope(groupSelect.value||'all');
+    allButton.onclick=()=>{closeGroups();switchScope('all');};
+    bookButton.onclick=()=>{closeGroups();switchScope('book:'+origin().bookCode);};
     // Anchor a row, not raw scrollTop: wrapping and line counts vary by width.
     function remember(i){
-      if(panel.hidden||!list.children.length)return;
+      if(panel.hidden||scroll.hidden||!list.children.length)return;
       const top=scroll.scrollTop,bottom=top+scroll.clientHeight,rows=list.children;
       let r=rows[i??current];
       if(!r||r.offsetTop<top||r.offsetTop>=bottom){
@@ -74,7 +92,7 @@
     }
     let restoredTop=-1,restoredBox="";
     const boxKey=()=>[scroll.clientWidth,scroll.clientHeight,list.offsetHeight].join("/");
-    function restoreRow(){const r=list.children[anchor?.i];if(r&&!panel.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;restoredBox=boxKey();}}
+    function restoreRow(){const r=list.children[anchor?.i];if(r&&!panel.hidden&&!scroll.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;restoredBox=boxKey();}}
     new ResizeObserver(()=>{if(!panel.hidden)restoreRow();}).observe(list);
     function persist(){
       clearTimeout(saveTimer);
@@ -122,6 +140,7 @@
       geom=g;wide=next;
     }
     function setMode(next){
+      if(next!=='browse')closeGroups();
       if(!panel.hidden)remember();
       mode=next;layout();persist();
     }
@@ -142,7 +161,7 @@
     root.V25aPaperDock.onTap(stage,()=>{if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
-      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();tuck();}
+      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();if(!choices.hidden)closeGroups(true);else tuck();}
     });
     scroll.addEventListener('scroll',()=>{if(!panel.hidden&&restoredBox&&boxKey()!==restoredBox){restoreRow();return;}if(!panel.hidden&&wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}

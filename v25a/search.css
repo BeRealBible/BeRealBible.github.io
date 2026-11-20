@@ -44,9 +44,35 @@
 #verse-finder *{transition-property:none}
 
 #vf-scopes{grid-column:1/-1;display:flex;align-items:center;gap:5px;margin:4px 0 1px}
-#vf-scopes button,#vf-scopes select{min-width:0;max-width:48%;padding:2px 4px;min-height:20px;background:transparent;color:#766047;border:0;border-radius:0;font:11px/1.2 var(--serif);cursor:pointer}
-#vf-scopes select{flex:0 1 auto;max-width:48%;border-bottom:1px dotted #aa9370}
-#vf-scopes button[aria-pressed=true],#vf-scopes select[data-current]{color:#70482c;box-shadow:inset 0 -1px #99754f}
+#vf-scopes button{min-width:0;max-width:48%;padding:2px 4px;min-height:22px;background:transparent;color:#766047;border:0;border-radius:0;font:11px/1.2 var(--serif);cursor:pointer}
+#vf-group::after{content:"";display:inline-block;width:.4em;height:.4em;margin:0 1px .2em .45em;border:solid currentColor;border-width:0 1px 1px 0;transform:rotate(45deg)}
+#vf-group[aria-expanded=true]::after{transform:rotate(225deg);vertical-align:-.16em}
+#vf-scopes button[aria-pressed=true],#vf-group[data-current]{color:#70482c;box-shadow:inset 0 -1px #99754f}
 #verse-finder[data-layout=narrow] #vf-scopes{gap:3px}
-#verse-finder[data-layout=narrow] #vf-scopes :is(button,select){font-size:10px}
-@media(max-width:639px){#vf-tab{min-width:28px;min-height:61px}}
+#verse-finder[data-layout=narrow] #vf-scopes button{font-size:10px}
+/* A second face inside the same slip: never a system picker or a backdrop. */
+#vf-groups:not([hidden]){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0 8px;padding:2px 0;min-height:0;max-height:176px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#baaa8e transparent}
+#vf-groups button{text-align:left;min-height:25px;padding:2px 5px;border-top:1px dotted #baa88880;color:#694f36;font:12px/1.3 var(--serif)}
+#vf-groups button[aria-pressed=true]{background:#dfcda86b;box-shadow:inset 2px 0 #98744b}
+#verse-finder[data-layout=narrow] #vf-groups button{font-size:10.5px;min-height:22px}
+#vf-tab:not([hidden]){display:grid;place-items:center;writing-mode:horizontal-tb;padding:0;min-width:0;min-height:0;width:29px;height:35px}
+#vf-tab svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;fill:none}
+
+/* No right-hand menu in the minimal reader. Give its former reserve (and the
+   desktop max-width gutter) back to the scrollable history strip. */
+.paper-immersive body[data-minimal-reader] #reading-history{
+  --rail-gap:clamp(2px,.65vw,8px);--tool-width:clamp(28px,5vw,36px);
+  padding-left:max(4px,env(safe-area-inset-left));padding-right:max(4px,env(safe-area-inset-right))
+}
+#reading-history .rh-rail{max-width:none;gap:var(--rail-gap)}
+#reading-history :is(.pcz-button,.rh-toggle){display:inline-grid;place-items:center;padding:0;width:var(--tool-width);min-width:0;height:34px;min-height:0;border-radius:5px}
+#reading-history :is(.pcz-button,.rh-toggle) svg{width:15px;height:15px}
+#reading-history .rh-track{padding-inline:1px;gap:clamp(3px,.5vw,6px)}
+#reading-history .rh-chip{padding-inline:clamp(4px,.7vw,8px)}
+#reading-history .rh-pin svg{width:10px;height:10px}
+#reading-history .rh-item[data-pinned] .rh-pin{flex-basis:24px;width:24px}
+@media(max-width:639px){
+  #vf-tab:not([hidden]){width:26px;height:31px}
+  #vf-tab svg{width:14px;height:14px}
+  #reading-history :is(.pcz-button,.rh-toggle) svg{width:14px;height:14px}
+}
