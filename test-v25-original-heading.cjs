@@ -38,6 +38,12 @@ for(const [p,i,lit,expected] of [[546,5,'颂',600],[953,11,'路',400],[659,19,'�
   a.equal(cmd.role,store.tags(p)[i].role);a.equal(cmd.ref,store.tags(p)[i].ref);
   a.equal(classify('other edition',p,i,w),undefined);
 }
+for(const [p,i,expected] of [[354,5,'34'],[355,0,'34'],[368,6,'360'],[385,529,'77'],[1244,3,'29']]){
+  const before=store.get(p)[3][i],cmd=rt.window.PaperPage.commands({pdfPage:p},p,[])[i];
+  a.equal(cmd.text,expected);a.equal(cmd.role,'other');a.deepEqual(Array.from(cmd.box.slice(0,4)),Array.from(before.slice(0,4)));
+  a.notEqual(before[4],expected);
+  a.match(rt.window.PaperPage.svg({pdfPage:p},p,store.books),new RegExp('data-physical-idx="'+i+'"[^>]*>'+expected+'</text>'));
+}
 const provenance=JSON.parse(fs.readFileSync('fonts/paper-heading-provenance.json','utf8'));
 a.equal(provenance.weight,600);
 const hash=require('node:crypto').createHash('sha256').update(fs.readFileSync('fonts/'+provenance.file)).digest('hex');

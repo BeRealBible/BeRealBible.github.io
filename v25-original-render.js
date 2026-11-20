@@ -29,6 +29,22 @@
   // Whole-frame guards deliberately fail open if another edition ever reuses the index.
   const hatchResidue=(i,j,w)=>(i===959&&j===419&&w[0]===1552&&w[1]===163&&w[2]===24&&w[3]===69&&w[4]==='彡')||
     (i===1154&&j===263&&w[0]===8&&w[1]===1296&&w[2]===7&&w[3]===9&&w[4]==='，');
+  // Running page numbers read directly from the reference PDF, not OCR
+  // guesses. Keep the original physical rectangles and printed header.
+  const proofedFolio={
+    354:[346,5,805,109,39,35,'\u8a13','34'],
+    355:[347,0,718,95,39,35,'\u8a13','34'],
+    368:[360,6,794,113,60,36,'36C','360'],
+    385:[377,529,711,99,41,35,'\u5200','77'],
+    1244:[292,3,776,119,40,35,'\u56db','29']
+  };
+  function folioWord(store,i,n,w,t){
+    const fix=proofedFolio[i];
+    if(!fix||n!==fix[1]||t.role!=='other'||store.pages[i].displayPage!==fix[0]||
+      store.sha!=='d0879f1d68d147f910c8f6d741ed8ebdb3f5677b057526ededc4d1620e7e7380'||
+      !w.every((v,j)=>v===fix[j+2]))return w;
+    return [...w.slice(0,4),fix[7]];
+  }
   const stock=i=>i%2?[[0,'#dcd5bf'],[.09,'#fffdf1'],[.9,'#fffef5'],[1,'#f9f6eb']]:[[0,'#f9f6eb'],[.1,'#fffef5'],[.91,'#fffdf1'],[1,'#dcd5bf']];
   function fit(w,h){const s=Math.min(W/w,H/h);return {s,ox:(W-w*s)/2,oy:(H-h*s)/2}}
   function word(w,f,heading){
@@ -83,7 +99,7 @@
     const f=fit(p[1],p[2]),words=p[3].map((w,n)=>{
       const t=tags[n]||store.metaFor?.(i,n)||{};
       const heading=root.V25HeadingFrames?.classify(store.sha,i,n,w)??(t.role==='heading');
-      return {...word(w,f,heading),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
+      return {...word(folioWord(store,i,n,w,t),f,heading),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
     });
     typesetBody(words,p);
     const v={version,p,tags,words,f};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
