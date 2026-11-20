@@ -2,7 +2,7 @@
 .paper-ink-mark{pointer-events:none}
 .paper-ink-mark--focus{fill:#f2d5c2}
 .paper-ink-mark--selected{fill:#bd9958;opacity:.39}
-.paper-ink-mark--saved{fill:#c8a438;opacity:.33}
+.paper-ink-mark--saved{fill:#f5d99a}
 .stage .paper svg text[data-role]{cursor:text;-webkit-touch-callout:none}
 .paper-selection-tools{
   position:absolute;z-index:40;left:0;top:0;transform-origin:0 0;
