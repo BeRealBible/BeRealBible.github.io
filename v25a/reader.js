@@ -498,7 +498,7 @@
     }});
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
-  history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,pageCount:LAST_PAGE+1,
+  history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
   selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
@@ -671,7 +671,19 @@
       if(g.cancelled&&g.kind==='swipe'&&fold&&!fold.settling)settleFold(false);
       stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';if(g.pinched)save();return;
     }
-    if(g.kind==='pending'&&g.token){selection.tap(g.token);stage.dataset.lastGesture='text-tap';return;}
+    if(g.kind==='pending'&&g.token){
+      const t=g.token,single=!selection.isActive();
+      if(selection.tap(t)&&single){
+        const match=/^verse:(\d+:\d+(?:[-–]\d+)?)$/.exec(t.unit.group);
+        const page=t.entry.index,b=D.books[D.pages[page]?.b];
+        if(match&&b){
+          readingSide=page-spread;preciseRef={page,bookCode:b.code,ref:match[1]};
+          const row=history?.pickVerse({...preciseRef,bookName:b.name});if(row)deskKey=row.id;
+          render({reusePages:true});save();
+        }
+      }
+      stage.dataset.lastGesture='text-tap';return;
+    }
     if(v25&&g.kind==='pending'&&!g.band&&!selection?.isActive()){
       window.dispatchEvent(new Event('paper-reader-tap'));return;
     }
