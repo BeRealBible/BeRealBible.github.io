@@ -4,7 +4,7 @@
   else root.PaperTextSelection=factory();
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const SVG='http://www.w3.org/2000/svg',FLASH_MS=2700;
+  const SVG='http://www.w3.org/2000/svg';
 
   // Source references, not line numbers: a verse may wrap or cross the gutter
   // between columns. Only commands drawn on this face are included in the copy.
@@ -192,7 +192,7 @@
   }
   function create({stage,papers,getPage,commands,storage,feedback=()=>{}}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map();
-    let active=null,bar=null,searchForm=null,brief=null,flashTimer=null,serial=0,observer=null,refreshFrame=null;
+    let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
     // The old format is a page-wide array. Keep it as a read-only baseline;
     // independent per-passage overrides prevent two tabs from overwriting
@@ -285,17 +285,22 @@
         const svg=paper.querySelector('svg');if(!svg)return;
         // A cancelled curl can restore a serialized SVG already containing
         // these groups. Rebuild rather than drawing a second translucent coat.
-        for(const g of svg.querySelectorAll('.paper-ink-mark--saved'))g.remove();
-        const {page,index,books}=getPage(side),saved=pageMarks(recordKey(page,index,books[page.b]));
-        if(!saved.possible)return;
+        for(const kind of ['saved','focus'])for(const g of svg.querySelectorAll('.paper-ink-mark--'+kind))g.remove();
+        const {page,index,books}=getPage(side),key=recordKey(page,index,books[page.b]),saved=pageMarks(key);
+        const focused=focus?.key===key;
+        if(!saved.possible&&!focused)return;
         const entry=model(side,svg);if(!entry)return;
-        for(const unit of entry.units)if(saved.has(unit.id))draw({entry,unit},'saved');
+        if(saved.possible)for(const unit of entry.units)if(saved.has(unit.id))draw({entry,unit},'saved');
+        if(focused){
+          const unit=entry.units.find(candidate=>candidate.id===focus.unitId);
+          if(unit)focusMark=draw({entry,unit},'focus');
+        }
       });
     }
-    function clearBrief(){if(flashTimer!==null)win.clearTimeout(flashTimer);flashTimer=null;brief?.remove();brief=null;}
+    function clearFocus(){focusMark?.remove();focusMark=null;focus=null;}
     function isCurrent(t){return t&&getPage(t.entry.side).index===t.entry.index&&papers[t.entry.side].querySelector('svg')===t.entry.svg;}
-    function reset(){
-      serial++;clearBrief();if(refreshFrame!==null)win.cancelAnimationFrame(refreshFrame);refreshFrame=null;observer?.disconnect();observer=null;
+    function reset({keepFocus=false}={}){
+      serial++;if(!keepFocus)clearFocus();if(refreshFrame!==null)win.cancelAnimationFrame(refreshFrame);refreshFrame=null;observer?.disconnect();observer=null;
       if(active){for(const mark of active.marks.values())mark.remove();active=null;}
       bar?.remove();bar=null;searchForm=null;delete stage.dataset.textSelection;
     }
@@ -444,12 +449,12 @@
     function tap(t){
       if(!isCurrent(t))return false;
       if(active){if(!searchForm&&sameFace(t))toggle(t);return true;}
-      clearBrief();brief=draw(t,'brief');flashTimer=win.setTimeout(clearBrief,FLASH_MS);return true;
+      clearFocus();focus={key:t.entry.key,unitId:t.unit.id};focusMark=draw(t,'focus');return true;
     }
     function hold(t){
       if(!isCurrent(t))return false;
       if(active){if(!searchForm&&sameFace(t)&&!active.marks.has(t.unit))toggle(t);return true;}
-      clearBrief();active={marks:new Map(),anchor:t};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
+      clearFocus();active={marks:new Map(),anchor:t};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
     }
     stage.addEventListener('contextmenu',e=>{
       if(e.target?.closest?.('.paper-selection-tools'))return;
@@ -471,5 +476,5 @@
     win.addEventListener?.('storage',changed);
     return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,clipboardQuote,buildSearchURL,mergeRects,verseBands,physicalRows,FLASH_MS};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,buildSearchURL,mergeRects,verseBands,physicalRows};
 });

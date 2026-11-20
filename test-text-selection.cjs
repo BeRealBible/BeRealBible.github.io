@@ -76,9 +76,18 @@ test('hit tests in transformed glyph coordinates; whitespace neither selects nor
   const {hit,ctrl,papers}=scene();assert.equal(hit(0,1).unit.text,'ONE');assert.equal(hit(0,3),null);
   assert.equal(hit(1,5).unit.text,'TWO');assert.equal(ctrl.hit(50,500,papers[0]),null);
 });
-test('one tap creates only a transient ink mark; it vanishes independently after 2.7 s',()=>{
+test('tap focus persists without a timer or toolbar, and moves to the latest tap',()=>{
   const {ctrl,timers,marks,hit,bar}=scene();ctrl.tap(hit(0,1));assert.equal(marks().length,1);assert.equal(ctrl.isActive(),false);assert.equal(bar(),undefined);
-  timers.get(2700)();assert.equal(marks().length,0);
+  assert.equal(timers.size,0);assert.match(marks()[0].attrs.class,/--focus/);
+  ctrl.tap(hit(1,5));assert.equal(marks().length,0);assert.equal(marks(1).length,1);assert.match(marks(1)[0].attrs.class,/--focus/);
+  ctrl.hold(hit(1,1));assert.equal(ctrl.isActive(),true);assert.equal(marks(1).length,1);assert.match(marks(1)[0].attrs.class,/--selected/);
+});
+test('focus survives viewport reset and an SVG repaint, but navigation reset clears it',()=>{
+  const {ctrl,marks,hit,svg,papers}=scene();ctrl.tap(hit(0,1));
+  const original=marks()[0],replacement=svg(1);replacement.remove();svg(0).remove();papers[0].append(replacement);
+  ctrl.reset({keepFocus:true});ctrl.refresh();ctrl.refresh();
+  assert.equal(marks().length,1);assert.match(marks()[0].attrs.class,/--focus/);assert.notEqual(marks()[0],original);
+  ctrl.reset();ctrl.refresh();assert.equal(marks().length,0);
 });
 test('long press, select on current face only, toggle, copy in reading order, then exit',async()=>{
   const {ctrl,hit,bar,marks,writes,messages}=scene();

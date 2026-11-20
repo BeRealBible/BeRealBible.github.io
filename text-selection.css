@@ -1,9 +1,8 @@
 /* Ink stays against the sheet and is not rasterized into a separate overlay. */
 .paper-ink-mark{pointer-events:none}
-.paper-ink-mark--brief{fill:#ceb16a;opacity:.26;animation:paper-ink-fade 2.7s ease-out forwards}
+.paper-ink-mark--focus{fill:#7898b8;opacity:.31}
 .paper-ink-mark--selected{fill:#bd9958;opacity:.39}
 .paper-ink-mark--saved{fill:#c8a438;opacity:.33}
-@keyframes paper-ink-fade{0%,74%{opacity:.26}100%{opacity:0}}
 .stage .paper svg text[data-role]{cursor:text;-webkit-touch-callout:none}
 .paper-selection-tools{
   position:absolute;z-index:40;left:0;top:0;transform-origin:0 0;
@@ -37,6 +36,5 @@
 .paper-search-actions button:before{content:none}
 .paper-search-actions button[type=submit]{background:#b9a48230;color:#41331e}
 @media(pointer:coarse){.paper-search-actions button{min-height:44px}}
-@media(prefers-reduced-motion:reduce){.paper-ink-mark--brief{animation:none}}
 @media(prefers-reduced-transparency:reduce){.paper-selection-tools{background:#fbf4df;backdrop-filter:none;-webkit-backdrop-filter:none}}
 @media(forced-colors:active){.paper-ink-mark{fill:Highlight}.paper-selection-tools{background:Canvas;color:CanvasText;border-color:CanvasText}.paper-selection-tools button{color:ButtonText}}
