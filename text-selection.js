@@ -275,7 +275,10 @@
       g.setAttribute('class','paper-ink-mark paper-ink-mark--'+mode);g.setAttribute('aria-hidden','true');g.setAttribute('pointer-events','none');
       for(const b of verse?verseBands(boxes):mergeRects(boxes)){
         const rect=doc.createElementNS(SVG,'rect');
-        for(const [k,v] of Object.entries({x:b.x-.5,y:b.y+.06*b.height,width:b.width+1,height:.90*b.height,rx:1.1}))rect.setAttribute(k,String(v));
+        const bounds=mode==='focus' ? {
+          x:b.x-.7,y:b.y-.18*b.height,width:b.width+1.4,height:1.36*b.height,rx:1.3
+        } : {x:b.x-.5,y:b.y+.06*b.height,width:b.width+1,height:.90*b.height,rx:1.1};
+        for(const [k,v] of Object.entries(bounds))rect.setAttribute(k,String(v));
         g.appendChild(rect);
       }
       svg.insertBefore(g,entry.nodes[0]);return g;

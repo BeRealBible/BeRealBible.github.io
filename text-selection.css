@@ -1,6 +1,6 @@
 /* Ink stays against the sheet and is not rasterized into a separate overlay. */
 .paper-ink-mark{pointer-events:none}
-.paper-ink-mark--focus{fill:#7898b8;opacity:.31}
+.paper-ink-mark--focus{fill:#f2d5c2}
 .paper-ink-mark--selected{fill:#bd9958;opacity:.39}
 .paper-ink-mark--saved{fill:#c8a438;opacity:.33}
 .stage .paper svg text[data-role]{cursor:text;-webkit-touch-callout:none}
