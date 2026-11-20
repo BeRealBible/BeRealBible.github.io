@@ -40,7 +40,7 @@
       }
       anchor={i:+r.dataset.i,dy:r.offsetTop-top};
     }
-    let restoredTop=-1;
+    let restoredTop=-1,layoutUntil=0;
     function restoreRow(){const r=list.children[anchor?.i];if(r&&!panel.hidden){scroll.scrollTop=r.offsetTop-anchor.dy;restoredTop=scroll.scrollTop;}}
     new ResizeObserver(()=>{if(!panel.hidden)restoreRow();}).observe(list);
     function persist(){
@@ -65,12 +65,13 @@
       const roomRight=c.w-margin-px,roomLeft=px-margin;
       const toRight=roomRight>=roomLeft,below=avail-margin-py,above=py-margin;
       const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
-      const z=root.V25aPaperDock.sizeScale(c.scale,!next,roomW,roomH,210,230);
-      const w=Math.min(next?306:285,roomW/z,next?(c.w/2-10)/z:Infinity),
-        height=Math.min(next?432:342,roomH/z),
+      const z=next?c.scale:Math.min(c.scale,1.15,roomW/147,roomH/120);
+      const w=Math.min(next?306:202,roomW/z,next?(c.w/2-10)/z:c.w*.63/z),
+        height=Math.min(next?432:208,roomH/z,next?Infinity:avail*.40/z),
         show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
       if(!anchor&&!panel.hidden)remember();
       const wasHidden=panel.hidden;
+      if(g!==geom||wasHidden)layoutUntil=performance.now()+140;
       panel.hidden=!show;tab.hidden=mode==='off'||show;panel.dataset.layout=next?'wide':'narrow';
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
       function place(node,scale){
@@ -111,7 +112,8 @@
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
       else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();tuck();}
     });
-    scroll.addEventListener('scroll',()=>{if(!panel.hidden&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
+    for(const name of ['pointerdown','wheel','keydown'])scroll.addEventListener(name,()=>{layoutUntil=0;},{passive:true});
+    scroll.addEventListener('scroll',()=>{if(performance.now()<layoutUntil){restoreRow();return;}if(!panel.hidden&&wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
     function append(count=24){
       const from=list.children.length;
@@ -132,16 +134,16 @@
     }
     function refresh(force=false){
       clearTimeout(timer);const next=input.value.trim();if(next===q&&!force)return;
-      q=next;current=-1;seen.clear();anchor=null;$('vf-examples').hidden=!!q;
+      q=next;current=-1;seen.clear();anchor=null;
       if(q&&!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r));
       results=q?lookup(q):[];list.replaceChildren();scroll.scrollTop=0;append();
-      $('vf-status').textContent=q?(results.length?'共 '+results.length+' 节 · 点一节试读':'未找到，试试更短的词或章节目次'):'按经文片语或章节目次查找';
+      $('vf-status').textContent=q?(results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();
     }
     input.addEventListener('input',e=>{clearTimeout(timer);if(!e.isComposing)timer=setTimeout(()=>refresh(),100);});
     input.addEventListener('compositionend',()=>{clearTimeout(timer);timer=setTimeout(()=>refresh(),100);});
     $('vf-form').onsubmit=e=>{e.preventDefault();refresh();input.blur();list.firstElementChild?.focus();};
-    more.onclick=()=>{append();persist();};$('vf-examples').onclick=e=>{if(e.target.tagName==='BUTTON'){input.value=e.target.textContent;refresh();}};
+    more.onclick=()=>{append();persist();};
     // Browsing is intentional even if a previous result is still marked.
     panel.addEventListener('pointerdown',()=>{if(mode==='read')setMode('browse');});
     panel.addEventListener('wheel',()=>{if(mode==='read')setMode('browse');},{passive:true});
