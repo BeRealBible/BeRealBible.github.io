@@ -1,6 +1,6 @@
 /* Shared paper face for scripture previews; reading is never a navigation gesture. */
 'use strict';
-window.V25VerseSlip=function(host,verses,{onJump,onBack}){
+window.V25VerseSlip=function(host,verses,{onJump,onBack,keywords}){
   const doc=host.ownerDocument;
   const field=(tag,cls,text,parent)=>{const el=doc.createElement(tag);el.className='footnote-preview__'+cls;el.textContent=text;parent.appendChild(el);return el;};
     const fragment=doc.createDocumentFragment(),head=doc.createElement('div'),go=doc.createElement('button'),scroll=doc.createElement('div');
@@ -15,7 +15,8 @@ window.V25VerseSlip=function(host,verses,{onJump,onBack}){
       const block=doc.createElement('div'),starts=[];block.className='citation-block';scroll.append(block);
       for(const v of rows){
         const row=field('p','verse','',block);row.dataset.ref=v.code+'.'+v.ref;row.toggleAttribute('data-cited',v.cited);
-        const no=doc.createElement('span');no.className='verse-no';no.textContent=v.ref;row.append(no,doc.createTextNode(v.text));
+        const no=doc.createElement('span');no.className='verse-no';no.textContent=v.ref;row.append(no);
+        if(v.cited&&keywords?.length)window.V25Words.paint(row,v.text,keywords);else row.append(doc.createTextNode(v.text));
         if(v.start)starts.push({row,v});
       }
       groups.push({block,starts});

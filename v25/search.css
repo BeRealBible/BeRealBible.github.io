@@ -101,3 +101,10 @@
 #vf-preview .citation-back{padding:2px 4px;color:#765e42;min-height:22px;font:inherit}
 #vf-preview .citation-jump{white-space:nowrap}
 #verse-finder[data-layout=narrow] #vf-preview{font-size:10.5px}
+/* A search hit needs two levels of emphasis even on small Song type:
+   the cited verse is dark and ruled; only matched wording gets gold ink wash. */
+#vf-preview .citation-scroll .footnote-preview__verse{padding:2px 4px;border-left:2px solid transparent;color:#786d5e}
+#vf-preview .citation-scroll .footnote-preview__verse[data-cited]{border-color:#93663f;color:#392b1f;font-weight:700;background:#aa815015}
+#vf-preview .footnote-preview__verse mark,#vf-list mark{background:#edc77d;color:#452e18;border-radius:1px}
+.paper svg .vf-word-layer{fill:#ebc57e;fill-opacity:.78}
+.paper svg text.vf-word{fill:#633813!important}

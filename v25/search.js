@@ -1,7 +1,7 @@
 /* V25: a local verse finder. No query is sent to a server. */
 (function(root){
   'use strict';
-  const norm=s=>s.normalize('NFKC').replace(/\s+/gu,'').toLowerCase();
+  const words=typeof module==='object'&&module.exports?require('./words.js'):root.V25Words,norm=words.key,limit=500;
   const groups={
     '摩西五经':'GEN EXO LEV NUM DEU','历史书':'JOS JDG RUT 1SA 2SA 1KI 2KI 1CH 2CH EZR NEH EST',
     '诗歌智慧书':'JOB PSA PRO ECC SNG','大先知书':'ISA JER LAM EZK DAN','小先知书':'HOS JOL AMO OBA JON MIC NAM HAB ZEP HAG ZEC MAL',
@@ -24,8 +24,13 @@
       if(!q)return [];
       const addr=/^(.+?)(\d+)(?:章|:)(\d+)节?$/.exec(q);
       const book=addr&&byBook.get(addr[1]),ref=book&&(+addr[2]+':'+(+addr[3]));
-      return rows.filter(r=>(scope==='all'||scope==='book:'+r.code||scope===category.get(r.code))&&
-        (book?r.code===book&&r.ref===ref:r.key.includes(q)));
+      const result=[],need=book?[]:words.terms(raw);
+      for(const r of rows){
+        if(scope!=='all'&&scope!=='book:'+r.code&&scope!==category.get(r.code))continue;
+        if(book?!(r.code===book&&r.ref===ref):!words.ordered(r.key,need))continue;
+        if(result.length===limit){result.truncated=true;break;}result.push(r);
+      }
+      result.terms=need;return result;
     };
   }
   if(typeof module==='object'&&module.exports){module.exports={catalogue,groups};return;}
@@ -71,8 +76,8 @@
     const trail=()=>({current,seen:[...seen],anchor,count:list.children.length});
     function applyTrail(t){
       if(!t)return;
-      current=t.current;seen=new Set(t.seen);append(Math.max(0,t.count-list.children.length));Array.from(list.children).forEach(decorate);
-      anchor=t.anchor;restoreRow();
+      current=results[t.current]?t.current:-1;seen=new Set((t.seen||[]).filter(i=>results[i]));append(Math.max(0,t.count-list.children.length));Array.from(list.children).forEach(decorate);
+      anchor=results[t.anchor?.i]?t.anchor:null;restoreRow();
     }
     function switchScope(next){
       if(q!==input.value.trim())refresh();
@@ -193,9 +198,10 @@
       if(focus){input.blur();remember(i);}
       const [chapter,verse]=r.ref.split(':').map(Number);
       const face=root.V25VerseSlip(preview,[{code:r.code,chapter,verse}],{
+        keywords:results.terms,
         onBack:backToResults,
         onJump:()=>{
-          setMode('read');navigate(r.page,{bookCode:r.code,ref:r.ref,search:true});
+          setMode('read');navigate(r.page,{bookCode:r.code,ref:r.ref,search:true,keywords:results.terms});
           layout();if(wide)landOnResult(false);stage.focus({preventScroll:true});persist();
         }
       });
@@ -207,9 +213,7 @@
       for(let i=from;i<Math.min(results.length,from+count);i++){
         const r=results[i],b=document.createElement('button'),ref=document.createElement('strong'),excerpt=document.createElement('span');
         b.type='button';b.dataset.i=i;ref.textContent=r.book+' '+r.ref;
-        const at=r.text.indexOf(q);
-        if(at>=0&&q){const mark=document.createElement('mark');mark.textContent=q;excerpt.append(r.text.slice(0,at),mark,r.text.slice(at+q.length));}
-        else excerpt.textContent=r.text;
+        words.paint(excerpt,r.text,results.terms);
         b.append(ref,excerpt);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
       }
       more.hidden=list.children.length>=results.length;
@@ -219,7 +223,7 @@
       if(q!==next)trails={};q=next;current=-1;seen.clear();anchor=null;
       if(q&&!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r));
       results=q?lookup(q,scope):[];list.replaceChildren();scroll.scrollTop=0;append();
-      $('vf-status').textContent=q?(results.length?results.length+' 节':'未找到经文'):'';
+      $('vf-status').textContent=q?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();
     }
     input.addEventListener('input',e=>{clearTimeout(timer);if(!e.isComposing)timer=setTimeout(()=>refresh(),100);});
@@ -238,7 +242,7 @@
     refresh(true);
     if(stored?.start&&['browse','preview','read','tucked'].includes(stored.mode)){
       start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true);trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
-      if(mode==='preview')previewResult(current,false);
+      if(mode==='preview'){if(current>=0)previewResult(current,false);else setMode('browse');}
     }
     return {layout};
   };

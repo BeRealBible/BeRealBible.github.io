@@ -84,11 +84,42 @@
   }
   function markSearchInk(){
     if(!preciseRef?.search||preciseRef.page!==spread+readingSide)return;
-    const [ch,v]=preciseRef.ref.split(':').map(Number);
-    papers[readingSide].querySelectorAll('text[data-ref]').forEach(el=>{
-      const m=/^(\d+):(\d+)(?:-(\d+))?$/.exec(el.dataset.ref);
-      if(m&&+m[1]===ch&&+m[2]<=v&&v<=+(m[3]||m[2]))el.classList.add('vf-found');
+    const {bookCode,keywords,page}=preciseRef,[ch,v]=preciseRef.ref.split(':').map(Number);
+    const matches=ref=>{const m=/^(\d+):(\d+)(?:-(\d+))?$/.exec(ref);return m&&+m[1]===ch&&+m[2]<=v&&v<=+(m[3]||m[2]);};
+    const db=window.V25OriginalData,visible=new Map();
+    papers.forEach((paper,side)=>{
+      const n=spread+side;if(D.books[D.pages[n]?.b]?.code!==bookCode)return;
+      const svg=paper.querySelector('svg[data-pdf]');if(!svg)return;
+      svg.querySelector('.vf-word-layer')?.remove();
+      const glyphs=new Map();svg.querySelectorAll('text[data-ref]').forEach(el=>{
+        if(!matches(el.dataset.ref)||el.getAttribute('visibility')==='hidden')return;
+        el.classList.add('vf-found');if(el.dataset.role==='body')glyphs.set(+el.dataset.physicalIdx,el);
+      });visible.set(n,{svg,glyphs});
     });
+    if(!keywords?.length)return;
+    // A word may straddle columns or even leaves. Search the printed body
+    // stream in reading order, then paint only its visible original glyphs.
+    function run(n){
+      const raw=db.get(n)?.[3];if(!raw||D.books[D.pages[n]?.b]?.code!==bookCode)return [];
+      return db.tags(n).flatMap((t,i)=>t.role==='body'&&matches(t.ref)?[{n,i,text:raw[i][4]}]:[]);
+    }
+    let all=run(page);
+    for(let n=page-1;n>=0;n--){const r=run(n);if(!r.length)break;all=r.concat(all);}
+    for(let n=page+1;n<=LAST_PAGE;n++){const r=run(n);if(!r.length)break;all=all.concat(r);}
+    const ranges=window.V25Words.ranges(all.map(g=>g.text).join(''),keywords);
+    let offset=0,k=0;const ns='http://www.w3.org/2000/svg';
+    for(const g of all){
+      const lo=offset,hi=offset+=g.text.length;while(k<ranges.length&&ranges[k][1]<=lo)k++;
+      const face=visible.get(g.n),el=face?.glyphs.get(g.i);if(!el)continue;
+      for(let j=k;j<ranges.length&&ranges[j][0]<hi;j++){
+        const a=Math.max(lo,ranges[j][0])-lo,b=Math.min(hi,ranges[j][1])-lo;
+        if(!face.layer){const layer=face.layer=document.createElementNS(ns,'g');layer.setAttribute('class','vf-word-layer');layer.setAttribute('pointer-events','none');layer.setAttribute('aria-hidden','true');face.svg.insertBefore(layer,face.svg.querySelector('text'));}
+        const [l,r,t,bt]=el.dataset.clip.split(' ').map(Number),rect=document.createElementNS(ns,'rect'),w=(r-l)/g.text.length;
+        for(const [attr,value] of Object.entries({x:l+a*w,y:t,width:(b-a)*w,height:bt-t,rx:1}))rect.setAttribute(attr,value);
+        face.layer.append(rect);
+        if(a===0&&b===g.text.length)el.classList.add('vf-word');
+      }
+    }
   }
   function render({reusePages=false,keepFocus=false}={}){
     if(!reusePages){
@@ -455,7 +486,7 @@
     jumpState=transaction;
     const complete=()=>{
       if(jumpState!==transaction)return; // A cancelled/replaced animation cannot move the saved bookmark.
-      jumpState=null;spread=target;readingSide=page&1;preciseRef=requested?.ref?{page,bookCode:requested.bookCode,ref:requested.ref,search:!!requested.search}:null;render();fitScale=measureFit();
+      jumpState=null;spread=target;readingSide=page&1;preciseRef=requested?.ref?{page,bookCode:requested.bookCode,ref:requested.ref,search:!!requested.search,keywords:requested.keywords}:null;render();fitScale=measureFit();
       if(pose){scale=clamp(pose.zoom*fitScale,fitScale,MAX_SCALE);x=view.w/2-pose.cx*scale;y=view.h/2-pose.cy*scale;focus=pose.focus||'custom';}
       else if(v25&&D.physical&&preciseRef&&view.w<560)scale=Math.max(1,fitScale,scale);
       else if(focus==='fit')scale=fitScale;

@@ -1,0 +1,9 @@
+'use strict';
+const assert=require('node:assert/strict'),{catalogue}=require('./v25/search.js'),words=require('./v25/words.js');
+const rows=['甲中乙','乙中甲','甲甲乙','甲','乙','Ａ　甲乙'],mk=(texts)=>catalogue({books:[{code:'GEN',short:'创',name:'创世记',chapters:[{chapter:1,verses:texts.map((s,i)=>[i+1,s])}]}]},()=>4),find=mk(rows),refs=q=>find(q).map(r=>r.ref);
+assert.deepEqual(refs('甲　乙'),['1:1','1:3','1:6']);assert.deepEqual(refs('乙 甲'),['1:2']);assert.deepEqual(refs('甲 甲'),['1:3']);assert.deepEqual(refs('a 乙'),['1:6']);
+assert.deepEqual(refs('创 1:2'),['1:2']);assert.deepEqual(find('创 1:2').terms,[]);
+assert.equal(find('甲 乙','book:EXO').length,0);assert.equal(find('甲 乙','摩西五经').length,3);
+assert.deepEqual(words.ranges('😀 Ａ　甲乙乙', ['a','乙']),[[3,4],[6,7],[7,8]]);
+assert.equal(mk(Array(500).fill('甲'))('甲').truncated,undefined);const many=mk(Array(501).fill('甲'))('甲');assert.equal(many.length,500);assert.equal(many.truncated,true);
+console.log('PASS ordered same-verse search, Unicode spans, repeated words, addresses, scope and exact cap');
