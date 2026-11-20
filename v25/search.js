@@ -102,24 +102,32 @@
     let mount=null;
     function layout(){
       const c=camera();if(!c.w||!c.h)return;
-      const next=c.w>=640,avail=Math.min(c.h,root.visualViewport?.height||c.h),margin=4,
+      const next=c.w>=640,vv=root.visualViewport,margin=4,
         side=c.side===0?'right':'left',right=side==='right',
         rawX=c.x+(right?960:0)*c.scale,rawY=c.y+72*c.scale;
+      // On mobile the IME may resize just the visual viewport, resize the
+      // stage itself, or pan the visual viewport to the focused field.
+      const stageTop=next?0:stage.getBoundingClientRect().top,
+        visibleTop=next?0:clamp((vv?.offsetTop||0)-stageTop,0,c.h),
+        visibleBottom=next?Math.min(c.h,vv?.height||c.h):
+          clamp(vv?vv.offsetTop+vv.height-stageTop:c.h,visibleTop,c.h),
+        avail=visibleBottom-visibleTop;
+      if(avail<=2*margin)return;
       if(mode==='off')mount=null;
       else if(!mount||mount.side!==side||mount.wide!==next){
         // Pick a point on visible paper once. Store it in book units, never
         // re-pin an open desktop slip to the viewport while the camera moves.
         const onSheet=(raw,base,size,limit)=>clamp((clamp(raw,margin,limit-margin)-base)/c.scale,0,size);
-        mount={side,wide:next,bx:onSheet(rawX,c.x,960,c.w),by:onSheet(rawY,c.y,704,avail)};
+        mount={side,wide:next,bx:onSheet(rawX,c.x,960,c.w),by:onSheet(rawY-visibleTop,c.y-visibleTop,704,avail)};
       }
       const hx=c.x+(mount?.bx??(right?960:0))*c.scale,hy=c.y+(mount?.by??72)*c.scale;
-      const px=next?hx:clamp(hx,margin,c.w-margin),py=next?hy:clamp(hy,margin,avail-margin);
+      const px=next?hx:clamp(hx,margin,c.w-margin),py=next?hy:clamp(hy,visibleTop+margin,visibleBottom-margin);
       const roomRight=c.w-margin-px,roomLeft=px-margin;
-      const toRight=roomRight>=roomLeft,below=avail-margin-py,above=py-margin;
+      const toRight=roomRight>=roomLeft,below=visibleBottom-margin-py,above=py-visibleTop-margin;
       const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
       const z=next?c.scale:Math.min(c.scale,1.15,roomW/147,roomH/120);
       const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
-        height=Math.min(next?432:242,roomH/z,next?Infinity:avail*.44/z),
+        height=Math.min(next?432:(mode==='browse'&&results.length?280:242),roomH/z),
         show=mode==='browse'||mode==='preview'||(mode==='read'&&next),g=[next,w,height,z].join(':');
       if(!anchor&&!panel.hidden)remember();
       const wasHidden=panel.hidden;
@@ -224,6 +232,7 @@
     panel.addEventListener('touchmove',()=>{if(mode==='read')setMode('browse');},{passive:true});
     input.addEventListener('focus',()=>{if(mode==='read')setMode('browse');});
     root.visualViewport?.addEventListener('resize',layout);
+    root.visualViewport?.addEventListener('scroll',layout,{passive:true});
     root.addEventListener('pagehide',()=>{remember();persist();});
     let stored;try{stored=JSON.parse(sessionStorage.getItem(key));}catch{}
     refresh(true);

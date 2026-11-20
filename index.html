@@ -51,7 +51,7 @@
 <link rel="stylesheet" href="fonts-rares.css?v=index-25&h=189bacd36390"><link rel="stylesheet" href="v25-original-fonts.css?v=index-25&h=dcb07d93a1ae">
 <link rel="stylesheet" href="paper-cover-zoom.css?v=index-25&h=852fdcd6d851">
 <script src="paper-cover-zoom.js?v=index-25&h=6690000cbb24" defer></script>
-<link rel="stylesheet" href="v25/search.css?h=e1920a02b449"><script defer src="v25/search.js?h=94e8d78327a7"></script>
+<link rel="stylesheet" href="v25/search.css?h=589245c1cca0"><script defer src="v25/search.js?h=7a13cb61fb94"></script>
 </head>
 <body data-paper-scene="reading" data-minimal-reader>
 <div id="reader-rule-loading" role="status"><strong>纸页 · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./?v=index-25">加载遇到问题？重新打开</a></div>
@@ -119,7 +119,7 @@
 <dialog id="help-dialog"><button class="dialog-close" data-close aria-label="关闭">×</button><div class="eyebrow">手势小抄</div><h2>点经文摘录，<br>拖页边翻页。</h2><dl><dt>轻点与长按经文</dt><dd>轻点的经文会浅浅亮起，片刻后淡出。长按进入摘录，再点同一页的其他经文可追加，再点一次取消。点双页图标，复制的经文末尾会附卷名、章节和译本；点笔尖可保留这一页的金色标记，再选中已标记的经文点笔尖即可移除。点小叉退出。对开中的另一页不能加入本次选段。</dd><dt>在外页边向内滑</dt><dd>从右页外边向左滑翻下一页；从左页外边向右滑翻回上一页。正文栏和行间拖动只移动视野，桌面背景不翻页。不用等长按：页角跟手掀起，手停纸也停。向前划开再松手翻过一页；往回收再松手，纸就落回原页。轻点留白不翻页。</dd><dt>放大后看细处</dt><dd>双指捏合缩放整本书。放大后拖动正文或行间都可以移动视野，双指捏合后可留一指接着移动。触控板两指横扫，整书适配时翻一页、放大时平移；纸质选章目录随书一起缩放。</dd><dt>点索引组，浮出章节菜单</dt><dd>书口里的小标签代表一卷或一组书卷。点组标签，打开纸质选章目录；合并组可切换书卷，再点章号直接跳转；也可切换「经文摘读」，通过每章开头的真实经文寻找章节。不需要切换书的角度。</dd><dt>打开完整目录</dt><dd>点顶部书卷名或阅读工具里的「书卷章节」，可从全部 66 卷中查找。</dd><dt>书下的最近跳转</dt><dd>从目录跳到一章后，继续翻页会更新同一条记录。点标签文字，视野横移到那本已摊开的书。切换最近记录不翻纸；只有选择目录才连续翻页。未置顶的标签只显示文字；鼠标移上、用键盘聚焦或在手机上长按该标签，才显示图钉和小叉。移开后小叉收起，已置顶的标签只保留实心图钉。点图钉置顶，再点取消；点小叉删除，误删可撤销。记录和高亮保存在此浏览器。</dd></dl><p class="notice">滑动翻过一张纸；跨书卷或跨章节跳转时，按距离连续翻过多张纸。纸页弯曲为轻量模拟；不同手机的触感仍需真机体验。</p></dialog>
 
 <aside id="verse-finder" aria-label="经文检索笺" hidden>
-<header class="vf-head"><form id="vf-form" role="search"><input type="search" id="vf-input" aria-label="经文内容或章节地址" enterkeyhint="search" autocomplete="off" placeholder="搜经文或章:节"><button aria-label="查找">⌕</button></form><button id="vf-close" aria-label="收起检索笺" title="收起检索笺">↗</button>
+<header class="vf-head"><form id="vf-form" role="search"><span class="vf-field"><input type="search" id="vf-input" aria-label="经文内容或章节地址" enterkeyhint="search" autocomplete="off" placeholder="搜经文或章:节"></span><button aria-label="查找">⌕</button></form><button id="vf-close" aria-label="收起检索笺" title="收起检索笺">↗</button>
 <div id="vf-scopes" role="group" aria-label="检索范围"><button type="button" id="vf-all" aria-pressed="true">全书</button><button type="button" id="vf-book" aria-pressed="false">本卷</button><button id="vf-group" type="button" aria-expanded="false" aria-controls="vf-groups">分类</button></div>
 <p id="vf-status" role="status"></p></header>
 <div id="vf-groups" role="group" aria-label="书卷分类" hidden></div>
