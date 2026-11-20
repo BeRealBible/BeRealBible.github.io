@@ -220,14 +220,6 @@
     const r=stage.getBoundingClientRect(),ax=dock.x-r.left,ay=dock.y-r.top,next=clamp(scale*factor,fitScale,MAX_SCALE);
     x=ax-(ax-x)*next/scale;y=ay-(ay-y)*next/scale;scale=next;focus='custom';transform();save();
   }
-  // Inspect the paper in the current reader window, not the zoom percentage.
-  function atClippedSpreadEnd(){
-    const w=960*scale,h=704*scale,clippedX=w>view.w+2,clippedY=h>view.h+2,slop=24;
-    if(!view.w||!view.h||(!clippedX&&!clippedY))return false;
-    const right=x+w,bottom=y+h;
-    return (!clippedX||(x<-2&&right>=0&&right<=view.w+slop))&&
-      (!clippedY||(y<-2&&bottom>=0&&bottom<=view.h+slop));
-  }
   function hideStartShortcut(){
     clearTimeout(startShortcutTimer);startShortcutTimer=0;startShortcutSpread=null;
     if(!startShortcut||startShortcut.hidden)return;
@@ -534,14 +526,14 @@
     if(band?.dataset.side==='right')return 1;
     if(band?.dataset.side==='left')return -1;
     if(!onPaper(bx,by))return 0;
-    // A physical fore-edge, not a glyph-shaped hit test. The outer 28 paper
-    // units sit outside the two text columns, and never grow past 32 screen px.
-    const margin=Math.min(28,32/scale);
+    // These distances are in paper coordinates: keep the same visible strip
+    // grabbable when the paper grows. Ink, taps and outward drags stay separate.
+    const margin=28;
     return bx<=margin?-1:bx>=960-margin?1:0;
   }
   function horizontalPaperEdge(bx,by,band){
     if(!v25||band||!onPaper(bx,by))return 0;
-    const margin=Math.min(24,28/scale);
+    const margin=24;
     return by<=margin?1:by>=704-margin?-1:0;
   }
   function panTo(px,py){
@@ -574,7 +566,6 @@
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
       edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,column:mobileReadingColumn(e.pointerType),
-      restrictForward:mobileClippedReading(e.pointerType),spreadEnd:atClippedSpreadEnd(),
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
       contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
       direction:0,trend:1,extreme:0};
@@ -642,10 +633,9 @@
         g.edge=g.leaf;g.verticalTurn=dy*g.rim>=Math.abs(dx)*1.35;
       }
       const edgeSwipe=g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35;
-      const allowedEdgeSwipe=edgeSwipe&&(g.edge<0||!g.restrictForward||g.spreadEnd);
       const columnIntent=g.column?.atBottom&&g.column.next&&!selection?.isActive()&&
         isReadingDownStroke(dx,dy);
-      g.kind=fitSwipe||rimSwipe||allowedEdgeSwipe?'swipe':columnIntent?'column':'pan';
+      g.kind=fitSwipe||rimSwipe||edgeSwipe?'swipe':columnIntent?'column':'pan';
       if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
