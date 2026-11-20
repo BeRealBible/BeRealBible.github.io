@@ -58,3 +58,12 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
 .stage[data-turn-style="smooth"] #desk-surface{overflow:clip}
 
 .stage[data-edge-profile="slim"] #edge-index-host{z-index:10}
+
+/* Transient reading action outside the book's scale and curl layers. */
+.stage>.spread-start-shortcut:not([hidden]){
+  position:absolute;z-index:28;right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));
+  min-height:40px;padding:0 11px;border:1px solid #81654859;border-radius:999px;
+  background:#fbf4e5df;color:#503b28;font:600 12px/1 var(--ui,system-ui,sans-serif);
+  box-shadow:0 1px 5px #442f2424;touch-action:manipulation;white-space:nowrap;
+}
+.stage>.spread-start-shortcut:is(:hover,:focus-visible):not([hidden]){background:#fbf4e5;color:#503b28}

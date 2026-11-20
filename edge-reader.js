@@ -29,6 +29,7 @@
   let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
   let suppressBandClick=null, coverZoom=null;
+  let startShortcut=null,startShortcutTimer=0,startShortcutSpread=null,startPanFrame=0;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
   if(saved&&Number.isFinite(saved.spread))spread=clamp(saved.spread&~1,0,MAX_SPREAD);
   if(saved?.page===spread)readingSide=0;
@@ -79,10 +80,12 @@
       $(side+'-paper-edges').innerHTML=window.PaperEdges.render(side,depth);
     }
   }
-  function render(){
-    selection?.reset();
-    papers.forEach((paper,i)=>paper.innerHTML=svgPage(spread+i));
-    selection?.refresh?.();
+  function render({reusePages=false}={}){
+    if(!reusePages){
+      selection?.reset();
+      papers.forEach((paper,i)=>paper.innerHTML=svgPage(spread+i));
+      selection?.refresh?.();
+    }
     const b=currentBook(),p=readingPage(),ref=readingLocation().ref||'1:1',last=preciseRef?.page===readingLocation().page?ref:p.end||ref;
     $('book-name').textContent=b.name;
     $('chapter-name').textContent=ref.split(':')[0]===last.split(':')[0]?`第 ${ref.split(':')[0]} 章`:`${ref.split(':')[0]}–${last.split(':')[0]} 章`;
@@ -93,7 +96,8 @@
     $('read-block').style.width=progress*100+'%';$('position-pin').style.left=progress*100+'%';
     $('prev').disabled=spread===0;$('next').disabled=spread===MAX_SPREAD;
     stage.dataset.spread=String(spread);stage.dataset.book=b.code;
-    applyMaterial();updateIndex();
+    if(!reusePages)applyMaterial();
+    updateIndex();
   }
   function envelope(){
     const e=index.getBounds();
@@ -156,16 +160,79 @@
     const r=stage.getBoundingClientRect(),ax=dock.x-r.left,ay=dock.y-r.top,next=clamp(scale*factor,fitScale,MAX_SCALE);
     x=ax-(ax-x)*next/scale;y=ay-(ay-y)*next/scale;scale=next;focus='custom';transform();save();
   }
+  // Inspect the paper in the current reader window, not the zoom percentage.
+  function atClippedSpreadEnd(){
+    const w=960*scale,h=704*scale,clippedX=w>view.w+2,clippedY=h>view.h+2,slop=24;
+    if(!view.w||!view.h||(!clippedX&&!clippedY))return false;
+    const right=x+w,bottom=y+h;
+    return (!clippedX||(x<-2&&right>=0&&right<=view.w+slop))&&
+      (!clippedY||(y<-2&&bottom>=0&&bottom<=view.h+slop));
+  }
+  function hideStartShortcut(){
+    clearTimeout(startShortcutTimer);startShortcutTimer=0;startShortcutSpread=null;
+    if(!startShortcut||startShortcut.hidden)return;
+    if(document.activeElement===startShortcut)stage.focus({preventScroll:true});
+    startShortcut.hidden=true;
+  }
+  function cancelStartPan(){
+    if(!startPanFrame)return;
+    cancelAnimationFrame(startPanFrame);startPanFrame=0;
+    stage.dataset.spreadStartPan='cancelled';save();
+  }
+  function panToSpreadStart(){
+    const fromX=x,fromY=y;
+    x=18;y=18;constrain();const toX=x,toY=y;
+    x=fromX;y=fromY;
+    focus='custom';
+    const complete=()=>{
+      startPanFrame=0;stage.dataset.spreadStartPan='committed';
+      x=toX;y=toY;readingSide=0;
+      render({reusePages:true});transform();save();history?.advance(readingLocation());
+    };
+    if(reduceMotion()){complete();return;}
+    const started=performance.now();
+    stage.dataset.spreadStartPan='running';
+    function frame(now){
+      const t=clamp((now-started)/460,0,1);
+      if(t===1){complete();return;}
+      const eased=(1-Math.cos(t*Math.PI))/2;
+      x=fromX+(toX-fromX)*eased;y=fromY+(toY-fromY)*eased;transform();
+      startPanFrame=requestAnimationFrame(frame);
+    }
+    startPanFrame=requestAnimationFrame(frame);
+  }
+  function offerStartShortcut(){
+    if(!atClippedSpreadEnd())return;
+    if(!startShortcut){
+      startShortcut=document.createElement('button');startShortcut.type='button';
+      startShortcut.id='spread-start-shortcut';startShortcut.className='spread-start-shortcut';
+      startShortcut.textContent='↖ 回左上';startShortcut.setAttribute('aria-label','从当前跨页左上角开始阅读');
+      startShortcut.hidden=true;stage.append(startShortcut);
+      startShortcut.addEventListener('click',()=>{
+        if(startShortcutSpread!==spread||startShortcut.hidden||fold||jumpState||!atClippedSpreadEnd()){
+          hideStartShortcut();return;
+        }
+        hideStartShortcut();panToSpreadStart();
+      });
+      startShortcut.addEventListener('keydown',e=>{
+        if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hideStartShortcut();}
+      });
+    }
+    hideStartShortcut();startShortcutSpread=spread;startShortcut.hidden=false;
+    startShortcutTimer=setTimeout(hideStartShortcut,2000);
+  }
   function clearHold(){clearTimeout(holdTimer);holdTimer=null;}
   function startFold(direction,count=1,source='control',contact=null){
     if(fold||jumpState)return false;
+    hideStartShortcut();cancelStartPan();
     const target=clamp(spread+direction*count*2,0,MAX_SPREAD);
     if(target===spread){feedback(direction>0?'已经到最后一页':'已经到第一页');return false;}
     const side=direction>0?1:0;
     selection?.reset();
     const grabY=contact?.grabY??628;
     const animate=!noTurnMotion&&(!flatTouch||smoothTurn)&&!reduceMotion();
-    fold={from:spread,target,direction,side,count:Math.abs(target-spread)/2,source,
+    const offerStart=v25&&direction>0&&target-spread===2&&atClippedSpreadEnd();
+    fold={from:spread,target,direction,side,count:Math.abs(target-spread)/2,source,offerStart,
       radius:contact?.radius??450,grabY,corner:grabY<352?'top':'bottom',vertical:0,
       progress:0,settling:false,animate,original:animate?papers[side].innerHTML:null};
     if(!animate){stage.dataset.foldState='dragging';return true;}
@@ -196,6 +263,7 @@
     else if(f.animate){papers[f.side].innerHTML=f.original;selection?.refresh?.();applyMaterial();updateIndex();}
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     if(queuedTurns.length)turn(...queuedTurns.shift());
+    else if(commit&&f.offerStart)offerStartShortcut();
   }
   function settleFold(commit=true){
     if(!fold||fold.settling)return;const f=fold;f.settling=true;f.commit=commit;
@@ -218,7 +286,7 @@
     if(startFold(direction,count,source))settleFold();
   }
   function interrupt(keepSelection=false){
-    desk?.cancel();
+    hideStartShortcut();cancelStartPan();desk?.cancel();
     clearHold();queuedTurns=[];if(keepSelection!==true)selection?.reset();
     pointers.clear();gesture=null;stage.classList.remove('dragging','curl-dragging');
     chapters?.close();
@@ -303,7 +371,7 @@
   function panTo(px,py){
     const oldX=x,oldY=y;x=px;y=py;constrain();
     if(Math.abs(x-oldX)<.00001&&Math.abs(y-oldY)<.00001)return false;
-    focus='custom';transform();return true;
+    hideStartShortcut();focus='custom';transform();return true;
   }
   function pointerDown(e){
     const touchLabel=e.pointerType==='touch'?e.target?.closest?.('.edge-index__group'):null;
@@ -317,7 +385,7 @@
     if(smoothTurn&&e.pointerType==='touch'&&fold?.settling&&pointers.size===0){
       queuedTurns=[];finishFold(fold.commit);
     }
-    clearHold();
+    hideStartShortcut();cancelStartPan();clearHold();
     // A still press on blank paper does nothing; a named cut keeps its native
     // click. Transfer pointer capture to the stage only after a drag starts.
     pointers.set(e.pointerId,relative(e));try{(band||stage).setPointerCapture(e.pointerId);}catch{}
@@ -452,6 +520,7 @@
       return;
     }
     e.preventDefault();if(pointers.size){wheelBurst=null;return;}
+    cancelStartPan();
     if(scale>fitScale+.00001){
       wheelBurst=null;if(!fold&&panTo(x-dx,y-dy))save();return;
     }
