@@ -317,8 +317,10 @@
       const score=c=>Math.abs(c.left*scale+x-18)+(c.right*scale+x<view.w*.25?view.w:0);
       return score(b)<score(a)?b:a;
     });
-    const bottom=lane.bottom*scale+y,top=lane.top*scale+y;
-    return {lane,next:columns[columns.indexOf(lane)+1],atBottom:bottom>=16&&bottom<=view.h+10&&top<view.h-16};
+    // Seeing the last glyph is not the same as seeing the end of the paper.
+    // Leave a visible strip beyond the page so a clipped line can't look final.
+    const pageFoot=y+704*scale,inkFoot=y+lane.bottom*scale;
+    return {next:columns[columns.indexOf(lane)+1],atBottom:pageFoot<=view.h-12&&inkFoot<=view.h-12};
   }
   function hideColumnShortcut(){
     clearTimeout(columnShortcutTimer);columnShortcutTimer=0;columnOffer=null;
@@ -331,7 +333,7 @@
     if(!columnShortcut){
       columnShortcut=document.createElement('button');columnShortcut.type='button';
       columnShortcut.id='next-column-shortcut';columnShortcut.className='spread-start-shortcut';
-      columnShortcut.textContent='↱ 下一栏';columnShortcut.setAttribute('aria-label','从下一栏顶部开始阅读');
+      columnShortcut.textContent='栏底 · 下一栏 ↱';columnShortcut.setAttribute('aria-label','已到本栏底部，从下一栏顶部开始阅读');
       columnShortcut.hidden=true;stage.append(columnShortcut);
       const activate=()=>{
         const offer=columnOffer;hideColumnShortcut();
@@ -374,11 +376,6 @@
     columnShortcut.hidden=false;columnShortcutTimer=setTimeout(hideColumnShortcut,2000);
   }
   const isReadingDownStroke=(dx,dy)=>dy<0&&-dy>=Math.abs(dx)*(dx>0?.35:.8);
-  function wantsNextColumn(g,end){
-    if(!g.column?.atBottom||!g.column.next||selection?.isActive())return false;
-    const dx=end.x-g.start.x,dy=end.y-g.start.y;
-    return -dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy);
-  }
   function clearHold(){clearTimeout(holdTimer);holdTimer=null;}
   function startFold(direction,count=1,source='control',contact=null){
     if(fold||jumpState)return false;
@@ -565,7 +562,7 @@
     const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
-      edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,column:mobileReadingColumn(e.pointerType),
+      edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
       contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
       direction:0,trend:1,extreme:0};
@@ -633,9 +630,7 @@
         g.edge=g.leaf;g.verticalTurn=dy*g.rim>=Math.abs(dx)*1.35;
       }
       const edgeSwipe=g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35;
-      const columnIntent=g.column?.atBottom&&g.column.next&&!selection?.isActive()&&
-        isReadingDownStroke(dx,dy);
-      g.kind=fitSwipe||rimSwipe||edgeSwipe?'swipe':columnIntent?'column':'pan';
+      g.kind=fitSwipe||rimSwipe||edgeSwipe?'swipe':'pan';
       if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
@@ -680,11 +675,14 @@
     if(g.kind==='swipe'&&fold){
       const commit=releaseCurl(g,end);stage.dataset.lastGesture=commit?'swipe-turn':'swipe-return';settleFold(commit);return;
     }
-    if(g.kind==='column'){
-      if(wantsNextColumn(g,end)){offerNextColumn(g.column.next);stage.dataset.lastGesture='column-end';}
-      return;
+    if(g.kind==='pan'){
+      stage.dataset.lastGesture='pan';if(g.panned)save();
+      const dx=end.x-g.start.x,dy=end.y-g.start.y;
+      if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)&&!selection?.isActive()){
+        const column=mobileReadingColumn(e.pointerType);
+        if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
+      }
     }
-    if(g.kind==='pan'){stage.dataset.lastGesture='pan';if(g.panned)save();}
   }
   // Capture before a compact tab handles its native click; drags starting on
   // the blank fore-edge remain normal page gestures.
