@@ -14,9 +14,7 @@
   let current=null,timer=0,raf=0,keyFocus=false;
   const cancel=()=>{clearTimeout(timer);timer=0;};
   function describe(button,on){
-    const ids=(button.getAttribute('aria-describedby')||'').split(/\s+/).filter(id=>id&&id!==tip.id);
-    if(on)ids.push(tip.id);
-    if(ids.length)button.setAttribute('aria-describedby',ids.join(' '));else button.removeAttribute('aria-describedby');
+    button.setAttribute('aria-controls',tip.id);button.setAttribute('aria-expanded',String(on));
   }
   function hide(){
     cancel();if(!current)return;
@@ -84,16 +82,34 @@
     const api=window.PaperFootnotePassages,note=api?.byOrdinal(Number(button.dataset.notePage),Number(button.dataset.noteOrdinal));
     const verses=api?.resolve(button.dataset.parallel||note?.citation,window.BIBLE_SOURCE);
     if(!verses?.length)return; // Unknown references must never produce guessed text.
-    const fragment=doc.createDocumentFragment();
-    for(const v of verses){
-      const row=field('a','verse',v.text,fragment),ref=v.chapter+':'+v.verse;row.dataset.ref=v.code+'.'+ref;
-      row.href='#'+row.dataset.ref;row.setAttribute('aria-label','阅读'+v.name+' '+ref+'：'+v.text);
-      row.onclick=e=>{
-        if(e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
-        e.preventDefault();hide();stage.focus({preventScroll:true});
-        window.dispatchEvent(new CustomEvent('v25-read-citation',{detail:{code:v.code,ref}}));
-      };
+    const fragment=doc.createDocumentFragment(),head=doc.createElement('div'),go=doc.createElement('button'),scroll=doc.createElement('div');
+    head.className='citation-head';go.className='citation-jump';go.type='button';head.append(go);
+    scroll.className='citation-scroll';scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','引用经文及上下文');
+    const groups=[];let dest;
+    function aim(v){
+      if(dest===v)return;dest=v;
+      go.textContent='跳转 ↗ '+v.short+' '+v.ref;go.setAttribute('aria-label','跳转至'+v.short+' '+v.ref);go.title=go.getAttribute('aria-label');
     }
+    for(const rows of window.V25CitationContext(verses,window.BIBLE_SOURCE)){
+      const block=doc.createElement('div'),starts=[];block.className='citation-block';scroll.append(block);
+      for(const v of rows){
+        const row=field('p','verse','',block);row.dataset.ref=v.code+'.'+v.ref;row.toggleAttribute('data-cited',v.cited);
+        const no=doc.createElement('span');no.className='verse-no';no.textContent=v.ref;row.append(no,doc.createTextNode(v.text));
+        if(v.start)starts.push({row,v});
+      }
+      groups.push({block,starts});
+    }
+    const first=groups[0]?.starts[0];if(!first)return;
+    const peek=9;aim(first.v);
+    scroll.onscroll=()=>{
+      const at=scroll.scrollTop+peek+1,group=groups.findLast(g=>g.block.offsetTop<=at)||groups[0];
+      aim((group.starts.findLast(s=>s.row.offsetTop<=at)||group.starts[0]).v);
+    };
+    go.onclick=()=>{
+      const {code,ref}=dest;hide();stage.focus({preventScroll:true});
+      window.dispatchEvent(new CustomEvent('v25-read-citation',{detail:{code,ref}}));
+    };
+    fragment.append(head,scroll);
     // The print compositor's normal Song body uses an 11.8-unit em.
     // Sample this sheet's actual body transforms rather than a UI font size.
     const sample=button.closest('.paper')?.querySelectorAll('svg text[data-role="body"]')||[];
@@ -102,7 +118,14 @@
       if(sz>0)em.push(sz);if(em.length===31)break;}
     em.sort((a,b)=>a-b);tip.style.fontSize=(.9*(em[em.length>>1]||11.8))+'px';
     current=button;tip.replaceChildren(fragment);tip.hidden=false;tip.scrollTop=0;
-    describe(button,true);position();if(current)watch(button);
+    describe(button,true);position();
+    if(current){
+      const start=Math.max(0,first.row.offsetTop-peek);
+      // Even the last verse of a book can open at the reading line.
+      const tail=start-(scroll.scrollHeight-scroll.clientHeight);
+      if(tail>0)scroll.style.paddingBottom=tail+'px';
+      scroll.scrollTop=start;watch(button);
+    }
   }
   function scheduleHide(){cancel();timer=setTimeout(()=>{if(!keyFocus)hide();},260);}
   doc.addEventListener('pointerover',e=>{
@@ -127,12 +150,14 @@
   doc.addEventListener('keydown',e=>{
     if(!current)return;
     if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(tip.contains(doc.activeElement))current.focus({preventScroll:true});hide();return;}
-    if(e.key==='Tab'&&!e.shiftKey&&e.target===current){e.preventDefault();tip.querySelector('a')?.focus({preventScroll:true});return;}
-    if(e.key==='Tab'&&e.shiftKey&&e.target===tip.firstElementChild){e.preventDefault();current.focus({preventScroll:true});return;}
-    if(e.target===current&&tip.scrollHeight>tip.clientHeight+1){
-      const shifts={ArrowDown:40,ArrowUp:-40,PageDown:tip.clientHeight*.85,PageUp:-tip.clientHeight*.85,Home:-Infinity,End:Infinity};
+    const go=tip.querySelector('.citation-jump'),scroll=tip.querySelector('.citation-scroll');
+    if(e.key==='Tab'&&!e.shiftKey&&e.target===current){e.preventDefault();go.focus({preventScroll:true});return;}
+    if(e.key==='Tab'&&e.shiftKey&&e.target===go){e.preventDefault();current.focus({preventScroll:true});return;}
+    if((e.target===current||tip.contains(e.target))&&scroll){
+      if(['ArrowLeft','ArrowRight'].includes(e.key)){e.stopPropagation();return;}
+      const shifts={ArrowDown:40,ArrowUp:-40,PageDown:scroll.clientHeight*.85,PageUp:-scroll.clientHeight*.85,Home:-Infinity,End:Infinity};
       if(Object.hasOwn(shifts,e.key)){e.preventDefault();e.stopPropagation();
-        tip.scrollTop=clamp(tip.scrollTop+shifts[e.key],0,tip.scrollHeight-tip.clientHeight);}
+        scroll.scrollTop=clamp(scroll.scrollTop+shifts[e.key],0,scroll.scrollHeight-scroll.clientHeight);}
     }
   },true);
   window.addEventListener('resize',frame);window.visualViewport?.addEventListener('resize',frame);

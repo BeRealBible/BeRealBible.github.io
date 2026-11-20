@@ -77,7 +77,12 @@
         if(!e){current=null;state.activeId=null;save();return null;}
       }else e=state.items.find(record=>same(record.anchor||record,loc));
       if(!e){e={...loc,anchor:{...loc},id:'r'+(++state.serial),pinned:false};state.items.unshift(e);}
-      else Object.assign(e,loc);
+      else {
+        Object.assign(e,loc);
+        // Store access order separately from the pinned display order. When a
+        // pin is removed the record rejoins the recent list in its proper place.
+        state.items.splice(state.items.indexOf(e),1);state.items.unshift(e);
+      }
       current=state.activeId=e.id;trim();save();return copy(e);
     }
     function pickVerse(loc){
@@ -213,10 +218,13 @@
     function focusControl(id,action){
       const ctl=controls.get(id)?.[action];if(!ctl)return;
       ctl.focus({preventScroll:true});
+      revealInTrack(id);
+    }
+    function revealInTrack(id){
       // Scroll this track only, not the stage or the document. Include both
       // action slots even for the end item when focus moves after reordering.
-      const box=controls.get(id).item.getBoundingClientRect?.(),viewport=track.getBoundingClientRect?.();
-      if(!box||!viewport)return;
+      const box=controls.get(id)?.item.getBoundingClientRect?.(),viewport=track.getBoundingClientRect?.();
+      if(!box||!viewport?.width||track.hidden)return;
       if(box.right>viewport.right)track.scrollLeft+=box.right-viewport.right+2;
       else if(box.left<viewport.left)track.scrollLeft+=box.left-viewport.left-2;
     }
@@ -260,7 +268,7 @@
     }
     const sync=e=>{if(!e.key||e.key===KEY||e.key.startsWith(KEY+':'))render();};
     win?.addEventListener('storage',sync);render();
-    const apply=(name,...args)=>{const result=model[name](...args);render();return result;};
+    const apply=(name,...args)=>{const result=model[name](...args);render();if(name==='jump'&&result)revealInTrack(result.id);return result;};
     return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),pickVerse:loc=>apply('pickVerse',loc),jump:(loc,id)=>apply('jump',loc,id),
       list:model.list,element:host,
       destroy(){cancelHold();contacts.clear();for(const off of listeners)off();win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};

@@ -550,11 +550,14 @@
     if(smoothTurn&&e.pointerType==='touch'&&fold?.settling&&pointers.size===0){
       queuedTurns=[];finishFold(fold.commit);
     }
-    hideStartShortcut();hideColumnShortcut();cancelStartPan();clearHold();
+    // A still tap on the margin only toggles the shelf. Keep the return
+    // shortcut alive; its CSS moves it above the revealed controls.
+    hideColumnShortcut();cancelStartPan();clearHold();
     // A still press on blank paper does nothing; a named cut keeps its native
     // click. Transfer pointer capture to the stage only after a drag starts.
     pointers.set(e.pointerId,relative(e));try{(band||stage).setPointerCapture(e.pointerId);}catch{}
     if(pointers.size>1){
+      hideStartShortcut();
       if(fold){queuedTurns=[];finishFold(false);}
       stage.classList.remove('curl-dragging');
       const c=centroid();gesture={pinched:true,band:gesture?.band||band,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance()};return;
@@ -621,7 +624,7 @@
     if(g.kind==='held'||g.wasTurning)return;
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
-      clearHold();
+      hideStartShortcut();clearHold();
       const fitSwipe=g.touchFit&&!g.rim&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35;
       if(fitSwipe)g.edge=Math.sign(-dx);
       const rimSwipe=g.rim&&!g.token&&!selection?.isActive()&&
@@ -657,6 +660,7 @@
       stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';if(g.pinched)save();return;
     }
     if(g.kind==='pending'&&g.token){
+      hideStartShortcut();
       const t=g.token,single=!selection.isActive();
       if(selection.tap(t)&&single){
         const match=/^verse:(\d+:\d+(?:[-–]\d+)?)$/.exec(t.unit.group);

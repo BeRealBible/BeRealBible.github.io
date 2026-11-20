@@ -144,7 +144,7 @@ test('headings and English frontmatter are never attributed to a Bible verse',()
 });
 test('unlabelled-on-screen tools have accessible icon names and no visible selection count',()=>{
   const s=scene();s.ctrl.hold(s.hit(0,0));const buttons=s.bar().children;
-  assert.deepEqual(buttons.map(b=>b.attrs['aria-label']),['复制','搜索','高亮','退出']);
+  assert.deepEqual(buttons.map(b=>b.attrs['aria-label']),['复制','网页搜索','高亮','退出']);
   assert.ok(buttons.every(b=>b.tag==='button'&&b.children[0].tag==='svg'&&!b.textContent));
 });
 test('one-color annotation survives exit, repeated SVG redraw and a new reader; can be removed',()=>{
