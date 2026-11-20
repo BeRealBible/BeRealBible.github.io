@@ -47,25 +47,44 @@
       clearTimeout(saveTimer);
       try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({mode,start,q,current,seen:[...seen],anchor,count:list.children.length}));}catch{}
     }
+    let mount=null;
     function layout(){
       const c=camera();if(!c.w||!c.h)return;
-      const next=c.w>=640,z=clamp(.80+.22*c.scale,.91,1.19),w=Math.min(next?306:285,(next?c.w/2-12:c.w-18)/z),
-        avail=Math.min(c.h,root.visualViewport?.height||c.h),height=Math.max(145,Math.min((avail-22)/z,next?432:342)),
+      const next=c.w>=640,avail=Math.min(c.h,root.visualViewport?.height||c.h),margin=4,
+        side=c.side===0?'right':'left',right=side==='right',
+        rawX=c.x+(right?960:0)*c.scale,rawY=c.y+72*c.scale;
+      if(mode==='off')mount=null;
+      else if(!mount||mount.side!==side||mount.wide!==next){
+        // Pick a point on visible paper once. Store it in book units, never
+        // re-pin an open desktop slip to the viewport while the camera moves.
+        const onSheet=(raw,base,size,limit)=>clamp((clamp(raw,margin,limit-margin)-base)/c.scale,0,size);
+        mount={side,wide:next,bx:onSheet(rawX,c.x,960,c.w),by:onSheet(rawY,c.y,704,avail)};
+      }
+      const hx=c.x+(mount?.bx??(right?960:0))*c.scale,hy=c.y+(mount?.by??72)*c.scale;
+      const px=next?hx:clamp(hx,margin,c.w-margin),py=next?hy:clamp(hy,margin,avail-margin);
+      const roomRight=c.w-margin-px,roomLeft=px-margin;
+      const toRight=roomRight>=roomLeft,below=avail-margin-py,above=py-margin;
+      const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
+      const z=root.V25aPaperDock.sizeScale(c.scale,!next,roomW,roomH,210,230);
+      const w=Math.min(next?306:285,roomW/z,next?(c.w/2-10)/z:Infinity),
+        height=Math.min(next?432:342,roomH/z),
         show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
       if(!anchor&&!panel.hidden)remember();
-      const hitX=mode==='read'&&next?c.inkX():null;
-      const wasHidden=panel.hidden,side=(hitX!==null?hitX<c.w/2:c.side===0)?'right':'left',edge=side==='right'?c.x+960*c.scale:c.x;
+      const wasHidden=panel.hidden;
       panel.hidden=!show;tab.hidden=mode==='off'||show;panel.dataset.layout=next?'wide':'narrow';
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
+      function place(node,scale){
+        node.dataset.dockX=px;node.dataset.dockY=py;node.dataset.paperX=mount.bx;node.dataset.paperY=mount.by;
+        node.style.transformOrigin=(toRight?'left':'right')+' '+(down?'top':'bottom');
+        node.style.transform='scale('+scale+')';
+        node.style.left=(toRight?px:px-node.offsetWidth)+'px';
+        node.style.top=(down?py:py-node.offsetHeight)+'px';
+      }
       if(show){
-        panel.style.width=w+'px';panel.style.maxHeight=height+'px';panel.style.transform='scale('+z+')';
-        const pref=side==='right'?edge-9:edge-w*z+9;
-        panel.style.left=clamp(pref,8,c.w-w*z-8)+'px';
-        panel.style.top=clamp(c.y+72*c.scale,8,avail-panel.offsetHeight*z-8)+'px';
+        panel.style.width=w+'px';panel.style.maxHeight=height+'px';panel.toggleAttribute('data-compact',height<242||w<155);place(panel,z);
         if(g!==geom||wasHidden)restoreRow();
       }else if(!tab.hidden){
-        tab.style.left=clamp(side==='right'?edge-6:edge-tab.offsetWidth+6,4,c.w-tab.offsetWidth-4)+'px';
-        tab.style.top=clamp(c.y+112*c.scale,16,c.h-tab.offsetHeight-18)+'px';
+        place(tab,root.V25aPaperDock.sizeScale(c.scale,!next,roomW,roomH,tab.offsetWidth,tab.offsetHeight));
       }
       geom=g;wide=next;
     }
@@ -76,6 +95,10 @@
     function open(edit=false){
       if(document.querySelector('dialog[open]'))return;
       if(mode==='off'){start=origin();edit=true;}
+      else if(mount&&trigger===document.activeElement){
+        const c=camera(),hx=c.x+mount.bx*c.scale,hy=c.y+mount.by*c.scale;
+        if(hx<0||hx>c.w||hy<0||hy>c.h)mount=null;
+      }
       interrupt();root.PaperImmersion?.hideChrome();setMode('browse');
       if(edit)input.focus({preventScroll:true});else $('vf-close').focus({preventScroll:true});
     }
@@ -83,7 +106,7 @@
     trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=tuck;
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
     $('vf-end').onclick=()=>{setMode('off');start=null;input.value='';refresh(true);stage.focus({preventScroll:true});};
-    stage.addEventListener('pointerdown',()=>{if(!panel.hidden)tuck();},true);
+    root.V25aPaperDock.onTap(stage,()=>{if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
       else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();tuck();}
