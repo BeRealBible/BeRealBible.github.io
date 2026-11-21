@@ -11,7 +11,7 @@
     else if(direction>0&&hi<last){hi++;lo=Math.max(lo,hi-LIMIT+1);}
     return {lo,hi};
   }
-  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse}){
+  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse,select}){
     const doc=stage.ownerDocument,win=doc.defaultView;
     let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null;
     let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0;
@@ -47,6 +47,7 @@
     tools.setAttribute('role','group');tools.setAttribute('aria-label','浮窗操作');
     tools.append(back,jump,pin,minimize,exit);head.append(name,tools);
     panel.append(head,scroll,resize);home.append(panel);
+    const picking=select&&win.V25FloatSelection?.mount({panel,scroll,scripture,current:()=>activeRow,...select});
     const clock=()=>win.performance.now();
     function limits(){
       const vv=win.visualViewport,width=vv?.width??win.innerWidth,height=vv?.height??win.innerHeight;
@@ -101,7 +102,7 @@
     }
     function collapse(value){
       const focused=panel.contains(doc.activeElement);
-      if(value&&!collapsed){lastTop=scroll.scrollTop;}
+      if(value&&!collapsed){lastTop=scroll.scrollTop;picking?.close();}
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
       const target=value&&dock?dock:home;
       if(panel.parentNode!==target)target.append(panel);
@@ -113,6 +114,7 @@
     }
     function close(reason='dismiss',restore=false){
       if(!config)return;
+      picking?.close();
       const closed=config;config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       closed.onClose?.(reason,restore);
       if(restore&&(doc.activeElement===doc.body||panel.contains(doc.activeElement)))stage.focus({preventScroll:true});
@@ -142,6 +144,7 @@
     function gather(){
       rows=Array.from(scroll.querySelectorAll('[data-verse-id]'),el=>({el,row:stream.byRef.get(el.dataset.ref)}));
       panel.dataset.chunkCount=String(scroll.childElementCount);
+      picking?.render();
     }
     function aim(row){
       if(!row||!config)return;
@@ -246,9 +249,9 @@
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
     }
-    return {panel,scroll,open,close,collapse,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
+    return {panel,scroll,open,close,collapse,picking,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
   }
-  function mount({stage,scripture,onRead,feedback=()=>{},onJump}){
+  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin}){
     const doc=stage.ownerDocument,home=doc.createElement('div'),dock=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
     dock.setAttribute('role','group');dock.setAttribute('aria-label','已收起的经文浮窗');
@@ -257,7 +260,8 @@
     let clock=0;
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
-        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin)});
+        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),
+        select:marks&&{marks,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));
@@ -280,11 +284,11 @@
       if(pin.panel.hasAttribute('data-collapsed')){makeRoom();place(pin);pin.collapse(false);}
       used(pin);pin.focus();
     }
-    function display(rows,settings={},promote=false){
+    function display(rows,settings={},promote=false,notice=feedback){
       const key=rows.map(row=>row.id).sort().join('|');
       const existing=pins.find(pin=>!pin.panel.hidden&&pin.key===key);
       const target=existing||pins.find(pin=>pin.panel.hidden);
-      if(!target){feedback('已固定 5 个经文浮窗，请先关闭一个后再固定',3600);return false;}
+      if(!target){notice('已固定 5 个经文浮窗，请先关闭一个后再固定',3600);return false;}
       if(promote)preview.close('pin');
       if(existing){activate(existing);return true;}
       makeRoom();delete target.panel.dataset.slot;place(target);
@@ -293,12 +297,16 @@
       if(ok)used(target);
       return ok;
     }
-    function openSelection(locs){
+    function openSelection(locs,notice=feedback){
       const run=scripture.pinSelection(locs);
-      if(!run.length){feedback('未找到可固定的经文');return false;}
+      if(!run.length){notice('未找到可固定的经文');return false;}
       const [a]=run,b=run.at(-1);
-      return display(run,{label:'对照 · '+scripture.label(a,b)});
+      return display(run,{label:'对照 · '+scripture.label(a,b)},false,notice);
     }
+    function clearSelection(except){
+      for(const pin of pins)if(pin!==except)pin.picking?.reset();
+    }
+    function refreshHighlights(){for(const pin of pins)if(!pin.panel.hidden)pin.picking?.render();}
     function open(loc){
       const resolved=scripture.resolve(loc);
       if(!resolved.length){feedback('找不到此处经文');return false;}
@@ -322,7 +330,7 @@
         onPin:pin,
         onJump:settings.onJump||((row)=>{preview.close('jump');onJump?.(row);})});
     }
-    return {open,openSelection,openPreview,choices,preview};
+    return {open,openSelection,openPreview,choices,preview,clearSelection,refreshHighlights};
   }
   return {mount,windowRange,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });

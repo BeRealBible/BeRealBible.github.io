@@ -216,6 +216,65 @@
     if(!quote?.trim()||!question?.trim()||!Object.hasOwn(searchProviders,provider))return null;
     return searchProviders[provider](quote.trim()+'\n\n'+question.trim());
   }
+  function actionLabel(button,text){button.setAttribute('aria-label',text);button.setAttribute('title',text);}
+  function makeToolbar(doc,actions,label,floatLabel='在浮窗阅读'){
+    const bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label',label);
+    const items=[
+      ['复制','copy','M8 6V4.5A1.5 1.5 0 0 1 9.5 3h9A1.5 1.5 0 0 1 20 4.5v12M5.5 7h9a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 19.5v-11A1.5 1.5 0 0 1 5.5 7Z'],
+      ['网页搜索','search','M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z'],
+      ['高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10'],
+      [floatLabel,'float','M8 8h13v12H8zM16 8V4H3v12h5m8-5v4h-4'],
+      ['退出','exit','m6 6 12 12m0-12L6 18']
+    ];
+    for(const [name,key,d] of items){
+      if(!actions[key])continue;
+      const b=doc.createElement('button');b.type='button';actionLabel(b,name);b.setAttribute('data-'+key,'');
+      const icon=doc.createElementNS(SVG,'svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');
+      const line=doc.createElementNS(SVG,'path');line.setAttribute('d',d);icon.appendChild(line);b.appendChild(icon);
+      if(key==='search')b.setAttribute('aria-expanded','false');
+      b.addEventListener('click',actions[key]);bar.appendChild(b);
+    }
+    for(const type of ['pointerdown','pointermove','pointerup','pointercancel','click','wheel'])bar.addEventListener(type,e=>e.stopPropagation());
+    return bar;
+  }
+  function makeSearchForm(doc,win,quote,{valid,cancel,done}){
+    const form=doc.createElement('form'),label=doc.createElement('label'),field=doc.createElement('input');
+    const note=doc.createElement('small'),actions=doc.createElement('div'),back=doc.createElement('button'),submit=doc.createElement('button');
+    form.className='paper-search-form';form.setAttribute('role','search');form.setAttribute('aria-label','搜索所选经文');
+    label.textContent='想问这段经文什么？';
+    field.type='text';field.name='question';field.required=true;field.autocomplete='off';field.enterKeyHint='search';field.placeholder='输入你的问题';
+    let composing=false;
+    field.addEventListener('compositionstart',()=>{composing=true;});
+    field.addEventListener('compositionend',()=>{composing=false;});
+    note.textContent='点击搜索后，所选经文和问题会发送给 Google。';
+    back.type='button';back.textContent='取消';back.addEventListener('click',cancel);
+    submit.type='submit';submit.textContent='搜索';
+    actions.className='paper-search-actions';actions.append(back,submit);
+    label.appendChild(field);form.append(label,note,actions);
+    form.addEventListener('submit',event=>{
+      event.preventDefault();
+      if(composing||!valid(form))return;
+      const url=buildSearchURL(quote,field.value);
+      if(!url){field.focus({preventScroll:true});return;}
+      // Submit is the first point at which either the question or the
+      // selected text can leave the page.
+      win.open(url,'_blank','noopener,noreferrer');done();
+    });
+    return {form,field};
+  }
+  async function writeText(win,text){
+    try{if(win.navigator?.clipboard?.writeText){await win.navigator.clipboard.writeText(text);return true;}}catch{}
+    return false;
+  }
+  function fallbackCopy(doc,bar,text){
+    const field=doc.createElement('textarea');field.className='paper-copy-field';
+    field.value=text;field.readOnly=true;field.setAttribute('aria-label','已选文字，可手动复制');
+    bar.querySelector('.paper-copy-field')?.remove();bar.appendChild(field);field.focus({preventScroll:true});field.select();
+    let ok=false;try{ok=doc.execCommand('copy');}catch{}
+    if(ok)field.remove();
+    else{field.classList.add('manual');field.focus({preventScroll:true});field.select();}
+    return ok;
+  }
   function localPoint(svg,x,y){
     try{const p=svg.createSVGPoint();p.x=x;p.y=y;return p.matrixTransform(svg.getScreenCTM().inverse());}catch{return null;}
   }
@@ -274,7 +333,7 @@
       return {x,y:center-height/2,width:right-x,height};
     }),...mergeRects(unknown)];
   }
-  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,scripture}){
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
@@ -459,7 +518,83 @@
       bar.style.left=x+'px';bar.style.top=within(y,pad,maxY)+'px';
     }
     function schedule(){if(active&&refreshFrame===null)refreshFrame=win.requestAnimationFrame(()=>{refreshFrame=null;anchorBar();});}
-    function actionLabel(b,text){b.setAttribute('aria-label',text);b.setAttribute('title',text);}
+    const print=scripture&&win.V25OriginalData,printedUnits=new Map();
+    const fallbackTarget=row=>({key:'paper-bible-highlights-v1:library:'+row.id,id:'verse'});
+    function printedPage(index,code){
+      const page=print?.pages[index],book=print?.books[page?.b];
+      return book?.code===code?{page,book,key:recordKey(page,index,book)}:null;
+    }
+    function printedTargets(index,code,id){
+      const face=printedPage(index,code);
+      if(!face)return [];
+      let byVerse=printedUnits.get(index);
+      if(!byVerse){
+        byVerse=new Map();
+        const list=commands(face.page,index,print.books).filter(c=>c.role!=='footer-rule');
+        for(const u of indexFace(face.page,list).units){
+          if(!verseOf(u))continue;
+          for(const row of scripture.resolve(location(index,u))){
+            if(!byVerse.has(row.id))byVerse.set(row.id,[]);
+            byVerse.get(row.id).push({key:face.key,id:u.id});
+          }
+        }
+        if(printedUnits.size>=24)printedUnits.delete(printedUnits.keys().next().value);
+        printedUnits.set(index,byVerse);
+      }
+      return byVerse.get(id)||[];
+    }
+    function targetsFor(row){
+      // The physical key remains the interoperable annotation store. Walk
+      // both directions from the verse's first leaf for any split fragments.
+      const hits=Number.isInteger(row.page)?[...printedTargets(row.page,row.code,row.id)]:[];
+      if(Number.isInteger(row.page))for(const dir of [-1,1]){
+        for(let n=row.page+dir;;n+=dir){
+          const part=printedTargets(n,row.code,row.id);
+          if(!part.length)break;
+          hits.push(...part);
+        }
+      }
+      return hits.length?hits:[fallbackTarget(row)];
+    }
+    function verseMarksReader(){
+      const memo=new Map();
+      const marks=key=>{if(!memo.has(key))memo.set(key,pageMarks(key));return memo.get(key);};
+      return row=>{
+        // Most pages have no marks; avoid reconstructing their print units
+        // simply because a floating chapter is scrolled into view.
+        const possible=Number.isInteger(row.page)&&[-1,0,1].some(offset=>{
+          const p=printedPage(row.page+offset,row.code);return p&&marks(p.key).possible;
+        });
+        if(!possible){
+          const f=fallbackTarget(row);return marks(f.key).has(f.id);
+        }
+        return targetsFor(row).every(({key,id})=>marks(key).has(id));
+      };
+    }
+    function writeMarks(entries,value){
+      let durable=true;
+      for(const {key,id} of entries){
+        try{storage.setItem(key+'~used','1');storage.setItem(unitKey(key,id),value?'1':'0');session.get(key)?.delete(id);}
+        catch{durable=false;if(!session.has(key))session.set(key,new Map());session.get(key).set(id,value);}
+      }
+      return durable;
+    }
+    function changedMarks(){
+      // The exposed under-sheet during a turn may be a destination face.
+      // Never refresh that SVG with marks from the current spread.
+      if(stage.dataset.foldProgress===undefined&&stage.dataset.jumpState!=='running'&&stage.dataset.foldState!=='dragging')refresh();
+      onMarksChange?.();
+    }
+    const verseHighlights=scripture&&{
+      reader:verseMarksReader,
+      toggle(rows){
+        if(!rows.length)return null;
+        const remove=rows.every(verseMarksReader()),entries=new Map();
+        for(const row of rows)for(const item of targetsFor(row))entries.set(item.key+'|'+item.id,item);
+        const durable=writeMarks(entries.values(),!remove);changedMarks();
+        return {remove,durable};
+      }
+    };
     function highlightEntries(){
       const result=new Map(),add=(key,id)=>result.set(key+'|'+id,{key,id});
       const db=scripture&&win.V25OriginalData;
@@ -481,12 +616,8 @@
     function highlight(){
       if(!active?.count)return;
       const remove=allSaved();
-      let durable=true;
-      for(const {key,id} of active.highlights){
-        try{storage.setItem(key+'~used','1');storage.setItem(unitKey(key,id),remove?'0':'1');session.get(key)?.delete(id);}
-        catch{durable=false;if(!session.has(key))session.set(key,new Map());session.get(key).set(id,!remove);}
-      }
-      reset();refresh();feedback((remove?'已取消高亮':'已高亮')+(durable?'':'（仅本次阅读）'));
+      const durable=writeMarks(active.highlights,!remove);
+      reset();changedMarks();feedback((remove?'已取消高亮':'已高亮')+(durable?'':'（仅本次阅读）'));
     }
     function toggle(t){
       serial++;
@@ -545,17 +676,9 @@
       const version=serial;
       let text;
       try{text=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
-      let ok=false;
-      try{if(win.navigator?.clipboard?.writeText){await win.navigator.clipboard.writeText(text);ok=true;}}catch{}
+      const ok=await writeText(win,text);
       if(version!==serial||!active)return;
-      if(!ok){
-        const field=doc.createElement('textarea');field.className='paper-copy-field';
-        field.value=text;field.readOnly=true;field.setAttribute('aria-label','已选文字，可手动复制');
-        bar.querySelector('.paper-copy-field')?.remove();bar.appendChild(field);field.focus({preventScroll:true});field.select();
-        try{ok=doc.execCommand('copy');}catch{}
-        if(ok)field.remove();
-        else{field.classList.add('manual');feedback('浏览器未允许自动复制，请手动复制已选文字');field.focus({preventScroll:true});field.select();anchorBar();return;}
-      }
+      if(!ok&&!fallbackCopy(doc,bar,text)){feedback('浏览器未允许自动复制，请手动复制已选文字');anchorBar();return;}
       reset();feedback('已复制选中文字');
     }
     function closeSearch(){
@@ -569,31 +692,7 @@
       if(searchForm||!active?.count)return;
       let quote;try{quote=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
       if(!quote.trim())return;
-      const form=doc.createElement('form'),label=doc.createElement('label'),field=doc.createElement('input');
-      const note=doc.createElement('small'),actions=doc.createElement('div');
-      const cancel=doc.createElement('button'),submit=doc.createElement('button');
-      form.className='paper-search-form';form.setAttribute('role','search');form.setAttribute('aria-label','搜索所选经文');
-      label.textContent='想问这段经文什么？';
-      field.type='text';field.name='question';field.required=true;field.autocomplete='off';field.enterKeyHint='search';
-      field.placeholder='输入你的问题';
-      let composing=false;
-      field.addEventListener('compositionstart',()=>{composing=true;});
-      field.addEventListener('compositionend',()=>{composing=false;});
-      note.textContent='点击搜索后，所选经文和问题会发送给 Google。';
-      cancel.type='button';cancel.textContent='取消';cancel.addEventListener('click',closeSearch);
-      submit.type='submit';submit.textContent='搜索';
-      actions.className='paper-search-actions';actions.append(cancel,submit);
-      label.appendChild(field);form.append(label,note,actions);
-      form.addEventListener('submit',event=>{
-        event.preventDefault();
-        if(composing||searchForm!==form||!active)return;
-        const url=buildSearchURL(quote,field.value);
-        if(!url){field.focus({preventScroll:true});return;}
-        // Keep it synchronous with the user's submit gesture; do not pre-open
-        // a tab, send a preflight, or share opener/referrer with the provider.
-        win.open(url,'_blank','noopener,noreferrer');
-        closeSearch();
-      });
+      const {form,field}=makeSearchForm(doc,win,quote,{valid:form=>searchForm===form&&!!active,cancel:closeSearch,done:closeSearch});
       searchForm=form;bar.dataset.searchOpen='true';
       if(crossPage){serial++;active.faces.clear();active.refs.clear();active.count=0;clearPaint();delete stage.dataset.textSelection;}
       bar.querySelector('[data-search]').setAttribute('aria-expanded','true');
@@ -602,22 +701,9 @@
     const pickedLocations=()=>[...active.faces.values()].flatMap(face=>[...face.selected.values()].map(unit=>location(face.index,unit)));
     function floatSelection(){if(active?.count&&onFloat(pickedLocations()))reset();}
     function initBar(){
-      bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label',crossPage?'经文选区':'本页选文');
-      function button(name,key,path,fn){
-        const b=doc.createElement('button');b.type='button';actionLabel(b,name);b.setAttribute('data-'+key,'');
-        const icon=doc.createElementNS(SVG,'svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');
-        const line=doc.createElementNS(SVG,'path');line.setAttribute('d',path);icon.appendChild(line);b.appendChild(icon);
-        b.addEventListener('click',fn);return b;
-      }
-      bar.append(button('复制','copy','M8 6V4.5A1.5 1.5 0 0 1 9.5 3h9A1.5 1.5 0 0 1 20 4.5v12M5.5 7h9a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 19.5v-11A1.5 1.5 0 0 1 5.5 7Z',copy),
-        button('网页搜索','search','M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',openSearch),
-        button('高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10',highlight),
-        ...(onFloat?[button('在浮窗阅读','float','M8 8h13v12H8zM16 8V4H3v12h5m8-5v4h-4',floatSelection)]:[]),
-        button('退出','exit','m6 6 12 12m0-12L6 18',()=>{reset();stage.focus({preventScroll:true});}));
-      bar.querySelector('[data-search]').setAttribute('aria-expanded','false');
+      bar=makeToolbar(doc,{copy,search:openSearch,highlight,float:onFloat&&floatSelection,
+        exit:()=>{reset();stage.focus({preventScroll:true});}},crossPage?'经文选区':'本页选文');
       stage.appendChild(bar);
-      // Toolbar events must never become paper taps, drags, wheel pans or pinches.
-      for(const type of ['pointerdown','pointermove','pointerup','pointercancel','click','wheel'])bar.addEventListener(type,e=>e.stopPropagation());
       bar.addEventListener('keydown',e=>{
         if(searchForm)e.stopPropagation(); // Editing keys must not turn/zoom the book.
         if(e.key==='Escape'){e.stopPropagation();e.preventDefault();if(searchForm)closeSearch();else{reset();stage.focus({preventScroll:true});}}
@@ -637,7 +723,7 @@
       const ref=scripture&&verseKey(t.entry.index,t.unit);
       if(scripture&&!ref){feedback('请选择有经文节号的正文');return false;}
       if(active){if(!searchForm&&sameFace(t)&&!(ref?active.refs.has(ref):active.faces.get(t.entry.index)?.selected.has(t.unit.id)))toggle(t);return true;}
-      clearFocus();active={faces:new Map(),refs:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
+      onBegin?.();clearFocus();active={faces:new Map(),refs:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
     }
     stage.addEventListener('contextmenu',e=>{
       if(e.target?.closest?.('.paper-selection-tools'))return;
@@ -651,13 +737,12 @@
       const sync=()=>{syncFrame=null;
         // A turning surface temporarily contains the *destination* SVG.
         // Normal finish/return already restores its marks after the handoff.
-        if(stage.dataset.foldProgress!==undefined||stage.dataset.jumpState==='running')return;
-        refresh();if(active)syncPen();
+        changedMarks();if(active)syncPen();
       };
       if(win.requestAnimationFrame)syncFrame=win.requestAnimationFrame(sync);else sync();
     }
     win.addEventListener?.('storage',changed);
-    return {hit,tap,hold,reset,refresh,suspend,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
+    return {hit,tap,hold,reset,refresh,suspend,verseHighlights,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,mergeRects,verseBands,physicalRows};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,makeToolbar,makeSearchForm,writeText,fallbackCopy,actionLabel,mergeRects,verseBands,physicalRows};
 });

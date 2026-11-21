@@ -26,7 +26,7 @@
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
-  let finder=null,searchAnchor=null;
+  let finder=null,searchAnchor=null,compare=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
   let suppressBandClick=null, coverZoom=null, opening=null;
@@ -475,7 +475,7 @@
   }
   function interrupt(keepSelection=false){
     hideStartShortcut();hideColumnShortcut();cancelStartPan();desk?.cancel();columnReading=null;
-    clearHold();queuedTurns=[];if(keepSelection!==true)selection?.reset({keepFocus:true});
+    clearHold();queuedTurns=[];if(keepSelection!==true){selection?.reset({keepFocus:true});compare?.clearSelection();}
     pointers.clear();gesture=null;stage.classList.remove('dragging','curl-dragging');
     chapters?.close();
     if(jumpState){jumpState=null;pageJump.cancel();render();stage.dataset.jumpState='cancelled';}
@@ -521,14 +521,16 @@
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
   const paper=window.V25OriginalData,scripture=window.V25Scripture.create(window.BIBLE_SOURCE,paper);
-  const compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
+  compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
+    marks:()=>selection?.verseHighlights,onBegin:()=>selection?.reset({keepFocus:true}),
     onRead:loc=>history?.visitFloat(loc),onJump:({page,code,ref})=>{
       if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
     }});
   history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,byChapter:true,
-    onFloat:loc=>{selection?.reset({keepFocus:true});compare.open(loc);},
+    onFloat:loc=>{selection?.reset({keepFocus:true});compare.clearSelection();compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
   selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,scripture,
+    onBegin:compare.clearSelection,onMarksChange:compare.refreshHighlights,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   const openingChoice=window.PaperEdgeChapters.openingPreference(storage);
   window.PaperEdgeChapters.mountOpeningChoice($('book-picker-opening'),openingChoice);
