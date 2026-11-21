@@ -13,6 +13,8 @@
 
 本地测试：`node --test test-v25-compare.cjs test-text-selection.cjs`。可用 Playwright 运行 `test-v25-compare-browser.cjs`；指定 `PLAYWRIGHT_MODULE`、`BROWSER_EXE` 可使用本机浏览器环境。离线打包：`python tools/build-v25-compare-offline.py OUTPUT.html`。
 
+发布前，使用 `node tools/check-v25-clarity.cjs 正式版URL 离线文件 输出目录` 对照同一经节在同屏宽、设备像素比和倍率下的截图、纸页字形坐标和浏览器实际字体；不能仅凭窗口观感把主纸页和浮窗混作一个验收项。
+
 ## 切口目录修正版（index-4）
 
 - 参考实体书照片，将 66 卷分成 39 个切口：旧约 23 个、新约 16 个，按 11 + 12 + 11 + 5 多列错开。单卷、上下卷和组合简称分别布局，不再机械地每三卷一组；每卷仍有独立点击目标。末列底部无法清楚辨认的“犹”按全书完整性并入约翰书信组，不冒充逐字复刻照片。
