@@ -385,8 +385,18 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await retainedBody.evaluate(el=>el.scrollTop),savedTop);
       assert.ok(await openPin(...addresses[0]),'reopening an existing passage does not consume another pinned slot');
       assert.equal(await owned.count(),5);
+      const limit=$('#v25-compare-limit');
+      assert.equal(await limit.textContent(),'','reaching the quota is not a warning in itself');
+      const focused=await page.evaluateHandle(()=>document.activeElement);
       assert.equal(await openPin('PSA','23:1'),false);
-      assert.match(await $('#gesture-feedback').textContent(),/已固定 5 个/);
+      await limit.waitFor({state:'visible'});
+      assert.match(await limit.textContent(),/已固定 5 个.*请先关闭一个/);
+      assert.ok(await focused.evaluate(el=>el===document.activeElement),'the notice does not steal focus');
+      await focused.dispose();
+      assert.ok(await limit.evaluate(el=>{
+        const r=el.getBoundingClientRect(),style=getComputedStyle(el);
+        return style.pointerEvents==='none'&&style.opacity==='1'&&r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;
+      }),'the notice is in view and never intercepts clicks or taps');
       assert.equal(await owned.count(),5);
       assert.equal(await openWindows.count(),3);
       assert.equal(await page.evaluate(()=>V25ScriptureWindows.openPreview([{code:'PSA',ref:'23:1'}],
@@ -397,6 +407,9 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await note.locator('[aria-label="固定经文浮窗"]').click();
       assert.ok(await note.isVisible(),'an unsuccessful pin keeps the preview open');
       assert.equal(await owned.count(),5);
+      await limit.waitFor({state:'visible'});
+      await limit.waitFor({state:'hidden',timeout:5000});
+      assert.equal(await limit.textContent(),'','the notice dismisses itself');
       await tabs.first().locator('[aria-label="关闭经文浮窗"]').click();
       assert.equal(await owned.count(),4);
       await note.locator('[aria-label="固定经文浮窗"]').click();

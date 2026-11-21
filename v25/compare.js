@@ -290,9 +290,17 @@
   }
   function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin}){
     const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
+    const limitNote=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
     dock.setAttribute('role','group');dock.setAttribute('aria-label','已收起的经文浮窗');
-    stage.parentElement.append(home,dock);
+    limitNote.id='v25-compare-limit';limitNote.setAttribute('role','status');
+    stage.parentElement.append(home,dock,limitNote);
+    let limitTimer;
+    function showLimit(){
+      clearTimeout(limitTimer);
+      limitNote.textContent=`已固定 ${MAX_PINNED} 个经文浮窗，请先关闭一个。`;
+      limitTimer=setTimeout(()=>{limitNote.textContent='';},3500);
+    }
     const wide=win.matchMedia('(min-width:800px)'),canZoom=win.CSS?.supports?.('zoom','1');
     const getZoom=()=>slipScale(Number(stage.dataset.scale),canZoom&&wide.matches);
     const opts={stage,scripture,getZoom},preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
@@ -328,11 +336,12 @@
       if(pin.panel.hasAttribute('data-collapsed')){makeRoom();place(pin);pin.collapse(false);}
       used(pin);pin.focus();
     }
-    function display(rows,settings={},promote=false,notice=feedback){
+    function display(rows,settings={},promote=false){
       const key=rows.map(row=>row.id).sort().join('|');
       const existing=pins.find(pin=>!pin.panel.hidden&&pin.key===key);
       const target=existing||pins.find(pin=>pin.panel.hidden);
-      if(!target){notice('已固定 5 个经文浮窗，请先关闭一个后再固定',3600);return false;}
+      if(!target){showLimit();return false;}
+      clearTimeout(limitTimer);limitNote.textContent='';
       if(promote)preview.close('pin');
       if(existing){activate(existing);return true;}
       makeRoom();delete target.panel.dataset.slot;place(target);
@@ -345,7 +354,7 @@
       const run=scripture.pinSelection(locs);
       if(!run.length){notice('未找到可固定的经文');return false;}
       const [a]=run,b=run.at(-1);
-      return display(run,{label:'对照 · '+scripture.label(a,b)},false,notice);
+      return display(run,{label:'对照 · '+scripture.label(a,b)});
     }
     function clearSelection(except){
       for(const pin of pins)if(pin!==except)pin.picking?.reset();

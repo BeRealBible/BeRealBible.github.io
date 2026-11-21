@@ -111,7 +111,9 @@ const mime={'.js':'application/javascript','.css':'text/css','.html':'text/html;
         await fullChapter(10).click();await picker.waitFor({state:'hidden'});
         assert.equal(await pinned('GEN.10:1').count(),0);
         assert.equal(await $('.compare-slip[data-role=fixed]:not([hidden])').count(),5);
-        assert.match(await $('#gesture-feedback').textContent(),/已固定 5 个/);
+        const limit=$('#v25-compare-limit');
+        await limit.waitFor({state:'visible'});
+        assert.match(await limit.textContent(),/已固定 5 个.*请先关闭一个/);
         assert.deepEqual(await source(),saved);
 
         await openFull();await choose(picker,'全页打开').click();await state(picker,'page');

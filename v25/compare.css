@@ -43,6 +43,14 @@
 body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
 .paper-immersive .gesture-feedback{z-index:51}
+#v25-compare-limit{
+  position:fixed;z-index:51;left:50%;bottom:calc(var(--rh-foot,46px) + 9px);transform:translateX(-50%);
+  box-sizing:border-box;width:max-content;max-width:calc(100% - 24px);pointer-events:none;
+  color:#624b35;text-align:center;font:12px/1.5 var(--serif,serif)
+}
+#v25-compare-limit:not(:empty){
+  padding:6px 10px;border:1px solid #957a5233;border-radius:5px;background:#fcf3e4f5
+}
 .compare-slip[data-collapsed]{
   width:max-content!important;max-width:min(160px,calc(100vw - 16px));height:auto!important;grid-template-rows:auto;
   background:var(--slip-tab-paper);box-shadow:0 2px 5px #291b1025;
