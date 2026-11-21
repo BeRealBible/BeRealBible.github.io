@@ -10,6 +10,8 @@
   let keyboardMode = false;
   let heldControls = 0;
   let hoveredControls = 0;
+  let edgeRevealed = false;
+  let shelfPointer = false;
   let deferredInstall = null;
   let groups = [];
   let dock, menuButton, fullscreenButton, installButton, installDialog, installStatus;
@@ -21,9 +23,9 @@
     (root.webkitRequestFullscreen && document.webkitFullscreenEnabled !== false)
   );
 
-  function scheduleHide(delay = 5000) {
+  function scheduleHide(delay = edgeRevealed ? 420 : 5000) {
     window.clearTimeout(hideTimer);
-    if (!chromeVisible || scene !== 'reading') return;
+    if (!chromeVisible || scene !== 'reading' || (edgeRevealed && shelfPointer)) return;
     hideTimer = window.setTimeout(() => {
       const focused = keyboardMode && groups.some(group => group.contains(document.activeElement));
       if (heldControls || hoveredControls || focused || document.querySelector('dialog[open]')) {
@@ -45,8 +47,9 @@
     }
   }
 
-  function showChrome() {
+  function showChrome(fromEdge = false) {
     if (scene !== 'reading' || (!v25 && document.body?.hasAttribute('data-minimal-reader'))) return;
+    edgeRevealed = fromEdge === true;
     chromeVisible = true;
     setControlsVisible(true);
     scheduleHide();
@@ -58,6 +61,8 @@
       (v25 ? document.getElementById('stage') : menuButton)?.focus({ preventScroll: true });
     }
     chromeVisible = false;
+    edgeRevealed = false;
+    shelfPointer = false;
     heldControls = 0;
     hoveredControls = 0;
     setControlsVisible(false);
@@ -144,12 +149,53 @@
     group.addEventListener('click', () => scheduleHide());
   }
 
+  function watchBottomEdge(shelf, stage) {
+    if (!shelf || !stage) return;
+    const wideMouse = window.matchMedia('(min-width: 800px) and (any-hover: hover) and (any-pointer: fine)');
+    const grip = 8;
+    let atBottom = false;
+    window.addEventListener('pointermove', event => {
+      if (!wideMouse.matches || event.pointerType !== 'mouse') return;
+      const { clientX: x, clientY: y, buttons, target } = event;
+      const inStrip = x >= 0 && x < window.innerWidth && y >= window.innerHeight - grip && y < window.innerHeight;
+      const entered = inStrip && !atBottom;
+      atBottom = inStrip;
+      const overShelf = target?.closest?.('#reading-history') === shelf;
+      if (edgeRevealed) {
+        const inside = inStrip || overShelf;
+        if (inside !== shelfPointer) { shelfPointer = inside; scheduleHide(); }
+        return;
+      }
+      // No hit surface, discovery click or scroll handler: the last few
+      // pixels are still ordinary paper when the reader is being dragged.
+      if (!entered || buttons || chromeVisible || scene !== 'reading' || root.dataset.ruleLayout !== 'ready') return;
+      if (stage.dataset.v25Opening || /^(dragging|automatic|settling)/.test(stage.dataset.foldState || '') ||
+          /^(running|switching)$/.test(stage.dataset.jumpState || '') ||
+          document.querySelector('dialog[open],.edge-chapters:not([hidden])') ||
+          target?.closest?.('.compare-slip,#verse-finder,#v25-citation-choice,.paper-selection-tools')) return;
+      shelfPointer = true;
+      showChrome(true);
+    }, { capture: true, passive: true });
+    window.addEventListener('pointerout', event => {
+      if (event.pointerType !== 'mouse' || event.relatedTarget) return;
+      atBottom = false;
+      if (edgeRevealed) { shelfPointer = false; hoveredControls = 0; scheduleHide(); }
+    }, true);
+    const reset = () => {
+      atBottom = false;
+      if (edgeRevealed) hideChrome();
+    };
+    window.addEventListener('blur', reset);
+    wideMouse.addEventListener?.('change', reset);
+  }
+
   function init() {
     if (initialized) return;
     initialized = true;
     if (document.body.hasAttribute('data-minimal-reader')) {
       groups = [document.querySelector('.reader-header'), document.getElementById('reading-tools'), document.querySelector('.reader-footer'), v25 && document.getElementById('reading-history')].filter(Boolean);
       groups.forEach(protectControlInteraction);
+      if (v25) watchBottomEdge(document.getElementById('reading-history'), document.getElementById('stage'));
       root.classList.add('paper-immersive');
       setScene(scene);
       window.dispatchEvent(new Event('resize'));
