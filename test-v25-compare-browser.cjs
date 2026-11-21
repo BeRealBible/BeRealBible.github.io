@@ -327,12 +327,73 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await stage.getAttribute('data-spread'),'102');
       // Very narrow windows keep the reference visible even for a long book name.
       await page.evaluate(()=>V25ScriptureWindows.open({bookCode:'2TH',ref:'3:16'}));
-      const grip=float.locator('.compare-slip__resize');
+      const long=$('.compare-slip[data-citation="2TH.3:16"]:not([hidden])');
+      const grip=long.locator('.compare-slip__resize');
       for(let i=0;i<7;i++)await grip.press('Shift+ArrowLeft');
-      await oneLine(float);
-      assert.equal(await float.locator('.compare-slip__address').textContent(),'3:16');
+      await oneLine(long);
+      assert.equal(await long.locator('.compare-slip__address').textContent(),'3:16');
+      assert.ok(await float.isVisible(),'opening a different passage must not replace an existing comparison');
+
+      const owned=$('.compare-slip[data-role=fixed]:not([hidden])');
+      const openWindows=$('.compare-slip:not([hidden]):not([data-collapsed])');
+      const tabs=$('#v25-compare-tabs .compare-slip:not([hidden])');
+      const openPin=(code,ref)=>page.evaluate(({code,ref})=>V25ScriptureWindows.open({code,ref}),{code,ref});
+      const windowAt=key=>owned.and($('.compare-slip[data-citation="'+key+'"]'));
+      await page.evaluate(()=>document.querySelectorAll('.compare-slip[data-role=fixed]:not([hidden]) button[aria-label="关闭经文浮窗"]').forEach(b=>b.click()));
+      const addresses=[['GEN','1:8'],['EXO','2:2'],['MAT','5:3'],['JHN','3:16'],['ROM','8:1']];
+      assert.ok(await openPin(...addresses[0]));
+      const retained=windowAt('GEN.1:8'),retainedBody=retained.locator('.compare-slip__scroll');
+      const savedTop=await retainedBody.evaluate(el=>{el.scrollTop=110;return el.scrollTop;});
+      assert.ok(savedTop>0);
+      for(const [i,loc] of addresses.slice(1).entries()){
+        assert.ok(await openPin(...loc));assert.equal(await owned.count(),i+2);
+        assert.equal(await openWindows.count(),Math.min(i+2,3));
+      }
+      assert.equal(await tabs.count(),2);
+      assert.ok(await retained.getAttribute('data-collapsed')!==null);
+      await retained.locator('.compare-slip__title').click();
+      assert.equal(await openWindows.count(),3);
+      assert.equal(await tabs.count(),2);
+      assert.equal(await retainedBody.evaluate(el=>el.scrollTop),savedTop);
+      assert.ok(await openPin(...addresses[0]),'reopening an existing passage does not consume another pinned slot');
+      assert.equal(await owned.count(),5);
+      assert.equal(await openPin('PSA','23:1'),false);
+      assert.match(await $('#gesture-feedback').textContent(),/已固定 5 个/);
+      assert.equal(await owned.count(),5);
+      assert.equal(await openWindows.count(),3);
+      assert.equal(await page.evaluate(()=>V25ScriptureWindows.openPreview([{code:'PSA',ref:'23:1'}],
+        {kind:'search',label:'搜索命中经文',focus:true,keywords:['耶和华']})),true);
+      assert.equal(await openWindows.count(),3,'a temporary preview also occupies an expanded slot');
+      assert.equal(await tabs.count(),3);
+      assert.equal(await owned.count(),5);
+      await note.locator('[aria-label="固定经文浮窗"]').click();
+      assert.ok(await note.isVisible(),'an unsuccessful pin keeps the preview open');
+      assert.equal(await owned.count(),5);
+      await tabs.first().locator('[aria-label="关闭经文浮窗"]').click();
+      assert.equal(await owned.count(),4);
+      await note.locator('[aria-label="固定经文浮窗"]').click();
+      await note.waitFor({state:'hidden'});
+      assert.equal(await owned.count(),5);
+      assert.equal(await openWindows.count(),3);
+      assert.ok(await windowAt('PSA.23:1').locator('p mark').count());
+      // Keeping all five as paper tabs must not create an extra quota or
+      // leave any tab overlapping another or outside the screen.
+      await page.evaluate(()=>document.querySelectorAll('.compare-slip[data-role=fixed]:not([hidden]):not([data-collapsed]) button[aria-label="收起经文浮窗"]').forEach(b=>b.click()));
+      assert.equal(await owned.count(),5);
+      assert.equal(await openWindows.count(),0);
+      assert.equal(await tabs.count(),5);
+      await page.waitForFunction(()=>[...document.querySelectorAll('#v25-compare-tabs .compare-slip:not([hidden])')]
+        .every(n=>getComputedStyle(n.querySelector('.compare-slip__head')).minHeight==='28px'));
+      assert.ok(await tabs.evaluateAll(all=>{
+        const rects=all.map(el=>el.getBoundingClientRect());
+        return rects.every((r,i)=>r.width>0&&r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight&&
+          rects.slice(i+1).every(s=>r.right<=s.left||s.right<=r.left||r.bottom<=s.top||s.bottom<=r.top));
+      }));
+      await tabs.last().locator('.compare-slip__title').click();
+      assert.equal(await owned.count(),5);
+      assert.equal(await openWindows.count(),1);
       assert.deepEqual(errors,[]);
-      console.log(width,'PASS chapter and book clipboard, pinned prefix, 3-chapter rolling window, history, search & notes');
+      console.log(width,'PASS clipboard, chapter rolling window, history, search, notes, and 5 pinned / 3 expanded caps');
       await context.close();
     }
   }finally{await browser.close();}

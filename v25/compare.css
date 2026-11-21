@@ -31,13 +31,22 @@
 .compare-slip[hidden]{display:none}
 .compare-slip [hidden]{display:none!important}
 #book-volume .paper > .v25-footnote-target{cursor:pointer}
-.compare-slip[data-role=secondary]{left:max(20px,env(safe-area-inset-left));right:auto}
+#v25-compare-layer{position:fixed;inset:0;z-index:46;pointer-events:none}
+#v25-compare-layer .compare-slip{pointer-events:auto;z-index:var(--slip-priority,1)}
+#v25-compare-tabs{
+  position:fixed;top:max(9px,env(safe-area-inset-top));left:max(9px,env(safe-area-inset-left));
+  z-index:50;display:flex;flex-wrap:wrap;gap:4px;max-width:min(48vw,calc(100vw - 18px));pointer-events:none
+}
+#v25-compare-tabs .compare-slip[data-collapsed]{position:relative;inset:auto!important;pointer-events:auto}
+.compare-slip[data-slot="1"]{left:max(20px,env(safe-area-inset-left));right:auto}
+.compare-slip[data-slot="2"]{top:auto;bottom:max(56px,env(safe-area-inset-bottom))}
 .compare-slip[data-role=preview]{z-index:49}
 .compare-slip[data-kind=footnote]{--compare-height-px:285px;width:clamp(255px,26vw,350px)}
 .compare-slip[data-kind=search]{--compare-height-px:350px}
 /* The active navigation tools take priority if paper slips overlap. */
 body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
+.paper-immersive .gesture-feedback{z-index:51}
 .compare-slip[data-collapsed]{
   width:max-content!important;max-width:min(160px,calc(100vw - 16px));height:auto!important;grid-template-rows:auto;
   background:var(--slip-tab-paper);box-shadow:0 2px 5px #291b1025;
@@ -99,7 +108,10 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   .paper-selection-tools[data-docked] button{width:36px;height:36px}
 }
 @media(max-width:639px){
+  #v25-compare-tabs{max-width:calc(100vw - 18px)}
   .compare-slip{--compare-height-px:260px;top:auto;bottom:max(54px,calc(env(safe-area-inset-bottom) + 42px));right:max(9px,env(safe-area-inset-right));width:min(300px,78vw);height:min(var(--compare-height-px),40dvh);font-size:14px}
+  .compare-slip[data-slot="1"]{top:max(50px,calc(env(safe-area-inset-top) + 42px));bottom:auto;left:max(9px,env(safe-area-inset-left))}
+  .compare-slip[data-slot="2"]{top:calc(50dvh - min(130px,20dvh));bottom:auto}
   .compare-slip[data-kind=footnote]{--compare-height-px:215px;width:min(273px,76vw)}
   .compare-slip[data-kind=search]{--compare-height-px:264px}
   .compare-slip__head{min-height:34px;padding-right:4px}.compare-slip__title strong{font-size:13px}

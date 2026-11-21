@@ -5,16 +5,16 @@
   else root.V25Compare=api;
 })(typeof window==='undefined'?globalThis:window,function(){
   'use strict';
-  const LIMIT=3,clamp=(n,a,b)=>Math.max(a,Math.min(n,Math.max(a,b)));
+  const LIMIT=3,MAX_PINNED=5,MAX_EXPANDED=3,clamp=(n,a,b)=>Math.max(a,Math.min(n,Math.max(a,b)));
   function windowRange(lo,hi,direction,last){
     if(direction<0&&lo>0){lo--;hi=Math.min(hi,lo+LIMIT-1);}
     else if(direction>0&&hi<last){hi++;lo=Math.max(lo,hi-LIMIT+1);}
     return {lo,hi};
   }
-  function createWindow({stage,scripture,id,role}){
+  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse}){
     const doc=stage.ownerDocument,win=doc.defaultView;
-    let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null,expandedSize=null;
-    let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0,ignoreTitleClick=0;
+    let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null;
+    let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0;
     function node(tag,cls,text){
       const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
     }
@@ -33,7 +33,8 @@
       svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');
       line.setAttribute('d',path);svg.append(line);b.append(svg);return b;
     };
-    const minimize=btn('compare-slip__icon compare-slip__minimize','−','收起经文浮窗',()=>collapse(!collapsed));
+    const toggle=()=>collapsed?onExpand?.():collapse(true);
+    const minimize=btn('compare-slip__icon compare-slip__minimize','−','收起经文浮窗',toggle);
     const exit=btn('compare-slip__icon','×','关闭经文浮窗',()=>close('dismiss',true));
     const resize=btn('compare-slip__resize','','拖动调整浮窗大小；也可使用方向键');
     const back=action('back','返回搜索结果','M20 12H4m7-7-7 7 7 7',()=>close('back',true));
@@ -41,11 +42,11 @@
     const pin=action('pin','固定经文浮窗','m15 4 5 5-3 1-3 4 .5 2.5L13 18l-7-7 1.5-1.5 2.5.5 4-3 1-3ZM9.5 14.5 4 20',()=>config?.onPin?.(config.rows,activeRow));
     panel.id=id;panel.dataset.role=role;panel.hidden=true;panel.setAttribute('aria-label','经文浮窗');
     name.type='button';name.append(title);
-    name.onclick=e=>{if(collapsed&&(e.detail===0||clock()>=ignoreTitleClick))collapse(false);};
+    name.onclick=()=>{if(collapsed)onExpand?.();};
     scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','浮窗经文');
     tools.setAttribute('role','group');tools.setAttribute('aria-label','浮窗操作');
     tools.append(back,jump,pin,minimize,exit);head.append(name,tools);
-    panel.append(head,scroll,resize);stage.parentElement.append(panel);
+    panel.append(head,scroll,resize);home.append(panel);
     const clock=()=>win.performance.now();
     function limits(){
       const vv=win.visualViewport,width=vv?.width??win.innerWidth,height=vv?.height??win.innerHeight;
@@ -58,19 +59,17 @@
       const w=clamp(box.width,minW,lim.right-lim.left),h=clamp(box.height,minH,lim.bottom-lim.top);
       const keep=!collapsed&&Math.abs(panel.getBoundingClientRect().width-w)>1?firstVisible():null;
       const offset=keep?keep.el.offsetTop-scroll.scrollTop:0;
-      const visual=collapsed?panel.getBoundingClientRect():null;
-      manual={left:clamp(box.left,lim.left,lim.right-(visual?.width||w)),top:clamp(box.top,lim.top,lim.bottom-(visual?.height||h)),width:w,height:h};
+      manual={left:clamp(box.left,lim.left,lim.right-w),top:clamp(box.top,lim.top,lim.bottom-h),width:w,height:h};
       Object.assign(panel.style,{left:manual.left+'px',top:manual.top+'px',right:'auto',bottom:'auto',width:w+'px',height:h+'px'});
       if(keep){scroll.scrollTop=keep.el.offsetTop-offset;lastTop=scroll.scrollTop;}
     }
     function shape(){
-      const b=panel.getBoundingClientRect(),saved=collapsed&&(manual||expandedSize);
-      return {left:b.left,top:b.top,width:saved?.width||b.width,height:saved?.height||b.height};
+      const b=panel.getBoundingClientRect();
+      return {left:b.left,top:b.top,width:b.width,height:b.height};
     }
     function sizeFrom(handle,kind){
       handle.onpointerdown=e=>{
-        if(e.button!==0||adjust)return;
-        if(kind==='move')ignoreTitleClick=0; // A new contact is not the last drag's compatibility click.
+        if(e.button!==0||adjust||collapsed)return;
         e.preventDefault();adjust={id:e.pointerId,handle,x:e.clientX,y:e.clientY,box:shape()};
         panel.dataset.adjust=kind;handle.setPointerCapture(e.pointerId);handle.focus({preventScroll:true});
       };
@@ -78,7 +77,6 @@
         if(adjust?.id!==e.pointerId||adjust.handle!==handle)return;
         const {box,x,y}=adjust,dx=e.clientX-x,dy=e.clientY-y,lim=limits();
         if(kind==='move'){
-          if(Math.hypot(dx,dy)>4)ignoreTitleClick=clock()+300;
           fitRect({...box,left:box.left+dx,top:box.top+dy});
         }
         else fitRect({...box,width:Math.min(box.width+dx,lim.right-box.left),height:Math.min(box.height+dy,lim.bottom-box.top)});
@@ -86,14 +84,14 @@
       const stop=e=>{if(adjust?.id===e.pointerId&&adjust.handle===handle){adjust=null;delete panel.dataset.adjust;}};
       for(const event of ['pointerup','pointercancel','lostpointercapture'])handle.addEventListener(event,stop);
       handle.onkeydown=e=>{
-        const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(!d)return;
+        const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(!d||collapsed)return;
         e.preventDefault();const b=shape(),step=e.shiftKey?32:12,x=d[0]*step,y=d[1]*step;
         fitRect({left:b.left+(kind==='move'?x:0),top:b.top+(kind==='move'?y:0),
           width:b.width+(kind==='size'?x:0),height:b.height+(kind==='size'?y:0)});
       };
     }
     sizeFrom(name,'move');sizeFrom(resize,'size');
-    function reflow(){if(!panel.hidden&&manual)fitRect(manual);}
+    function reflow(){if(!panel.hidden&&!collapsed&&manual)fitRect(manual);}
     win.addEventListener('resize',reflow);win.visualViewport?.addEventListener('resize',reflow);
     function labelTitle(){
       if(!activeRow||!config)return;
@@ -102,12 +100,16 @@
       name.title=label+(collapsed?'；点击展开':'；拖动标题栏移动，也可使用方向键');
     }
     function collapse(value){
-      if(value&&!collapsed){expandedSize=shape();lastTop=scroll.scrollTop;}
+      const focused=panel.contains(doc.activeElement);
+      if(value&&!collapsed){lastTop=scroll.scrollTop;}
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
+      const target=value&&dock?dock:home;
+      if(panel.parentNode!==target)target.append(panel);
       minimize.textContent=value?'+':'−';minimize.title=value?'展开经文浮窗':'收起经文浮窗';
       minimize.setAttribute('aria-label',minimize.title);minimize.setAttribute('aria-expanded',String(!value));
       labelTitle();reflow();
       if(!value){scroll.scrollTop=lastTop;lastTop=scroll.scrollTop;}
+      else if(focused)name.focus({preventScroll:true});
     }
     function close(reason='dismiss',restore=false){
       if(!config)return;
@@ -188,6 +190,7 @@
     },{passive:true});
     scroll.addEventListener('wheel',e=>{
       if(!e.deltaY||e.ctrlKey||e.metaKey||clock()-loadedAt<55)return;
+      onUse?.();
       const direction=Math.sign(e.deltaY);if(atEdge(direction))extend(direction);
     },{passive:true});
     let touch=null;
@@ -200,6 +203,8 @@
       if(dy>0&&start.top&&atEdge(-1))extend(-1);
     },{passive:true});
     scroll.addEventListener('touchcancel',()=>{touch=null;},{passive:true});
+    panel.addEventListener('pointerdown',()=>{if(!collapsed)onUse?.();},true);
+    panel.addEventListener('focusin',()=>{if(!collapsed)onUse?.();});
     panel.addEventListener('keydown',e=>{
       if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close('dismiss',true);return;}
       if(e.target!==scroll)return;
@@ -229,7 +234,7 @@
       panel.dataset.kind=config.kind;panel.hidden=false;
       panel.setAttribute('aria-label',config.ariaLabel||'经文对照浮窗');
       back.hidden=!config.onBack;jump.hidden=!config.onJump;pin.hidden=!config.onPin;minimize.hidden=role==='preview';
-      if(role==='preview'){manual=null;panel.removeAttribute('style');}
+      manual=null;panel.removeAttribute('style');
       collapse(false);
       if(config.anchor){
         const r=config.anchor.getBoundingClientRect(),box=shape(),lim=limits();
@@ -241,16 +246,52 @@
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
     }
-    return {panel,scroll,open,close,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
+    return {panel,scroll,open,close,collapse,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
   }
   function mount({stage,scripture,onRead,feedback=()=>{},onJump}){
-    const opts={stage,scripture},primary=createWindow({...opts,id:'v25-compare',role:'primary'}),
-      secondary=createWindow({...opts,id:'v25-compare-alt',role:'secondary'}),
-      preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
-    const desktop=()=>stage.ownerDocument.defaultView.matchMedia('(min-width:800px)').matches;
-    function display(rows,settings={},extra=false){
-      const panel=extra&&desktop()&&!primary.panel.hidden?secondary:primary;
-      return panel.open({kind:'compare',label:'经文对照',rows,onRead,onJump,focus:true,...settings});
+    const doc=stage.ownerDocument,home=doc.createElement('div'),dock=doc.createElement('div');
+    home.id='v25-compare-layer';dock.id='v25-compare-tabs';
+    dock.setAttribute('role','group');dock.setAttribute('aria-label','已收起的经文浮窗');
+    stage.parentElement.append(home,dock);
+    const opts={stage,scripture},preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
+    let clock=0;
+    const pins=Array.from({length:MAX_PINNED},(_,i)=>{
+      const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
+        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin)});
+      return pin;
+    });
+    const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));
+    function used(pin){
+      pin.used=++clock;
+      pin.panel.style.setProperty('--slip-priority',pin.used);
+    }
+    function makeRoom(){
+      const ordered=expanded().sort((a,b)=>a.used-b.used);
+      // A preview borrows screen space, never a fixed-window slot.
+      if(ordered.length+Number(!preview.panel.hidden)>=MAX_EXPANDED)ordered[0]?.collapse(true);
+    }
+    function place(pin){
+      const taken=new Set(expanded().map(item=>item.panel.dataset.slot));
+      const current=pin.panel.dataset.slot;
+      if(current!==undefined&&!taken.has(current))return;
+      pin.panel.dataset.slot=String(Array.from({length:MAX_EXPANDED},(_,i)=>i).find(i=>!taken.has(String(i))));
+    }
+    function activate(pin){
+      if(pin.panel.hasAttribute('data-collapsed')){makeRoom();place(pin);pin.collapse(false);}
+      used(pin);pin.focus();
+    }
+    function display(rows,settings={},promote=false){
+      const key=rows.map(row=>row.id).sort().join('|');
+      const existing=pins.find(pin=>!pin.panel.hidden&&pin.key===key);
+      const target=existing||pins.find(pin=>pin.panel.hidden);
+      if(!target){feedback('已固定 5 个经文浮窗，请先关闭一个后再固定',3600);return false;}
+      if(promote)preview.close('pin');
+      if(existing){activate(existing);return true;}
+      makeRoom();delete target.panel.dataset.slot;place(target);
+      target.key=key;target.panel.dataset.citation=key;
+      const ok=target.open({kind:'compare',label:'经文对照',rows,onRead,onJump,focus:true,...settings});
+      if(ok)used(target);
+      return ok;
     }
     function openSelection(locs){
       const run=scripture.pinSelection(locs);
@@ -274,14 +315,14 @@
     function openPreview(locs,settings){
       const rows=scripture.from(locs);
       if(!rows.length||rows.some(row=>row.code!==rows[0].code))return false;
-      const openPinned=(selected,seed)=>display(selected,settings.keywords?.length?
+      if(preview.panel.hidden)makeRoom();
+      const pin=(selected,seed)=>display(selected,settings.keywords?.length?
         {seed,keywords:settings.keywords,label:'对照 · 搜索命中'}:{seed},true);
-      const pin=(selected,seed)=>{preview.close('pin');openPinned(selected,seed);};
       return preview.open({...settings,rows,
         onPin:pin,
         onJump:settings.onJump||((row)=>{preview.close('jump');onJump?.(row);})});
     }
     return {open,openSelection,openPreview,choices,preview};
   }
-  return {mount,windowRange,LIMIT};
+  return {mount,windowRange,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });
