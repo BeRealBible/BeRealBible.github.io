@@ -56,6 +56,7 @@
     const ref=preciseRef?.page===page&&preciseRef.bookCode===b.code&&preciseRef.ref||p.start||'';
     return {page,bookName:b.name,bookCode:b.code,ref};
   }
+  function advanceHistory(){const row=history?.advance(readingLocation());if(row)deskKey=row.id;}
   if(saved?.explicitRef&&saved.ref&&saved.bookName===currentBook().name&&saved.page===readingLocation().page){
     preciseRef={page:saved.page,bookCode:currentBook().code,ref:saved.ref};
   }
@@ -121,9 +122,9 @@
       }
     }
   }
-  function render({reusePages=false,keepFocus=false}={}){
+  function render({reusePages=false,keepFocus=false,preserveSelection=false}={}){
     if(!reusePages){
-      selection?.reset({keepFocus});
+      if(!preserveSelection)selection?.reset({keepFocus});
       papers.forEach((paper,i)=>paper.innerHTML=svgPage(spread+i));
       selection?.refresh?.();markSearchInk();
     }
@@ -167,7 +168,7 @@
     updateIndex();chapters?.reposition?.();finder?.layout();window.dispatchEvent(new Event('v25-camera-changed'));
   }
   function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
-  function fit(){interrupt();focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
+  function fit(){interrupt(true);focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
   // Paper identities identify a spread, not its chapter/verse position.
   // Use the exact destination's printed ink in the existing coordinate system.
   function positionReadingAnchor(requested){
@@ -208,7 +209,7 @@
     if(id!==null)columnReading={spread,id,x,scale};
   }
   function focusPage(side,arriving=false){
-    if(!arriving)interrupt();focus=side;readingSide=side==='left'?0:1;render({keepFocus:true});const e=envelope(),outer=side==='left'?-e.left:e.right-960;
+    if(!arriving)interrupt(true);focus=side;readingSide=side==='left'?0:1;render({reusePages:true});const e=envelope(),outer=side==='left'?-e.left:e.right-960;
     scale=clamp((view.w-32)/(480+outer),fitScale,MAX_SCALE);
     // A fixed double-column page must not become 7 px text on a phone. Keep
     // its outer column and compact book index readable; pan to the inner column.
@@ -270,7 +271,7 @@
     const complete=()=>{
       startPanFrame=0;startPanKind=null;stage.dataset[kind]='committed';
       x=toX;y=toY;readingSide=side;onCommit?.();
-      render({reusePages:true});transform();save();history?.advance(readingLocation());
+      render({reusePages:true});transform();save();advanceHistory();
     };
     if(reduceMotion()){complete();return;}
     const started=performance.now();
@@ -360,7 +361,7 @@
     columnShortcut.hidden=true;
   }
   function offerNextColumn(next){
-    if(!next||selection?.isActive()||jumpState||fold)return;
+    if(!next||jumpState||fold)return;
     if(!columnShortcut){
       columnShortcut=document.createElement('button');columnShortcut.type='button';
       columnShortcut.id='next-column-shortcut';columnShortcut.className='spread-start-shortcut';
@@ -368,7 +369,7 @@
       columnShortcut.hidden=true;stage.append(columnShortcut);
       const activate=()=>{
         const offer=columnOffer;hideColumnShortcut();
-        if(!offer||offer.spread!==spread||fold||jumpState||selection?.isActive())return;
+        if(!offer||offer.spread!==spread||fold||jumpState)return;
         const {next}=offer;
         const targetY=18-next.top*scale;
         panToReadingPoint(18-next.left*scale,targetY,next.side,'columnPan',()=>{
@@ -414,7 +415,7 @@
     const target=clamp(spread+direction*count*2,0,MAX_SPREAD);
     if(target===spread){feedback(direction>0?'已经到最后一页':'已经到第一页');return false;}
     const side=direction>0?1:0;
-    selection?.reset({keepFocus:true});
+    selection?.suspend();
     const grabY=contact?.grabY??628;
     const animate=!noTurnMotion&&(!flatTouch||smoothTurn)&&!reduceMotion();
     const offerStart=v25&&Math.abs(target-spread)===2;
@@ -445,8 +446,8 @@
   function finishFold(commit){
     if(!fold)return;const f=fold;cancelAnimationFrame(foldFrame);foldFrame=0;
     renderer.hide();book.classList.remove('curl-active');papers[f.side].classList.remove('under-curl');papers[f.side].style.removeProperty('--under-sheet-clip');fold=null;
-    if(commit){preciseRef=null;spread=f.target;readingSide=focus==='left'||(focus==='custom'&&(view.w/2-x)/scale<480)?0:1;render();fitScale=measureFit();if(focus==='fit')scale=fitScale;constrain();transform();save();history?.advance(readingLocation());}
-    else if(f.animate){papers[f.side].innerHTML=f.original;selection?.refresh?.();applyMaterial();updateIndex();}
+    if(commit){preciseRef=null;spread=f.target;readingSide=focus==='left'||(focus==='custom'&&(view.w/2-x)/scale<480)?0:1;render({preserveSelection:selection?.isActive()});fitScale=measureFit();if(focus==='fit')scale=fitScale;constrain();transform();save();advanceHistory();}
+    else{if(f.animate){papers[f.side].innerHTML=f.original;applyMaterial();updateIndex();}selection?.refresh?.();}
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     if(queuedTurns.length)turn(...queuedTurns.shift());
     else if(commit&&f.offerStart)offerStartShortcut(f.direction);
@@ -466,7 +467,7 @@
     foldFrame=requestAnimationFrame(frame);
   }
   function turn(direction,count=1,source='control'){
-    if(jumpState||chapters?.isOpen()||selection?.isActive())return;
+    if(jumpState||chapters?.isOpen())return;
     clearHold();
     if(fold){if(fold.settling&&queuedTurns.length<8)queuedTurns.push([direction,count,source]);return;}
     if(startFold(direction,count,source))settleFold();
@@ -518,9 +519,12 @@
     }});
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
-  history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,
+  const compare=window.V25Compare.mount({stage,db:window.V25OriginalData,feedback,
+    clean:window.PaperTextSelection.clipboardText,onRead:loc=>history?.visitFloat(loc)});
+  history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,byChapter:true,
+    onFloat:loc=>{selection?.reset({keepFocus:true});compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
-  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,
+  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:(page,requested)=>jump(page,null,null,requested),
     getBookFrame:bookFrame,onZoom:zoomWithChapterMenu,
@@ -656,14 +660,14 @@
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
       hideStartShortcut();clearHold();
-      const fitSwipe=g.touchFit&&!g.rim&&!selection?.isActive()&&Math.abs(dx)>=Math.abs(dy)*1.35;
+      const fitSwipe=g.touchFit&&!g.rim&&Math.abs(dx)>=Math.abs(dy)*1.35;
       if(fitSwipe)g.edge=Math.sign(-dx);
-      const rimSwipe=g.rim&&!g.token&&!selection?.isActive()&&
+      const rimSwipe=g.rim&&!g.token&&
         (-dx*g.leaf>=Math.abs(dy)*1.35||dy*g.rim>=Math.abs(dx)*1.35);
       if(rimSwipe&&!fitSwipe){
         g.edge=g.leaf;g.verticalTurn=dy*g.rim>=Math.abs(dx)*1.35;
       }
-      const edgeSwipe=g.edge&&!g.token&&!selection?.isActive()&&-dx*g.edge>=Math.abs(dy)*1.35;
+      const edgeSwipe=g.edge&&!g.token&&-dx*g.edge>=Math.abs(dy)*1.35;
       g.kind=fitSwipe||rimSwipe||edgeSwipe?'swipe':'pan';
       if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
@@ -704,7 +708,7 @@
       }
       stage.dataset.lastGesture='text-tap';return;
     }
-    if(v25&&g.kind==='pending'&&!g.band&&!selection?.isActive()){
+    if(v25&&g.kind==='pending'&&!g.band){
       window.dispatchEvent(new Event('paper-reader-tap'));return;
     }
     if(g.kind==='swipe'&&fold){
@@ -713,7 +717,7 @@
     if(g.kind==='pan'){
       stage.dataset.lastGesture='pan';if(g.panned)save();
       const dx=end.x-g.start.x,dy=end.y-g.start.y;
-      if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)&&!selection?.isActive()){
+      if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)){
         const column=mobileReadingColumn(e.pointerType);
         if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
       }
@@ -766,7 +770,7 @@
       else if(Math.abs(b.dy)>=1.35*Math.abs(b.dx))b.axis='vertical';
     }
     if(!b.used&&b.axis==='horizontal'&&Math.abs(b.dx)>=48){
-      b.used=true;if(!fold&&!selection?.isActive())turn(b.dx>0?1:-1,1,'trackpad');
+      b.used=true;if(!fold)turn(b.dx>0?1:-1,1,'trackpad');
     }
   },{passive:false});
   stage.addEventListener('keydown',e=>{
@@ -777,7 +781,7 @@
     else if(e.key==='Escape')interrupt();else if(e.key==='+'||e.key==='=')zoom(scale*1.2);else if(e.key==='-')zoom(scale/1.2);else if(e.key==='0')fit();
   });
   $('fit-book').onclick=fit;$('zoom-value').onclick=fit;
-  for(const side of ['left','right'])$('focus-'+side).onclick=()=>{focusPage(side);history?.advance(readingLocation());};
+  for(const side of ['left','right'])$('focus-'+side).onclick=()=>{focusPage(side);advanceHistory();};
   $('zoom-in').onclick=()=>{if(chapters?.isOpen())zoomWithChapterMenu(1.3);else zoom(scale*1.3);};
   $('zoom-out').onclick=()=>{if(chapters?.isOpen())zoomWithChapterMenu(1/1.3);else zoom(scale/1.3);};
   $('prev').onclick=()=>turn(-1);$('next').onclick=()=>turn(1);

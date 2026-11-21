@@ -91,7 +91,7 @@
     const m=/^verse:(\d+):(\d+)(?:[-–](\d+))?$/.exec(unit.group);
     return m?{ch:+m[1],v:+m[2],end:+(m[3]||m[2])}:null;
   }
-  function formatQuote(items,bookName,faceUnits=[],textFor=u=>u.text){
+  function formatQuote(items,bookName,faceUnits=[],textFor=u=>u.text,chapterBoundary){
     const list=Array.from(items).sort((a,b)=>a.order-b.order);
     if(!bookName||!list.some(verseOf))return copyText(list,textFor);
     const refs=[...new Set(faceUnits.slice().sort((a,b)=>a.order-b.order).filter(verseOf).map(u=>u.group))];
@@ -104,7 +104,8 @@
         // A cross-chapter boundary is only consecutive when these are
         // neighbouring verses on the actual page, not merely a chapter apart.
         const consecutive=p&&((r.ch===p.ch&&r.v===p.end+1)||
-          (r.ch===p.ch+1&&r.v===1&&refs.includes(prev.group)&&refs.indexOf(u.group)===refs.indexOf(prev.group)+1));
+          (r.ch===p.ch+1&&r.v===1&&(chapterBoundary?chapterBoundary(p):
+            refs.includes(prev.group)&&refs.indexOf(u.group)===refs.indexOf(prev.group)+1)));
         if(prev&&!same&&!consecutive)body+='……';
         if(same&&prev.word&&u.word)body+=' ';
         body+=textFor(u);
@@ -160,6 +161,52 @@
       prefix.set(units[0],before);suffix.set(units.at(-1),after);
     }
     return formatQuote(items,bookName,faceUnits,u=>clipboardText((prefix.get(u)||'')+u.text+(suffix.get(u)||'')));
+  }
+  function pagesClipboardQuote(faces,db){
+    const pages=[...faces].sort((a,b)=>a.index-b.index),blocks=[];
+    for(let i=0;i<pages.length;){
+      const a=pages[i],physical=db?.pages[a.index]===a.page;
+      if(!physical||a.page.b<0){
+        blocks.push(clipboardQuote(a.selected.values(),a.bookName,a.units));i++;continue;
+      }
+      let j=i+1;while(j<pages.length&&db.pages[pages[j].index]===pages[j].page&&pages[j].page.b===a.page.b)j++;
+      if(j===i+1){blocks.push(physicalClipboardQuote([...a.selected.values()],a.bookName,a.units,db,a.index));i=j;continue;}
+      const selected=[],refs=new Map(),tagCache=new Map(),stride=1000000;
+      function fragments(n){
+        if(!tagCache.has(n)){
+          const groups=new Map();
+          db.tags(n).forEach((tag,k)=>{
+            if(tag.role!=='body'||!tag.group)return;
+            if(!groups.has(tag.group))groups.set(tag.group,[]);
+            groups.get(tag.group).push(k);
+          });
+          tagCache.set(n,groups);
+        }
+        return tagCache.get(n);
+      }
+      for(const face of pages.slice(i,j))for(const u of face.selected.values()){
+        selected.push({...u,order:face.index*stride+u.order});
+        if(verseOf(u)){
+          if(!refs.has(u.group))refs.set(u.group,new Set());
+          refs.get(u.group).add(face.index);
+        }
+      }
+      // Preserve the entire split verse, without repeating already selected ink.
+      for(const [group,seeds] of refs){
+        const seen=new Set(seeds);
+        for(const seed of seeds)for(const step of [-1,1]){
+          for(let n=seed+step;!seen.has(n)&&db.pages[n]?.b===a.page.b;n+=step){
+            const indices=fragments(n).get(group);if(!indices?.length)break;
+            const ink=db.get(n)?.[3];if(!ink)throw Error('Missing continuation page');
+            seen.add(n);selected.push({group,order:n*stride+indices[0],text:indices.map(k=>ink[k][4]).join('')});
+          }
+        }
+      }
+      const book=db.books[a.page.b];
+      blocks.push(formatQuote(selected,a.bookName,[],u=>clipboardText(u.text),p=>book.versePages[p.ch-1]?.length===p.end));
+      i=j;
+    }
+    return blocks.filter(Boolean).join('\n');
   }
   // Each provider owns only query construction. No network work until submit.
   const searchProviders=Object.freeze({
@@ -227,9 +274,9 @@
       return {x,y:center-height/2,width:right-x,height};
     }),...mergeRects(unknown)];
   }
-  function create({stage,papers,getPage,commands,storage,feedback=()=>{}}){
-    const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map();
-    let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null;
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat}){
+    const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
+    let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
     // The old format is a page-wide array. Keep it as a read-only baseline;
     // independent per-passage overrides prevent two tabs from overwriting
@@ -320,44 +367,61 @@
       }
       svg.insertBefore(g,entry.nodes[0]);return g;
     }
+    const markKey=(index,id)=>index+'|'+id;
+    function clearPaint(){for(const mark of painted.values())mark.remove();painted.clear();}
     function refresh(){
+      clearPaint();
       papers.forEach((paper,side)=>{
         const svg=paper.querySelector('svg');if(!svg)return;
         // A cancelled curl can restore a serialized SVG already containing
         // these groups. Rebuild rather than drawing a second translucent coat.
-        for(const kind of ['saved','focus'])for(const g of svg.querySelectorAll('.paper-ink-mark--'+kind))g.remove();
+        for(const kind of ['saved','focus','selected'])for(const g of svg.querySelectorAll('.paper-ink-mark--'+kind))g.remove();
         const {page,index,books}=getPage(side),key=recordKey(page,index,books[page.b]),saved=pageMarks(key);
-        const focused=focus?.key===key;
-        if(!saved.possible&&!focused)return;
+        const focused=focus?.key===key,selected=active?.faces.get(index)?.selected;
+        if(!saved.possible&&!focused&&!selected)return;
         const entry=model(side,svg);if(!entry)return;
         if(saved.possible)for(const unit of entry.units)if(saved.has(unit.id))draw({entry,unit},'saved');
         if(focused){
           const unit=entry.units.find(candidate=>candidate.id===focus.unitId);
           if(unit)focusMark=draw({entry,unit},'focus');
         }
+        if(selected)for(const unit of entry.units)if(selected.has(unit.id))painted.set(markKey(index,unit.id),draw({entry,unit},'selected'));
       });
+      suspended=false;if(bar){bar.hidden=false;anchorBar();}
     }
     function clearFocus(){focusMark?.remove();focusMark=null;focus=null;}
     function isCurrent(t){return t&&getPage(t.entry.side).index===t.entry.index&&papers[t.entry.side].querySelector('svg')===t.entry.svg;}
     function reset({keepFocus=false}={}){
       serial++;if(!keepFocus)clearFocus();if(refreshFrame!==null)win.cancelAnimationFrame(refreshFrame);refreshFrame=null;observer?.disconnect();observer=null;
-      if(active){for(const mark of active.marks.values())mark.remove();active=null;}
+      clearPaint();active=null;suspended=false;
       bar?.remove();bar=null;searchForm=null;delete stage.dataset.textSelection;
     }
+    function suspend(){
+      if(searchForm){reset({keepFocus:true});return;}
+      if(!active)return;
+      suspended=true;if(bar)bar.hidden=true;
+    }
     function anchorBar(){
-      if(!bar||!active)return;
-      if(!isCurrent(active.anchor)){reset();return;}
-      const {entry,point}=active.anchor,sheet=entry.svg.getBoundingClientRect(),r=stage.getBoundingClientRect(),scale=sheet.width/480;
+      if(!bar||!active||suspended)return;
+      const {side,index,point,svg:old}=active.anchor,r=stage.getBoundingClientRect(),svg=papers[side].querySelector('svg');
+      const sheet=svg?.getBoundingClientRect(),scale=sheet?.width/480;
+      if(!crossPage&&(getPage(side).index!==index||svg!==old)){reset();return;}
       if(!scale||!r.width||!r.height)return;
+      const px=sheet.left-r.left+point.x*scale,py=sheet.top-r.top+point.y*scale;
+      if(crossPage&&!searchForm&&(getPage(side).index!==index||px<0||px>r.width||py<0||py>r.height)){
+        bar.dataset.docked='';bar.style.maxWidth=Math.max(1,r.width-12)+'px';
+        bar.style.setProperty('--ink-hit-pad','0px');bar.style.left='50%';bar.style.top='6px';bar.style.transform='translateX(-50%)';return;
+      }
+      delete bar.dataset.docked;
       const displayScale=searchForm?1:scale;
       bar.style.maxWidth=Math.max(1,(r.width-12)/displayScale)+'px';bar.style.transform='scale('+displayScale+')';
       // Extra transparent hit padding, in screen pixels, never magnifies the ink.
       bar.style.setProperty('--ink-hit-pad',Math.max(0,(40/scale-29)/2)+'px');
-      const bounds=bar.getBoundingClientRect(),pad=6,gap=14*scale,px=sheet.left-r.left+point.x*scale,py=sheet.top-r.top+point.y*scale;
+      const bounds=bar.getBoundingClientRect(),pad=6,gap=14*scale;
       const within=(v,a,b)=>Math.max(a,Math.min(v,Math.max(a,b)));
       // Use the visible selected ink, not just the last touch point. If the
       // selection is tall, prefer an available side before overlaying it.
-      const rects=[...active.marks.values()].map(m=>m.getBoundingClientRect()).filter(b=>b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.left+r.width&&b.bottom>r.top&&b.top<r.top+r.height);
+      const rects=[...painted.values()].map(m=>m.getBoundingClientRect()).filter(b=>b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.left+r.width&&b.bottom>r.top&&b.top<r.top+r.height);
       const top=rects.length?Math.min(...rects.map(b=>b.top-r.top)):py;
       const bottom=rects.length?Math.max(...rects.map(b=>b.bottom-r.top)):py;
       const left=rects.length?Math.min(...rects.map(b=>b.left-r.left)):px;
@@ -374,38 +438,52 @@
     }
     function schedule(){if(active&&refreshFrame===null)refreshFrame=win.requestAnimationFrame(()=>{refreshFrame=null;anchorBar();});}
     function actionLabel(b,text){b.setAttribute('aria-label',text);b.setAttribute('title',text);}
-    function allSaved(){const saved=pageMarks(active.anchor.entry.key);return !!active.marks.size&&Array.from(active.marks.keys()).every(u=>saved.has(u.id));}
+    function allSaved(){return !!active.count&&[...active.faces.values()].every(f=>{
+      const saved=pageMarks(f.key);return [...f.selected.keys()].every(id=>saved.has(id));
+    });}
     function highlight(){
-      if(!active?.marks.size)return;
-      const key=active.anchor.entry.key,remove=bar.querySelector('[data-highlight]').getAttribute('aria-pressed')==='true';
+      if(!active?.count)return;
+      const remove=allSaved();
       let durable=true;
-      for(const {id} of active.marks.keys()){
+      for(const {key,selected} of active.faces.values())for(const id of selected.keys()){
         try{storage.setItem(key+'~used','1');storage.setItem(unitKey(key,id),remove?'0':'1');session.get(key)?.delete(id);}
         catch{durable=false;if(!session.has(key))session.set(key,new Map());session.get(key).set(id,!remove);}
       }
       reset();refresh();feedback((remove?'已取消高亮':'已高亮')+(durable?'':'（仅本次阅读）'));
     }
     function toggle(t){
-      const m=active.marks.get(t.unit);
-      if(m){m.remove();active.marks.delete(t.unit);}else active.marks.set(t.unit,draw(t,'selected'));
-      active.anchor=t;syncPen();anchorBar();
+      serial++;
+      const {index,side,key,bookName,page,units,svg}=t.entry,id=t.unit.id,k=markKey(index,id);
+      let face=active.faces.get(index);
+      if(face?.selected.delete(id)){
+        painted.get(k)?.remove();painted.delete(k);active.count--;
+        if(!face.selected.size)active.faces.delete(index);
+      }else{
+        if(!face){face={index,key,bookName,page,units,selected:new Map()};active.faces.set(index,face);}
+        face.selected.set(id,t.unit);active.count++;painted.set(k,draw(t,'selected'));
+      }
+      active.anchor={index,side,point:t.point,...(!crossPage&&{svg})};
+      bar.querySelector('.paper-copy-field')?.remove();syncPen();anchorBar();
     }
     function syncPen(){
-      const {size}=active.marks;
+      const size=active.count;
       bar.querySelector('[data-copy]').disabled=!size;
       bar.querySelector('[data-search]').disabled=!size;
+      if(onFloat)bar.querySelector('[data-float]').disabled=!size;
+      if(crossPage){
+        bar.dataset.pages=String(active.faces.size);
+        bar.setAttribute('aria-label',size?'经文选区，已选 '+size+' 项':'经文选区');
+      }
       const pen=bar.querySelector('[data-highlight]'),marked=allSaved();
       pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');
     }
     // Clipboard event for Ctrl/Cmd+C on the focused paper reader. Inputs
     // (including the search box and manual-copy fallback) keep normal Copy.
     function selectionQuote(){
-      const {entry}=active.anchor,db=win.V25OriginalData;
-      const physical=db?.pages[entry.index]===entry.page?db:null;
-      return physicalClipboardQuote([...active.marks.keys()],entry.bookName,entry.units,physical,entry.index);
+      return pagesClipboardQuote(active.faces.values(),win.V25OriginalData);
     }
     function keyboardCopy(e){
-      if(!active?.marks.size||!isCurrent(active.anchor)||!e.clipboardData||
+      if(!active?.count||searchForm&&crossPage||suspended||!e.clipboardData||
         e.target?.closest?.('textarea,input,[contenteditable]'))return;
       let text;
       try{text=selectionQuote();}catch{e.preventDefault();feedback('未能读取完整经文，请重试');return;}
@@ -415,7 +493,7 @@
     }
     stage.addEventListener('copy',keyboardCopy);
     async function copy(){
-      if(!active?.marks.size)return;
+      if(!active?.count||suspended)return;
       const version=serial;
       let text;
       try{text=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
@@ -434,13 +512,14 @@
     }
     function closeSearch(){
       if(!searchForm)return;
+      if(crossPage){reset();stage.focus({preventScroll:true});return;}
       searchForm.remove();searchForm=null;delete bar.dataset.searchOpen;
       const search=bar.querySelector('[data-search]');
       search.setAttribute('aria-expanded','false');anchorBar();search.focus({preventScroll:true});
     }
     function openSearch(){
-      if(searchForm||!active?.marks.size)return;
-      const {entry}=active.anchor,quote=formatQuote(active.marks.keys(),entry.bookName,entry.units);
+      if(searchForm||!active?.count)return;
+      let quote;try{quote=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
       if(!quote.trim())return;
       const form=doc.createElement('form'),label=doc.createElement('label'),field=doc.createElement('input');
       const note=doc.createElement('small'),actions=doc.createElement('div');
@@ -459,7 +538,7 @@
       label.appendChild(field);form.append(label,note,actions);
       form.addEventListener('submit',event=>{
         event.preventDefault();
-        if(composing||searchForm!==form||!active||!isCurrent(active.anchor))return;
+        if(composing||searchForm!==form||!active)return;
         const url=buildSearchURL(quote,field.value);
         if(!url){field.focus({preventScroll:true});return;}
         // Keep it synchronous with the user's submit gesture; do not pre-open
@@ -468,11 +547,19 @@
         closeSearch();
       });
       searchForm=form;bar.dataset.searchOpen='true';
+      if(crossPage){serial++;active.faces.clear();active.count=0;clearPaint();delete stage.dataset.textSelection;}
       bar.querySelector('[data-search]').setAttribute('aria-expanded','true');
       bar.appendChild(form);anchorBar();field.focus({preventScroll:true});
     }
+    function floatSelection(){
+      if(!active?.count)return;
+      const entries=[...active.faces.values()].flatMap(face=>[...face.selected.values()].map(unit=>({
+        page:face.index,ref:verseOf(unit)?unit.group.slice(6):null
+      })));
+      if(onFloat(entries))reset();
+    }
     function initBar(){
-      bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label','本页选文');
+      bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label',crossPage?'经文选区':'本页选文');
       function button(name,key,path,fn){
         const b=doc.createElement('button');b.type='button';actionLabel(b,name);b.setAttribute('data-'+key,'');
         const icon=doc.createElementNS(SVG,'svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');
@@ -482,6 +569,7 @@
       bar.append(button('复制','copy','M8 6V4.5A1.5 1.5 0 0 1 9.5 3h9A1.5 1.5 0 0 1 20 4.5v12M5.5 7h9a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 19.5v-11A1.5 1.5 0 0 1 5.5 7Z',copy),
         button('网页搜索','search','M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',openSearch),
         button('高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10',highlight),
+        ...(onFloat?[button('在浮窗阅读','float','M8 8h13v12H8zM16 8V4H3v12h5m8-5v4h-4',floatSelection)]:[]),
         button('退出','exit','m6 6 12 12m0-12L6 18',()=>{reset();stage.focus({preventScroll:true});}));
       bar.querySelector('[data-search]').setAttribute('aria-expanded','false');
       stage.appendChild(bar);
@@ -493,16 +581,18 @@
       });
       if(win.MutationObserver){observer=new win.MutationObserver(schedule);observer.observe(stage,{attributes:true,attributeFilter:['data-scale','data-x','data-y']});}
     }
-    function sameFace(t){if(t.entry===active.anchor.entry)return true;feedback('只能选择同一页的文字；请先复制或退出');return false;}
+    function sameFace(t){if(crossPage||t.entry.svg===active.anchor.svg)return true;feedback('只能选择同一页的文字；请先复制或退出');return false;}
     function tap(t){
       if(!isCurrent(t))return false;
+      if(searchForm&&crossPage)reset();
       if(active){if(!searchForm&&sameFace(t))toggle(t);return true;}
       clearFocus();focus={key:t.entry.key,unitId:t.unit.id};focusMark=draw(t,'focus');return true;
     }
     function hold(t){
       if(!isCurrent(t))return false;
-      if(active){if(!searchForm&&sameFace(t)&&!active.marks.has(t.unit))toggle(t);return true;}
-      clearFocus();active={marks:new Map(),anchor:t};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
+      if(searchForm&&crossPage)reset();
+      if(active){if(!searchForm&&sameFace(t)&&!active.faces.get(t.entry.index)?.selected.has(t.unit.id))toggle(t);return true;}
+      clearFocus();active={faces:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
     }
     stage.addEventListener('contextmenu',e=>{
       if(e.target?.closest?.('.paper-selection-tools'))return;
@@ -522,7 +612,7 @@
       if(win.requestAnimationFrame)syncFrame=win.requestAnimationFrame(sync);else sync();
     }
     win.addEventListener?.('storage',changed);
-    return {hit,tap,hold,reset,refresh,isActive:()=>!!active,destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
+    return {hit,tap,hold,reset,refresh,suspend,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,buildSearchURL,mergeRects,verseBands,physicalRows};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,mergeRects,verseBands,physicalRows};
 });

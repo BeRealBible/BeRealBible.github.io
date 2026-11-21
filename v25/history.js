@@ -4,7 +4,7 @@
   const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.PaperReadingHistory=api;
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
-  const LEGACY='paper-bible-reading-history-v1',KEY='paper-bible-v25-trails-v1',MAX_RECENT=24;
+  const LEGACY='paper-bible-reading-history-v1',KEY='paper-bible-v25-trails-v1',COMPARE_KEY='paper-bible-v25-compare-trails-v1',MAX_RECENT=24;
   const clean=(s,max)=>typeof s==='string'?s.trim().slice(0,max):'';
   const copy=e=>e?{...e,...(e.anchor?{anchor:{...e.anchor}}:{})}:null;
   function location(v,pageCount){
@@ -32,18 +32,38 @@
     if(seen.has(data.activeId))s.activeId=data.activeId;
     return s;
   }
-  function createModel({storage,pageCount}){
+  function createModel({storage,pageCount,byChapter=false,books=[]}){
+    const key=byChapter?COMPARE_KEY:KEY,codeByName=new Map(books.map(b=>[b.name,b.code]));
+    const identity=loc=>{
+      const book=loc.bookCode||codeByName.get(loc.bookName)||loc.bookName,chapter=/^(\d+):/.exec(loc.ref)?.[1];
+      return book&&chapter?book+':'+Number(chapter):'';
+    };
+    const matches=(a,b)=>byChapter&&identity(a)&&identity(b)?identity(a)===identity(b):same(a,b);
     let raw=null,state=fresh(),current=null,removed=null;
     const find=id=>state.items.find(e=>e.id===id);
+    const findChapter=loc=>state.items.find(e=>matches(e.anchor||e,loc));
+    function mergeChapters(){
+      const seen=new Map();
+      state.items=state.items.filter(e=>{
+        const chapter=identity(e.anchor||e);if(!chapter)return true;
+        const prior=seen.get(chapter);
+        if(!prior){seen.set(chapter,e);return true;}
+        if(e.pinned){prior.pinned=true;prior.pinOrder=Math.max(prior.pinOrder||0,e.pinOrder||0);}
+        if(state.activeId===e.id)state.activeId=prior.id;
+        if(current===e.id)current=prior.id;
+        return false;
+      });
+    }
     function pull(){
-      let next;try{next=storage?.getItem(KEY)??null;}catch{return;}
+      let next;try{next=storage?.getItem(key)??null;}catch{return;}
       if(next===raw)return;
       raw=next;state=decode(next,pageCount);
+      if(byChapter)mergeChapters();
       if(current&&!find(current))current=null;
     }
     function save(){
       const encoded=JSON.stringify(state);if(encoded===raw)return;
-      try{if(storage?.setItem){storage.setItem(KEY,encoded);raw=encoded;}}catch{/* private/locked stores still work for this session */}
+      try{if(storage?.setItem){storage.setItem(key,encoded);raw=encoded;}}catch{/* private/locked stores still work for this session */}
     }
     function trim(keep){
       const retained=new Set([current,keep].filter(id=>{const e=find(id);return e&&!e.pinned;}));
@@ -52,23 +72,49 @@
     }
     function list(){pull();return [...state.items.filter(e=>e.pinned).sort((a,b)=>(b.pinOrder||0)-(a.pinOrder||0)),...state.items.filter(e=>!e.pinned)].map(copy);}
     // Import once without writing into the production reader's storage.
-    try{if(storage?.getItem(KEY)==null){const old=storage?.getItem(LEGACY);if(old)storage.setItem(KEY,JSON.stringify(decode(old,pageCount)));}}catch{}
+    try{if(storage?.getItem(key)==null){
+      const old=(byChapter&&storage?.getItem(KEY))||storage?.getItem(LEGACY);
+      if(old){state=decode(old,pageCount);if(byChapter)mergeChapters();save();}
+    }}catch{}
     pull();
     function start(loc){
       pull();loc=location(loc,pageCount);if(!loc)return;
       // Refreshes often supply the first verse on a physical page, not the
       // selected chapter on that page. Do not overwrite its more exact anchor.
       const active=find(state.activeId);
+      if(byChapter){
+        const found=(active&&matches(active.anchor||active,loc)?active:findChapter(loc));
+        if(!found)return visit(loc,true);
+        current=state.activeId=found.id;save();return copy(found);
+      }
       current=active?(active.page===loc.page?active.id:state.items.find(e=>same(e,loc))?.id||null):null;
       return copy(find(current));
     }
     function advance(loc){
-      pull();loc=location(loc,pageCount);const e=find(current);if(!e||!loc)return null;
+      pull();loc=location(loc,pageCount);const e=find(current);if(!loc)return null;
+      if(byChapter&&(!e||!matches(e.anchor||e,loc)))return visit(loc,true);
+      if(!e)return null;
       if(same(e,loc)&&state.activeId===current)return copy(e);
       Object.assign(e,loc);state.activeId=e.id;save();return copy(e);
     }
+    function visit(loc,main,known){
+      const e=known||findChapter(loc)||{id:'r'+(++state.serial),pinned:false};
+      Object.assign(e,loc,{anchor:{...loc}});
+      state.items=[e,...state.items.filter(item=>item!==e)];
+      if(main)current=state.activeId=e.id;
+      trim(e.id);save();return copy(e);
+    }
+    function visitFloat(loc){
+      pull();loc=location(loc,pageCount);
+      return byChapter&&loc?visit(loc,false):null;
+    }
     function jump(loc,requestedId){
       pull();loc=location(loc,pageCount);if(!loc)return null;
+      if(byChapter){
+        const requested=requestedId==null?null:find(requestedId);
+        if(requestedId!=null&&!requested)return null;
+        return visit(loc,true,requested&&matches(requested.anchor||requested,loc)?requested:null);
+      }
       let e;
       if(requestedId!=null){
         e=find(requestedId);
@@ -87,6 +133,7 @@
     }
     function pickVerse(loc){
       pull();loc=location(loc,pageCount);if(!loc)return null;
+      if(byChapter)return visit(loc,true);
       const e=find(current);if(!e)return jump(loc);
       Object.assign(e,loc);e.anchor={...loc};state.activeId=e.id;save();return copy(e);
     }
@@ -108,16 +155,24 @@
     function undo(){
       pull();if(!removed)return false;const {entry,index}=removed;removed=null;
       if(find(entry.id))return false;
+      if(byChapter){
+        const existing=findChapter(entry.anchor||entry);
+        if(existing){
+          if(entry.pinned){existing.pinned=true;existing.pinOrder=Math.max(existing.pinOrder||0,entry.pinOrder||0);}
+          save();return true;
+        }
+      }
       state.items.splice(Math.min(index,state.items.length),0,entry);trim(entry.id);save();
       return true; // Restore the record, not the reading position.
     }
-    return {start,advance,jump,pickVerse,list,pin,remove,undo,get:id=>{pull();return copy(find(id));},
+    return {start,advance,jump,pickVerse,visitFloat,list,pin,remove,undo,get:id=>{pull();return copy(find(id));},
       current:()=>{pull();return current;},canUndo:()=>Boolean(removed)};
   }
   function label(e){return (e.bookName||e.bookCode||'书页')+(e.ref?' '+e.ref:(!e.bookName&&!e.bookCode?' '+(e.page+1):''));}
-  function create({host,storage,pageCount,onNavigate,books=[]}){
+  function create({host,storage,pageCount,onNavigate,onFloat,byChapter=false,books=[]}){
     if(!host?.ownerDocument||typeof onNavigate!=='function')throw TypeError('History needs a shelf host and navigation callback');
-    const doc=host.ownerDocument,model=createModel({storage,pageCount}),win=doc.defaultView;
+    const doc=host.ownerDocument,model=createModel({storage,pageCount,byChapter,books}),win=doc.defaultView;
+    const key=byChapter?COMPARE_KEY:KEY;
     const shorts=new Map(books.map(b=>[b.code,b.short]));
     const shell=host.closest('.reader');
     const el=(tag,cls,txt)=>{const n=doc.createElement(tag);if(cls)n.className=cls;if(txt)n.textContent=txt;return n;};
@@ -141,7 +196,7 @@
     function placeTools(row){
       const box=row.item.getBoundingClientRect?.(),rail=track.getBoundingClientRect?.();
       if(!box||!rail||!rail.width)return;
-      const w=row.del.getBoundingClientRect().width||26,extra=w*(row.item.dataset.pinned?1:2);
+      const w=row.del.getBoundingClientRect().width||26,extra=w*((row.item.dataset.pinned?1:2)+(onFloat?1:0));
       // Place the tools directly ABOVE this chip, never in the navigation
       // strip. No reflow: even the original centre of the next short label
       // remains a navigation target when a pointer arrives from its neighbour.
@@ -151,9 +206,9 @@
     }
     function reveal(id,reason){
       if(id===shown&&reason===via)return;
-      const prev=controls.get(shown);if(prev){delete prev.item.dataset.reveal;prev.pin.tabIndex=prev.item.dataset.pinned?0:-1;prev.del.tabIndex=-1;}
+      const prev=controls.get(shown);if(prev){delete prev.item.dataset.reveal;prev.pin.tabIndex=prev.item.dataset.pinned?0:-1;prev.del.tabIndex=-1;if(prev.float)prev.float.tabIndex=-1;}
       const row=controls.get(id);shown=row?id:null;via=row?reason:null;
-      if(row){row.item.dataset.reveal=reason;row.pin.tabIndex=row.del.tabIndex=0;placeTools(row);}
+      if(row){row.item.dataset.reveal=reason;row.pin.tabIndex=row.del.tabIndex=0;if(row.float)row.float.tabIndex=0;placeTools(row);}
     }
     function clearShown(){reveal(null,null);}
     const touch=e=>e.pointerType==='touch'||e.pointerType==='pen';
@@ -231,7 +286,7 @@
     function render(){
       const items=model.list(),active=model.current(),scroll=track.scrollLeft,keep=via==='mouse'?null:shown,how=via;
       const prev=doc.activeElement;let restore=null;
-      if(prev)for(const [id,row] of controls)for(const key of ['chip','pin','del'])if(prev===row[key])restore=[id,key];
+      if(prev)for(const [id,row] of controls)for(const key of ['chip','pin','del','float'])if(prev===row[key])restore=[id,key];
       cancelHold();clearShown();track.replaceChildren();controls=new Map();
       if(!items.length)track.appendChild(el('span','rh-empty','暂无记录'));
       for(const e of items){
@@ -260,18 +315,27 @@
         });
         del.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4.3 4.3 7.4 7.4m0-7.4-7.4 7.4"/></svg>';
         del.tabIndex=-1;
-        item.append(chip,pin,del);track.appendChild(item);controls.set(e.id,{item,chip,pin,del});
+        const float=onFloat&&button('rh-action rh-float','','在浮窗打开 '+name,event=>{
+          if(consumed(e.id,event))return;
+          const latest=model.get(e.id);if(!latest)return;
+          clearShown();onFloat(latest.anchor||latest);
+        });
+        if(float){
+          item.dataset.hasFloat='';float.tabIndex=-1;
+          float.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M5.5 5.5h9v8.5h-9zM11 5.5V2H1.5v8.5h4m4-3v4m-2-2h4"/></svg>';
+        }
+        item.append(chip,pin,del,...(float?[float]:[]));track.appendChild(item);controls.set(e.id,{item,chip,pin,del,float});
       }
       track.scrollLeft=scroll;undoButton.hidden=track.hidden||!model.canUndo();
       if(restore)focusControl(...restore);
       if(keep)reveal(keep,how);
     }
-    const sync=e=>{if(!e.key||e.key===KEY||e.key.startsWith(KEY+':'))render();};
+    const sync=e=>{if(!e.key||e.key===key||e.key.startsWith(key+':'))render();};
     win?.addEventListener('storage',sync);render();
     const apply=(name,...args)=>{const result=model[name](...args);render();if(name==='jump'&&result)revealInTrack(result.id);return result;};
-    return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),pickVerse:loc=>apply('pickVerse',loc),jump:(loc,id)=>apply('jump',loc,id),
+    return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),pickVerse:loc=>apply('pickVerse',loc),jump:(loc,id)=>apply('jump',loc,id),visitFloat:loc=>apply('visitFloat',loc),
       list:model.list,element:host,
       destroy(){cancelHold();contacts.clear();for(const off of listeners)off();win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
   }
-  return {KEY,MAX_RECENT,createModel,create,label};
+  return {KEY,COMPARE_KEY,MAX_RECENT,createModel,create,label};
 });
