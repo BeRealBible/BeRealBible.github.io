@@ -8,7 +8,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
 (async()=>{
   const browser=await chromium.launch({executablePath:process.env.BROWSER_EXE||undefined,headless:true});
   try{
-    for(const width of [1280,390]){
+    for(const width of (process.env.TEST_WIDTHS||'1280,390').split(',').map(Number)){
       const mobile=width<500,context=await browser.newContext({viewport:{width,height:840},isMobile:mobile,hasTouch:mobile,reducedMotion:'reduce'});
       await context.route('**/*',async route=>{
         const url=new URL(route.request().url());
@@ -56,6 +56,11 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await page.waitForFunction(({book,ref})=>document.querySelector('.rh-chip[aria-current=page]')?.getAttribute('aria-label').endsWith(ref)&&document.getElementById('stage').dataset.book===book,{book,ref});
       };
       await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
+      await mark('1:31',9,true);await bar.waitFor({timeout:4000});
+      await mark('1:29',9);await mark('1:28',9);
+      await bar.locator('[data-float]').click({timeout:4500});await float.waitFor();
+      assert.deepEqual(await float.locator('[data-cited]').evaluateAll(rows=>rows.map(row=>row.dataset.ref)),['1:28','1:29']);
+      await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
       await mark('2:1',10);assert.equal(await bar.getAttribute('data-pages'),'2');
@@ -76,6 +81,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await bar.locator('[data-float]').click();await float.waitFor();
       assert.equal(await float.getAttribute('data-page'),'9');
       assert.ok(await float.locator('p.compare-slip__verse[data-cited][data-ref="1:31"]').count());
+      assert.equal(await float.locator('p[data-ref="2:1"][data-cited]').count(),0);
       assert.equal(await float.locator('p[data-ref="1:31"]').count(),1);
       assert.equal(await float.locator('button').filter({hasText:/上一页|下一页|上一张|下一张/}).count(),0);
       const fixed=await float.boundingBox();

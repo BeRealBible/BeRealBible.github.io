@@ -236,7 +236,7 @@
     }
     function openSelection(locs){
       const run=scripture.pinSelection(locs);
-      if(!run.length){feedback('浮窗需要从相邻的经文开始');return false;}
+      if(!run.length){feedback('未找到可固定的经文');return false;}
       const [a]=run,b=run.at(-1);
       return display([run],{label:'对照 · '+scripture.label(a,b)});
     }

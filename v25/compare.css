@@ -53,6 +53,9 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .compare-slip__resize::after{content:"";position:absolute;right:5px;bottom:5px;width:14px;height:14px;background:repeating-linear-gradient(135deg,transparent 0 3px,currentColor 3px 4px);clip-path:polygon(100% 0,100% 100%,0 100%)}
 .paper-selection-tools[hidden]{display:none}
 .paper-selection-tools[data-docked]{background:#fbf2ddf2}
+@media(pointer:coarse),(max-width:559px){
+  .paper-selection-tools[data-docked] button{width:36px;height:36px}
+}
 #reading-history .rh-item[data-reveal] .rh-float{
   position:fixed;inset:auto;top:var(--rh-tools-bottom);left:calc(var(--rh-tools-left) + var(--rh-action-width));
   transform:translateY(-100%);z-index:1;background:#40382e;box-shadow:0 0 0 1px #aa957660

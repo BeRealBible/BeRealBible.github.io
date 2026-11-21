@@ -74,12 +74,12 @@
     }
     function pinSelection(locs){
       if(locs.some(loc=>!resolve(loc).length))return [];
-      const rows=from(locs,true);
-      if(!rows.length)return [];
-      const runs=groups(rows),first=rows[0],last=rows.at(-1);
-      // A pinned reader stays in one book. Across chapter/book selections,
-      // start at the earliest selected verse and keep only its contiguous run.
-      return runs.length===1||first.code!==last.code||first.ch!==last.ch?runs[0]:[];
+      const rows=from(locs,true),first=rows[0];
+      if(!first)return [];
+      // All selections pin just the first continuous run in the first chapter,
+      // even when a selected verse immediately follows it in the next chapter.
+      const boundary=rows.findIndex((row,i)=>row.code!==first.code||row.ch!==first.ch||row.order!==first.order+i);
+      return boundary<0?rows:rows.slice(0,boundary);
     }
     function quote(locs){
       const out=[];

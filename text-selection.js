@@ -427,7 +427,10 @@
       if(!crossPage&&(getPage(side).index!==index||svg!==old)){reset();return;}
       if(!scale||!r.width||!r.height)return;
       const px=sheet.left-r.left+point.x*scale,py=sheet.top-r.top+point.y*scale;
-      if(crossPage&&!searchForm&&(getPage(side).index!==index||px<0||px>r.width||py<0||py>r.height)){
+      // Touch hit testing may snap a nearby verse tap to an anchored
+      // toolbar button (including Exit), even outside its visible bounds.
+      const touch=win.matchMedia?.('(pointer: coarse)')?.matches;
+      if(crossPage&&!searchForm&&(touch||r.width<560||getPage(side).index!==index||px<0||px>r.width||py<0||py>r.height)){
         bar.dataset.docked='';bar.style.maxWidth=Math.max(1,r.width-12)+'px';
         bar.style.setProperty('--ink-hit-pad','0px');bar.style.left='50%';bar.style.top='6px';bar.style.transform='translateX(-50%)';return;
       }
