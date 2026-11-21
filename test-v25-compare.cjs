@@ -13,9 +13,25 @@ test('the canonical reader resolves by address, not print bytes or split fragmen
   const [a,b]=library.from(locs,true),gene=Source.books.find(b=>b.code==='GEN');
   assert.equal(library.groups([a,b]).length,1);
   assert.deepEqual([a.ref,b.ref],['1:31','2:1']);
-  const exact=gene.chapters[0].verses.find(([n])=>n===31)[1]+gene.chapters[1].verses[0][1];
-  assert.equal(library.quote(locs),exact+'\n( 创世记 1:31-2:1 和合本 )');
+  const first=gene.chapters[0].verses.find(([n])=>n===31)[1],second=gene.chapters[1].verses[0][1];
+  assert.equal(library.quote(locs),first+'\n( 创世记 1:31 和合本 )\n\n'+second+'\n( 创世记 2:1 和合本 )');
   assert.equal(library.groups(library.from([{page:9,ref:'1:29'},{page:10,ref:'2:1'}],true)).length,2);
+});
+test('the reported Genesis selection uses four chapters and only two intra-chapter omissions',()=>{
+  const input=['45:3','44:19','43:28','42:15','44:7','43:16','43:28'].map(ref=>({code:'GEN',ref}));
+  const source=Source.books.find(b=>b.code==='GEN');
+  const exact=ref=>{
+    const [chapter,verse]=ref.split(':').map(Number);
+    return source.chapters.find(ch=>ch.chapter===chapter).verses.find(entry=>entry[0]===verse)[1];
+  };
+  assert.deepEqual(library.quote(input).split('\n\n'),[
+    exact('42:15')+'\n( 创世记 42:15 和合本 )',
+    exact('43:16')+'...'+exact('43:28')+'\n( 创世记 43:16,28 和合本 )',
+    exact('44:7')+'...'+exact('44:19')+'\n( 创世记 44:7,19 和合本 )',
+    exact('45:3')+'\n( 创世记 45:3 和合本 )'
+  ]);
+  const locs=[{code:'GEN',ref:'1:1'},{code:'GEN',ref:'1:2'},{code:'EXO',ref:'1:1'}];
+  assert.match(library.quote(locs),/\( 创世记 1:1-2 和合本 \)\n\n[^\n]+\n\( 出埃及记 1:1 和合本 \)$/);
 });
 test('a combined range uses its one real body; direct search by an alias finds it too',()=>{
   const a=library.resolve({code:'GEN',ref:'24:29-30'})[0];

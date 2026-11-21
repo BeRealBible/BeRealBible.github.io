@@ -64,10 +64,10 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await turn(false,8);assert.equal(await $('.paper-ink-mark--selected').count(),1);
       await bar.locator('[data-copy]').click();await bar.waitFor({state:'detached'});
       const [quote]=await page.evaluate(()=>copyTest);
-      const expected=await page.evaluate(()=>{
-        const g=BIBLE_SOURCE.books[0];return g.chapters[0].verses.find(r=>r[0]===31)[1]+g.chapters[1].verses[0][1];
+      const [first,second]=await page.evaluate(()=>{
+        const g=BIBLE_SOURCE.books[0];return [g.chapters[0].verses.find(r=>r[0]===31)[1],g.chapters[1].verses[0][1]];
       });
-      assert.equal(quote,expected+'\n( 创世记 1:31-2:1 和合本 )');
+      assert.equal(quote,first+'\n( 创世记 1:31 和合本 )\n\n'+second+'\n( 创世记 2:1 和合本 )');
       console.log(width,'cross-page clipboard passed');
       await mark('1:31',9,true);await turn(true,10);
       assert.equal(await $('.paper-ink-mark--selected').count(),1);

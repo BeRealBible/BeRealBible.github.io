@@ -76,16 +76,18 @@
       const out=[];
       for(const row of from(locs,true)){
         let part=out.at(-1);
-        if(part?.code!==row.code){part={code:row.code,name:row.name,rows:[]};out.push(part);}
+        // Adjacency across chapters still matters to the reading window,
+        // but the clipboard gives each chapter its own citation block.
+        if(part?.code!==row.code||part.ch!==row.ch){part={code:row.code,name:row.name,ch:row.ch,rows:[]};out.push(part);}
         part.rows.push(row);
       }
-      return out.map(({name,rows})=>{
+      return out.map(({name,ch,rows})=>{
         const runs=groups(rows),names=runs.map((run,i)=>{
-          const a=run[0],b=run.at(-1),prev=runs[i-1]?.at(-1);
-          return (prev?.ch===a.ch?'':a.ch+':')+a.lo+(a.ch===b.ch&&a.lo===b.hi?'':'-'+(a.ch===b.ch?'':b.ch+':')+b.hi);
+          const a=run[0],b=run.at(-1);
+          return (i?'':ch+':')+a.lo+(a.lo===b.hi?'':'-'+b.hi);
         });
-        return runs.map(run=>run.map(row=>row.text).join('')).join('……')+'\n( '+name+' '+names.join(',')+' 和合本 )';
-      }).join('\n');
+        return runs.map(run=>run.map(row=>row.text).join('')).join('...')+'\n( '+name+' '+names.join(',')+' 和合本 )';
+      }).join('\n\n');
     }
     return {index,resolve,from,groups,quote,label};
   }
