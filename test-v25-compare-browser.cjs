@@ -149,7 +149,11 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await float.locator('[data-ref="1:31"]').count(),1);
       assert.equal(await float.locator('button').filter({hasText:/上一页|下一页|上一张|下一张/}).count(),0);
       const fixed=await float.boundingBox();
-      await page.evaluate(()=>document.getElementById('zoom-in').click());await fit();
+      await page.evaluate(()=>document.getElementById('zoom-in').click());
+      const enlarged=await float.boundingBox();
+      if(width>=800)assert.ok(enlarged.width>fixed.width*1.2&&enlarged.height>fixed.height*1.2);
+      else assert.deepEqual(enlarged,fixed);
+      await fit();
       assert.deepEqual(await float.boundingBox(),fixed);
       await jump('创 3:1','GEN','3:1');assert.equal(await float.getAttribute('data-page'),'9');
       await chrome();const main=await stage.getAttribute('data-spread');
@@ -190,8 +194,8 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       // Reduced motion still allows a 0.01ms transition. A bounding box
       // queried in the pointer event's frame can be an intermediate size.
       const settleRect=()=>page.waitForFunction(()=>{
-        const n=document.getElementById('v25-compare'),r=n.getBoundingClientRect();
-        return ['top','left','width','height'].every(key=>Math.abs(r[key]-parseFloat(n.style[key]))<.1);
+        const n=document.getElementById('v25-compare'),r=n.getBoundingClientRect(),z=parseFloat(n.style.zoom)||1;
+        return ['top','left','width','height'].every(key=>Math.abs(r[key]-parseFloat(n.style[key])*z)<.15);
       });
       async function drag(handle,dx,dy){
         const pos=await handle.boundingBox(),p={x:pos.x+pos.width*.5,y:pos.y+pos.height*.5};

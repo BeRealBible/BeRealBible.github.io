@@ -108,11 +108,15 @@ async function capture(browser,url,label,width,dpr){
       await page.mouse.move(0,0);
       await still(page);
       const panel=page.locator('#v25-compare'),selector='#v25-compare .compare-slip__verse[data-cited]';
-      float=await page.locator(selector).evaluate(el=>{
+      const measures=()=>page.locator(selector).evaluate(el=>{
         const css=getComputedStyle(el),panel=el.closest('aside'),panelCSS=getComputedStyle(panel);
+        const box=panel.getBoundingClientRect(),z=parseFloat(panelCSS.zoom)||1;
         return {family:css.fontFamily,size:parseFloat(css.fontSize),color:css.color,weight:css.fontWeight,
-          transform:panelCSS.transform,filter:panelCSS.filter,opacity:panelCSS.opacity};
+          transform:panelCSS.transform,filter:panelCSS.filter,opacity:panelCSS.opacity,
+          layoutScale:z,renderedFont:parseFloat(css.fontSize)*z,bookScale:Number(document.querySelector('#stage').dataset.scale),
+          followsPaper:panel.hasAttribute('data-slip-scale'),box:{width:box.width,height:box.height}};
       });
+      float=await measures();
       float.platformFonts=await used(selector);
       assert.ok(float.platformFonts.some(f=>f.glyphCount>3),'the actual floating text font must be loaded');
       assert.ok(float.size>=14&&float.transform==='none'&&float.filter==='none'&&float.opacity==='1',
@@ -121,12 +125,24 @@ async function capture(browser,url,label,width,dpr){
       await page.evaluate(()=>document.getElementById('fit-book').click());
       await still(page);
       const second=await panel.screenshot({path:`${prefix}-float-after-main-zoom.png`});
-      const a=PNG.sync.read(first),b=PNG.sync.read(second);
-      // The decorative folded corner and shadow can reveal the newly
-      // positioned desk. Measure the opaque text area, not that decoration.
-      float.zoomDelta=inkDelta(a,b,[[10,44,a.width/dpr-26,a.height/dpr-58]],dpr);
-      assert.ok(float.zoomDelta.mean<=.2&&float.zoomDelta.strong===0,
-        'changing the main paper zoom must not alter floating scripture pixels');
+      float.afterFit=await measures();
+      if(float.followsPaper&&width>=800){
+        for(const s of [float,float.afterFit]){
+          assert.ok(Math.abs(s.layoutScale-Math.max(.88,s.bookScale))<.002,
+            'wide floating text must be typeset at the actual paper scale');
+          assert.equal(s.transform,'none');
+          assert.ok(s.renderedFont>=13);
+        }
+        assert.ok(float.box.width>float.afterFit.box.width&&float.box.height>float.afterFit.box.height,
+          'the wide window must grow with the book, within the viewport');
+      }else{
+        const a=PNG.sync.read(first),b=PNG.sync.read(second);
+        // Decorative folds and shadows can reveal the newly positioned desk;
+        // only compare the opaque text area on builds/windows with fixed size.
+        float.zoomDelta=inkDelta(a,b,[[10,44,a.width/dpr-26,a.height/dpr-58]],dpr);
+        assert.ok(float.zoomDelta.mean<=.2&&float.zoomDelta.strong===0,
+          'narrow floating scripture stays independent of book zoom');
+      }
       await page.screenshot({path:`${prefix}-both.png`});
     }
     return {states,png,float,errors,miss,intro,release};

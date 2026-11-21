@@ -8,6 +8,13 @@ const library=require('./v25/scripture').create(Source,{...db,get(){throw Error(
 const load=n=>{const k=Math.floor(n/32);db.installPack(k,require('./paper-pages/'+db.packs[k]));};
 const events=()=>{const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};};
 const genesis=(ref,page=10)=>({bookCode:'GEN',bookName:'创世记',ref,page});
+test('expanded slips use the paper scale on wide screens and a readable floor',()=>{
+  assert.equal(C.slipScale(.62,true),.88);
+  assert.equal(C.slipScale(1.78,true),1.78);
+  assert.equal(C.slipScale(3.2,true),3.2);
+  assert.equal(C.slipScale(3.2,false),1);
+  assert.equal(C.slipScale(NaN,true),1);
+});
 test('index opening is shared, defaults to the full page, and survives reload',()=>{
   const {openingPreference}=require('./v25/chapters'),storage=events(),pref=openingPreference(storage),received=[];
   const off=pref.subscribe(value=>received.push(value));

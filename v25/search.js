@@ -142,18 +142,21 @@
       const wasHidden=panel.hidden;
       panel.hidden=!show;tab.hidden=mode==='off'||mode==='preview'||show;panel.dataset.layout=next?'wide':'narrow';
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
-      function place(node,scale){
+      function place(node,scale,bounded=false){
+        const left=toRight?px:px-node.offsetWidth,top=down?py:py-node.offsetHeight;
         node.dataset.dockX=px;node.dataset.dockY=py;node.dataset.paperX=mount.bx;node.dataset.paperY=mount.by;
         node.style.transformOrigin=(toRight?'left':'right')+' '+(down?'top':'bottom');
-        node.style.transform='scale('+scale+')';
-        node.style.left=(toRight?px:px-node.offsetWidth)+'px';
-        node.style.top=(down?py:py-node.offsetHeight)+'px';
+        node.style.transform=scale===1?'none':'scale('+scale+')';
+        node.style.left=(bounded?clamp(left,margin,c.w-margin-node.offsetWidth):left)+'px';
+        node.style.top=(bounded?clamp(top,visibleTop+margin,visibleBottom-margin-node.offsetHeight):top)+'px';
       }
       if(show){
         panel.style.width=w+'px';panel.style.maxHeight=height+'px';panel.toggleAttribute('data-compact',height<242||w<155);place(panel,z);
         if(g!==geom||wasHidden)restoreRow();
       }else if(!tab.hidden){
-        place(tab,root.V25PaperDock.sizeScale(c.scale,!next,roomW,roomH,tab.offsetWidth,tab.offsetHeight));
+        // A collapsed search control is a paper tab, not a miniaturized
+        // result list. Keep its touch/mouse target readable at every zoom.
+        place(tab,1,true);
       }
       geom=g;wide=next;
     }

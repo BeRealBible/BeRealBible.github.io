@@ -6,14 +6,21 @@
 })(typeof window==='undefined'?globalThis:window,function(){
   'use strict';
   const LIMIT=3,MAX_PINNED=5,MAX_EXPANDED=3,clamp=(n,a,b)=>Math.max(a,Math.min(n,Math.max(a,b)));
+  const slipScale=(scale,wide)=>wide&&Number.isFinite(scale)&&scale>0?Math.max(.88,scale):1;
+  function slipSize(kind,w,h,compact){
+    const width=compact?kind==='footnote'?Math.min(273,w*.76):Math.min(300,w*.78):
+      kind==='footnote'?clamp(w*.26,255,350):clamp(w*.31,310,460);
+    const height=compact?(kind==='footnote'?215:kind==='search'?264:260):(kind==='footnote'?285:kind==='search'?350:380);
+    return {width,height:Math.min(height,h*(compact ? .4 : .55))};
+  }
   function windowRange(lo,hi,direction,last){
     if(direction<0&&lo>0){lo--;hi=Math.min(hi,lo+LIMIT-1);}
     else if(direction>0&&hi<last){hi++;lo=Math.max(lo,hi-LIMIT+1);}
     return {lo,hi};
   }
-  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse,select}){
+  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse,select,getZoom}){
     const doc=stage.ownerDocument,win=doc.defaultView;
-    let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null;
+    let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null,placed=null,foldedMark=null;
     let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0;
     function node(tag,cls,text){
       const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
@@ -52,17 +59,51 @@
     function limits(){
       const vv=win.visualViewport,width=vv?.width??win.innerWidth,height=vv?.height??win.innerHeight;
       const rail=doc.getElementById('reading-history'),foot=rail?.getBoundingClientRect().height||40;
-      return {left:(vv?.offsetLeft||0)+8,top:(vv?.offsetTop||0)+8,right:(vv?.offsetLeft||0)+width-8,
-        bottom:(vv?.offsetTop||0)+height-Math.min(height*.35,Math.max(10,foot)+10)};
+      const x=vv?.offsetLeft||0,y=vv?.offsetTop||0;
+      return {left:x+8,top:y+8,right:x+width-8,bottom:y+height-Math.min(height*.35,Math.max(10,foot)+10),width,height};
     }
-    function fitRect(box){
-      const lim=limits(),minW=Math.min(214,lim.right-lim.left),minH=Math.min(152,lim.bottom-lim.top);
-      const w=clamp(box.width,minW,lim.right-lim.left),h=clamp(box.height,minH,lim.bottom-lim.top);
-      const keep=!collapsed&&Math.abs(panel.getBoundingClientRect().width-w)>1?firstVisible():null;
-      const offset=keep?keep.el.offsetTop-scroll.scrollTop:0;
-      manual={left:clamp(box.left,lim.left,lim.right-w),top:clamp(box.top,lim.top,lim.bottom-h),width:w,height:h};
-      Object.assign(panel.style,{left:manual.left+'px',top:manual.top+'px',right:'auto',bottom:'auto',width:w+'px',height:h+'px'});
-      if(keep){scroll.scrollTop=keep.el.offsetTop-offset;lastTop=scroll.scrollTop;}
+    function readingMark(){
+      const el=firstVisible()?.el;
+      return el?{el,offset:el.offsetTop-scroll.scrollTop}:null;
+    }
+    function reflow(restore=null){
+      if(!config||panel.hidden||collapsed)return;
+      const lim=limits(),z=getZoom(),compact=win.innerWidth<640,slot=panel.dataset.slot;
+      const base=slipSize(config.kind,win.innerWidth,lim.height,compact);
+      const roomW=Math.max(1,lim.right-lim.left),roomH=Math.max(1,lim.bottom-lim.top);
+      const width=clamp((manual?.width??base.width)*z,Math.min(214*z,roomW),roomW);
+      const height=clamp((manual?.height??base.height)*z,Math.min(152*z,roomH),roomH);
+      // Expanded fixed slips stay where they were put on screen. A transient
+      // citation can follow its live printed cue without moving the main book.
+      let left=lim.right-width-(compact?1:12),top=lim.top+44;
+      if(slot==='1')left=lim.left+(compact?1:12);
+      if(compact&&slot==='2')top=lim.top+(lim.bottom-lim.top-height)/2;
+      else if(slot==='2'||(compact&&slot!=='1'))top=lim.bottom-height;
+      if(manual){left=manual.left;top=manual.top;}
+      else if(config.anchor?.isConnected){
+        const r=config.anchor.getBoundingClientRect(),above=r.top-lim.top,below=lim.bottom-r.bottom;
+        left=r.left+width<=lim.right?r.left:r.right-width;
+        top=below>=above?r.bottom+3:r.top-height-3;
+      }
+      left=clamp(left,lim.left,lim.right-width);top=clamp(top,lim.top,lim.bottom-height);
+      const next={left,top,width,height,z};
+      if(!restore&&placed&&Object.keys(next).every(k=>Math.abs(placed[k]-next[k])<.02))return;
+      const mark=restore||(placed&&(placed.width!==width||placed.height!==height||placed.z!==z)?readingMark():null);
+      placed=next;
+      // CSS zoom re-typesets the live text, unlike stretching a compositor
+      // layer. Coordinates remain in screen pixels and are converted once.
+      Object.assign(panel.style,{zoom:String(z),left:left/z+'px',top:top/z+'px',right:'auto',bottom:'auto',
+        width:width/z+'px',height:height/z+'px'});
+      panel.dataset.slipScale=String(z);
+      if(mark?.el.isConnected)scroll.scrollTop=mark.el.offsetTop-mark.offset;
+      lastTop=scroll.scrollTop;
+    }
+    function fitRect(box,kind){
+      const z=placed?.z||getZoom(),resize=kind==='size';
+      manual={left:box.left,top:box.top,width:resize?box.width/z:manual?.width,height:resize?box.height/z:manual?.height};
+      reflow();
+      manual.left=placed.left;manual.top=placed.top;
+      if(resize){manual.width=placed.width/z;manual.height=placed.height/z;}
     }
     function shape(){
       const b=panel.getBoundingClientRect();
@@ -78,9 +119,9 @@
         if(adjust?.id!==e.pointerId||adjust.handle!==handle)return;
         const {box,x,y}=adjust,dx=e.clientX-x,dy=e.clientY-y,lim=limits();
         if(kind==='move'){
-          fitRect({...box,left:box.left+dx,top:box.top+dy});
+          fitRect({...box,left:box.left+dx,top:box.top+dy},kind);
         }
-        else fitRect({...box,width:Math.min(box.width+dx,lim.right-box.left),height:Math.min(box.height+dy,lim.bottom-box.top)});
+        else fitRect({...box,width:Math.min(box.width+dx,lim.right-box.left),height:Math.min(box.height+dy,lim.bottom-box.top)},kind);
       };
       const stop=e=>{if(adjust?.id===e.pointerId&&adjust.handle===handle){adjust=null;delete panel.dataset.adjust;}};
       for(const event of ['pointerup','pointercancel','lostpointercapture'])handle.addEventListener(event,stop);
@@ -88,12 +129,10 @@
         const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(!d||collapsed)return;
         e.preventDefault();const b=shape(),step=e.shiftKey?32:12,x=d[0]*step,y=d[1]*step;
         fitRect({left:b.left+(kind==='move'?x:0),top:b.top+(kind==='move'?y:0),
-          width:b.width+(kind==='size'?x:0),height:b.height+(kind==='size'?y:0)});
+          width:b.width+(kind==='size'?x:0),height:b.height+(kind==='size'?y:0)},kind);
       };
     }
     sizeFrom(name,'move');sizeFrom(resize,'size');
-    function reflow(){if(!panel.hidden&&!collapsed&&manual)fitRect(manual);}
-    win.addEventListener('resize',reflow);win.visualViewport?.addEventListener('resize',reflow);
     function labelTitle(){
       if(!activeRow||!config)return;
       const label=activeRow.name+' '+activeRow.display+(config.label?'（'+config.label+'）':'');
@@ -102,15 +141,19 @@
     }
     function collapse(value){
       const focused=panel.contains(doc.activeElement);
-      if(value&&!collapsed){lastTop=scroll.scrollTop;picking?.close();}
+      if(value&&!collapsed){foldedMark=readingMark();picking?.close();}
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
       const target=value&&dock?dock:home;
       if(panel.parentNode!==target)target.append(panel);
       minimize.textContent=value?'+':'−';minimize.title=value?'展开经文浮窗':'收起经文浮窗';
       minimize.setAttribute('aria-label',minimize.title);minimize.setAttribute('aria-expanded',String(!value));
-      labelTitle();reflow();
-      if(!value){scroll.scrollTop=lastTop;lastTop=scroll.scrollTop;}
-      else if(focused)name.focus({preventScroll:true});
+      labelTitle();placed=null;
+      if(!value){reflow(foldedMark);foldedMark=null;}
+      else{
+        // The folded tab is a control on the desk, not miniature body text.
+        panel.style.zoom='1';panel.dataset.slipScale='1';
+        if(focused)name.focus({preventScroll:true});
+      }
     }
     function close(reason='dismiss',restore=false){
       if(!config)return;
@@ -237,26 +280,22 @@
       panel.dataset.kind=config.kind;panel.hidden=false;
       panel.setAttribute('aria-label',config.ariaLabel||'经文对照浮窗');
       back.hidden=!config.onBack;jump.hidden=!config.onJump;pin.hidden=!config.onPin;minimize.hidden=role==='preview';
-      manual=null;panel.removeAttribute('style');
+      manual=null;foldedMark=null;panel.removeAttribute('style');
       collapse(false);
-      if(config.anchor){
-        const r=config.anchor.getBoundingClientRect(),box=shape(),lim=limits();
-        const above=r.top-lim.top,below=lim.bottom-r.bottom;
-        fitRect({...box,left:r.left+box.width<=lim.right?r.left:r.right-box.width,
-          top:below>=above?r.bottom+3:r.top-box.height-3});
-      }
       show(config.seed);
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
     }
-    return {panel,scroll,open,close,collapse,picking,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
+    return {panel,scroll,open,close,collapse,reflow,picking,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
   }
   function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin}){
-    const doc=stage.ownerDocument,home=doc.createElement('div'),dock=doc.createElement('div');
+    const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
     dock.setAttribute('role','group');dock.setAttribute('aria-label','已收起的经文浮窗');
     stage.parentElement.append(home,dock);
-    const opts={stage,scripture},preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
+    const wide=win.matchMedia('(min-width:800px)'),canZoom=win.CSS?.supports?.('zoom','1');
+    const getZoom=()=>slipScale(Number(stage.dataset.scale),canZoom&&wide.matches);
+    const opts={stage,scripture,getZoom},preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
     let clock=0;
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
@@ -265,6 +304,11 @@
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));
+    function reposition(){for(const reader of [...expanded(),preview])reader.reflow();}
+    win.addEventListener('v25-camera-changed',reposition);
+    win.addEventListener('resize',reposition);
+    win.visualViewport?.addEventListener('resize',reposition);
+    win.visualViewport?.addEventListener('scroll',reposition);
     function used(pin){
       pin.used=++clock;
       pin.panel.style.setProperty('--slip-priority',pin.used);
@@ -332,5 +376,5 @@
     }
     return {open,openSelection,openPreview,choices,preview,clearSelection,refreshHighlights};
   }
-  return {mount,windowRange,LIMIT,MAX_PINNED,MAX_EXPANDED};
+  return {mount,windowRange,slipScale,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });

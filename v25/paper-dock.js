@@ -18,7 +18,7 @@ window.V25PaperDock=(()=>{
     window.addEventListener('blur',()=>{ids.clear();start=null;});
   }
   function relayZoom(factor,x,y){window.dispatchEvent(new CustomEvent('v25-paper-zoom',{detail:{factor,x,y}}));}
-  const accessory=target=>target?.closest?.('#footnote-preview,#verse-finder,#vf-tab,[data-footnote-anchor]');
+  const accessory=target=>target?.closest?.('#footnote-preview,#verse-finder,#vf-tab,.compare-slip:not([data-collapsed]),[data-footnote-anchor]');
   document.addEventListener('wheel',e=>{
     if(!(e.ctrlKey||e.metaKey)||!accessory(e.target)||!e.deltaY)return;
     e.preventDefault();e.stopPropagation();

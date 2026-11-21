@@ -15,9 +15,7 @@
   --slip-tab-paper:rgba(244,232,205,.76);
 }
 .compare-slip{
-  --compare-height-px:380px;
-  position:fixed;z-index:46;top:max(52px,env(safe-area-inset-top));right:max(20px,env(safe-area-inset-right));
-  width:clamp(310px,31vw,460px);height:min(var(--compare-height-px),55dvh);
+  position:fixed;z-index:46;transition:none!important;
   box-sizing:border-box;display:grid;grid-template-rows:auto minmax(0,1fr);
   color:#29251f;background:var(--slip-paper);
   border:1px solid var(--slip-edge);border-radius:1px;box-shadow:var(--slip-shadow);
@@ -40,11 +38,7 @@
   z-index:50;display:flex;flex-wrap:wrap;gap:4px;max-width:min(48vw,calc(100vw - 18px));pointer-events:none
 }
 #v25-compare-tabs .compare-slip[data-collapsed]{position:relative;inset:auto!important;pointer-events:auto}
-.compare-slip[data-slot="1"]{left:max(20px,env(safe-area-inset-left));right:auto}
-.compare-slip[data-slot="2"]{top:auto;bottom:max(56px,env(safe-area-inset-bottom))}
 .compare-slip[data-role=preview]{z-index:49}
-.compare-slip[data-kind=footnote]{--compare-height-px:285px;width:clamp(255px,26vw,350px)}
-.compare-slip[data-kind=search]{--compare-height-px:350px}
 /* The active navigation tools take priority if paper slips overlap. */
 body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
@@ -87,8 +81,8 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   grid-row:2;position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;touch-action:pan-y;user-select:text;
   scrollbar-width:thin;scrollbar-color:#a58a5aaa transparent;padding:8px 12px 16px 13px;-webkit-text-size-adjust:none;text-size-adjust:none
 }
-/* Match the released paper body's font order and ink. Unlike the desk, the
-   flowing text has no per-glyph SVG transform or camera-dependent scale. */
+/* Match the released paper body's font order and ink. The shared window
+   sets a layout zoom, not a transform on the text or a rendered snapshot. */
 .compare-slip__paragraph{margin:0 4px;line-height:1.6;font-family:"SimSun","Songti SC","Noto Serif CJK SC","PaperSerif","PaperRares",serif}
 .compare-slip__paragraph+.compare-slip__paragraph{margin-top:.5em}
 .compare-slip__chapter-title{margin:7px 4px 5px;font:600 1em/1.3 var(--serif,serif);color:#694b2f}
@@ -143,11 +137,7 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 }
 @media(max-width:639px){
   #v25-compare-tabs{max-width:calc(100vw - 18px)}
-  .compare-slip{--compare-height-px:260px;top:auto;bottom:max(54px,calc(env(safe-area-inset-bottom) + 42px));right:max(9px,env(safe-area-inset-right));width:min(300px,78vw);height:min(var(--compare-height-px),40dvh);font-size:14px}
-  .compare-slip[data-slot="1"]{top:max(50px,calc(env(safe-area-inset-top) + 42px));bottom:auto;left:max(9px,env(safe-area-inset-left))}
-  .compare-slip[data-slot="2"]{top:calc(50dvh - min(130px,20dvh));bottom:auto}
-  .compare-slip[data-kind=footnote]{--compare-height-px:215px;width:min(273px,76vw)}
-  .compare-slip[data-kind=search]{--compare-height-px:264px}
+  .compare-slip{font-size:14px}
   .compare-slip__head{min-height:34px;padding-right:4px}.compare-slip__title strong{font-size:13px}
   .compare-slip__title{padding-left:20px;padding-right:4px}.compare-slip__title::before{left:11px}
   .compare-slip__icon{width:30px;min-height:33px}
