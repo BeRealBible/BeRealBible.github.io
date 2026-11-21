@@ -1,0 +1,7 @@
+# V25 封皮纹理
+
+`binding-goatskin.webp` 是用内置 ImageGen 生成的皮料纹理，缩为 512 × 768 后编码为 WebP；不是对某本实物圣经的照片复刻。皮纹由静态纹理提供，书脊压痕、边角轻微磨亮和书名仍由页面 CSS 绘制。
+
+生成提示词：
+
+> Use case: texture and material asset for an existing browser Bible reader. Generate one single full-bleed macro photograph of the leather MATERIAL ONLY, no book shape. A single very dark warm tobacco-brown to near black-brown matte goatskin used as the binding of a well-cared-for mid-size Bible. Fine subtly raised, densely packed irregular grain around 0.7–1.2 mm diameter, with tiny branching crevices and natural small variation in grain size: like real aged goatskin bookbinding, not large rounded lumps or uniform synthetic stipple. Top-down orthographic-looking uninterrupted close-up, aspect prefer tall portrait, entire frame completely filled by flat brown leather continuing beyond all four edges. Broad diffuse neutral side light from upper left only, showing quiet tiny tactile highlights across the grain, mostly matte, gentle local patina with minimal mottling. A slightly handled but clean leather; no scratches, flakes, cracks, stains, paint loss or artificial antiquing. Keep broadly even and dark from one side to the other; no vignette, no large creases, no visible lighting hot spot, no shine. No other material, no edges, no border, no seams, no stitching, no props, no debossing, no lines or repeated geometric pattern, no text or graphics. Fine natural texture for a material map, approximately like an 8 cm x 12 cm swatch.

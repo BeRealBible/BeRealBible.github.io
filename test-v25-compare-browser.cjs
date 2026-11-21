@@ -4,7 +4,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {pathToFileURL}=require('node:url');
 const origin='http://127.0.0.1:37129';
-const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf'};
+const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.webp':'image/webp'};
 (async()=>{
   const browser=await chromium.launch({executablePath:process.env.BROWSER_EXE||undefined,headless:true});
   try{
@@ -170,6 +170,12 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal((await shelf()).filter(r=>r.text==='创 3').length,1);assert.equal((await shelf())[0].id,threeId);
       assert.ok((await float.boundingBox()).width<(mobile?width*.81:width*.45));
       if(process.env.COMPARE_SCREENSHOTS)await page.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'v25-compare-'+width+'.png')});
+      // Reduced motion still allows a 0.01ms transition. A bounding box
+      // queried in the pointer event's frame can be an intermediate size.
+      const settleRect=()=>page.waitForFunction(()=>{
+        const n=document.getElementById('v25-compare'),r=n.getBoundingClientRect();
+        return ['top','left','width','height'].every(key=>Math.abs(r[key]-parseFloat(n.style[key]))<.1);
+      });
       async function drag(handle,dx,dy){
         const pos=await handle.boundingBox(),p={x:pos.x+pos.width*.5,y:pos.y+pos.height*.5};
         const target=await handle.evaluate((el,{x,y})=>el.contains(document.elementFromPoint(x,y)),p);
@@ -181,12 +187,14 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
           await page.mouse.up();
         }
         else{await send('touchStart',[p]);await send('touchMove',[{x:p.x+dx,y:p.y+dy}]);await send('touchEnd',[]);}
+        await settleRect();
       }
       const before=await float.boundingBox();await drag(float.locator('.compare-slip__title'),-38,mobile?-42:40);
       const moved=await float.boundingBox();assert.ok(moved.x<before.x-24&&Math.abs(moved.y-before.y)>25);
       await drag(float.locator('.compare-slip__resize'),-35,-35);
       const smaller=await float.boundingBox();assert.ok(smaller.width<moved.width-20&&smaller.height<moved.height-20,JSON.stringify({before,moved,smaller,errors}));
       await float.locator('[aria-label="收起经文浮窗"]').click();
+      await page.waitForFunction(()=>getComputedStyle(document.querySelector('#v25-compare[data-collapsed] .compare-slip__head')).minHeight==='28px');
       const compact=await float.boundingBox();
       assert.ok(compact.width<135&&compact.height<37&&compact.width<smaller.width*.68,JSON.stringify({small:smaller,compact}));
       assert.match(await float.locator('.compare-slip__title').textContent(),/^创 3:/);
@@ -195,6 +203,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       if(process.env.COMPARE_SCREENSHOTS)await float.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'compact-scripture-'+width+'.png')});
       await float.locator('.compare-slip__title').click();assert.equal(await float.getAttribute('data-chapter'),'3');
       assert.equal(await float.getAttribute('data-collapsed'),null);
+      await settleRect();
       const restored=await float.boundingBox();
       assert.ok(Math.abs(restored.width-smaller.width)<1,JSON.stringify({smaller,compact,restored}));
       await area.evaluate(el=>el.scrollTop=el.scrollHeight);

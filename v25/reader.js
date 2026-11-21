@@ -29,7 +29,7 @@
   let finder=null,searchAnchor=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null;
   const pointers=new Map();
-  let suppressBandClick=null, coverZoom=null;
+  let suppressBandClick=null, coverZoom=null, opening=null;
   let startShortcut=null,startShortcutTimer=0,startShortcutSpread=null,startPanFrame=0,startPanKind=null;
   let columnShortcut=null,columnShortcutTimer=0,columnOffer=null,columnGeometry=null,columnReading=null;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
@@ -43,7 +43,7 @@
     (canvas,index,ratio)=>Page.paint(canvas,D.pages[index],index,D.books,ratio));
   const desk=window.PaperBookDesk?.create(stage,$('desk-surface'));let deskKey=null;
   const pageJump=window.PaperJump.create(book,{renderPage:svgPage});
-  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,depthScale:smoothProfile ? .70 : 1});
+  const index=window.PaperEdgeIndex.create($('edge-index-host'),{books:D.books,pageCount:D.pages.length,onSelect:openEdgeChapters,depthScale:smoothProfile ? .70 : 1,splitLeaves:!!window.V25Opening});
   const readingPage=()=>{
     const a=D.pages[spread+1-readingSide],b=D.pages[spread+readingSide];
     return b.b>=0&&!b.blank&&b.start?b:a.b>=0&&!a.blank&&a.start?a:b;
@@ -229,6 +229,7 @@
   });
   function resize(){
     if(view.w===stage.clientWidth&&view.h===stage.clientHeight)return;
+    opening?.finish();
     const widthChanged=view.w!==stage.clientWidth;
     const pose=capturePose(),dock=chapters?.getDock?.();
     if(!dock)interrupt(true);view={w:stage.clientWidth,h:stage.clientHeight};
@@ -797,7 +798,9 @@
   $('demo-pan').onclick=()=>{focusPage('right');feedback('拖动正文平移；从书页外缘向书心拖动翻页');};
   stage.dataset.scene='reading';stage.dataset.textHoldMs=String(TEXT_HOLD_MS);
   window.PaperImmersion?.setScene?.('reading');
-  document.fonts?.addEventListener?.('loadingdone',()=>{const n=spread;requestAnimationFrame(()=>{if(n===spread&&!fold&&!jumpState&&!gesture&&!selection?.isActive()){papers.forEach((paper,i)=>paper.innerHTML=svgPage(n+i));selection?.refresh?.();markSearchInk();}})});
+  // The physical boot has already awaited every book face. A late load of
+  // unrelated UI fonts must not replace the prepared leaves mid-opening.
+  if(!D.physical)document.fonts?.addEventListener?.('loadingdone',()=>{const n=spread;requestAnimationFrame(()=>{if(n===spread&&!fold&&!jumpState&&!gesture&&!selection?.isActive()){papers.forEach((paper,i)=>paper.innerHTML=svgPage(n+i));selection?.refresh?.();markSearchInk();}})});
   render();resize();
   if(saved?.zoom>1&&Number.isFinite(saved.centerX)&&Number.isFinite(saved.centerY)){
     scale=clamp(fitScale*saved.zoom,fitScale,MAX_SCALE);x=view.w/2-saved.centerX*scale;y=view.h/2-saved.centerY*scale;focus=saved.focus||'custom';constrain();transform();
@@ -827,7 +830,11 @@
     interrupt
   });
   coverZoom?.sync(scale,fitScale,MAX_SCALE);
-  if(!flatTouch)coverZoom?.openOnce();
+  // At this point the final SVG, saved ink, index and reading pose already
+  // exist. Future on-page annotations belong inside these same .paper faces
+  // and should be hydrated by render(), never by the opening controller.
+  if(!noTurnMotion)opening=window.V25Opening?.play({stage,book,pose:{x,y,scale,...view},
+    layoutZoom:flatTouch&&CSS.supports('zoom','1')});
   new ResizeObserver(resize).observe(stage);window.addEventListener('resize',resize);
   save();
 })();

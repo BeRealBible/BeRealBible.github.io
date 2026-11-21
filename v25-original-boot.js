@@ -3,6 +3,17 @@
  'use strict';
  const root=document.documentElement,loading=document.querySelector('#reader-rule-loading'),note=loading.querySelector('p');
  const D=window.V25OriginalData,q=new URL(location.href),old=window.BIBLE_DATA,asset=document.querySelector('#v25-desk-controller').getAttribute('href');
+ // Decode the optional leather grain while paper data and fonts load. If it
+ // misses the first shot, use matte colour throughout; never pop in late or
+ // make the reader wait on decoration.
+ const grainURL=document.getElementById('v25-binding-grain')?.href;
+ let grainReady=false;
+ if(grainURL){
+  const grain=new Image();
+  if(!grain.decode)grain.onload=()=>{grainReady=true;};
+  grain.src=grainURL;
+  grain.decode?.().then(()=>{grainReady=true;},()=>{});
+ }
  const start=performance.now();
  try{
   const parts=Object.entries(D.packs);let at=0,done=0;
@@ -30,6 +41,7 @@
   const sp=(dest?.p??saved?.page??saved?.spread??9)&~1;
   window.BIBLE_DATA=meta;
   await window.PaperPage.preparePhysicalFonts([sp,sp+1]);
+  if(grainReady)root.style.setProperty('--v25-binding-grain',`url(${JSON.stringify(grainURL)})`);
   note.textContent='正在打开 V25 书桌…';
   await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=asset;script.onload=resolve;script.onerror=()=>reject(Error('V25 书桌未载入'));document.head.append(script)});
   if(!document.querySelector('#stage[data-spread] .paper svg[data-pdf]'))throw Error('V25 书桌未就绪');

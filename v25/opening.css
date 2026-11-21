@@ -1,0 +1,110 @@
+/* These two leather faces belong to the real book and remain when it is open. */
+.paper-immersive #reference-cover{
+  left:480px;border-left:0;border-radius:0 9px 9px 0;
+  right:calc(-1 * var(--edge-right-extent) * var(--v25-open-right-edge,1) - 7px);
+}
+.v25-front-binding{
+  position:absolute;z-index:0;pointer-events:none;top:-6px;bottom:-10px;right:480px;
+  --binding-close-edge:calc(max(var(--edge-left-extent),var(--edge-right-extent)) * .12 + 5px);
+  left:calc(-7px - var(--edge-left-extent) * var(--v25-open-cover-open,1)
+    - var(--binding-close-edge) * (1 - var(--v25-open-cover-open,1)));
+  border:1px solid #35261e;border-right:0;border-radius:9px 0 0 9px;
+}
+:is(.paper-immersive #reference-cover,.v25-front-binding){
+  background:
+    linear-gradient(176deg,#8061493d,transparent 32%,#1d140f30 84%,#160d0880),
+    var(--v25-binding-grain,none) center / 100% 100% no-repeat #37271e;
+  box-shadow:0 17px 34px #46301831,0 2px 1px #251911b3,inset 0 1px 1px #c8a07a24;
+}
+.paper-immersive #reference-cover{border-color:#35261e}
+.v25-front-binding::before{
+  /* The inside is muted endpaper glued just inside the leather lip. */
+  content:"";position:absolute;inset:6px 0 9px 6px;border-radius:4px 0 0 4px;
+  background:linear-gradient(96deg,#b3957145,transparent 15%,transparent 82%,#5b432c42),
+    linear-gradient(166deg,#c9b99a,#ae9b79 85%,#a18a67);
+  box-shadow:inset 0 0 1px #39270e6b;
+}
+.v25-binding-title{display:none}
+.edge-index__leaf{display:contents}
+
+.stage[data-v25-opening] #book{pointer-events:none;will-change:auto}
+.stage[data-v25-opening] #book *{pointer-events:none!important}
+.stage[data-v25-opening] #book-volume{
+  perspective:2900px;perspective-origin:480px 352px;
+}
+.stage[data-v25-opening] #left-half{
+  z-index:3;transform-origin:480px 50%;transform-style:preserve-3d;
+  transform:translateZ(var(--v25-open-paper-lift)) rotateY(var(--v25-open-paper-angle))
+    skewY(var(--v25-open-paper-skew));
+}
+.stage[data-v25-opening] #left-half::before{
+  /* The back of the following paper packet, not a second printed face. */
+  content:"";position:absolute;inset:0;border-radius:0 3px 3px 0;
+  transform:rotateY(180deg) translateZ(.3px);
+  clip-path:var(--v25-open-back-curve);
+  background:
+    linear-gradient(90deg,#a08a653d,transparent 8%,transparent 88%,#9d8c6c47),
+    linear-gradient(174deg,#f8f0dc,#efe2c6);
+  box-shadow:inset 0 -2px 1px #b09a734e,inset 0 1px 0 #fff8e4;
+}
+.stage[data-v25-opening] #left-paper{
+  box-shadow:none;
+}
+.stage[data-v25-opening] #left-paper::before{
+  /* Curve only the substrate, not a clip over the thousands of live ink
+     elements. The bottom layer matches the printed leaf when it lies flat. */
+  content:"";pointer-events:none;position:absolute;inset:0;
+  clip-path:var(--v25-open-paper-curve);
+  background:
+    linear-gradient(100deg,rgb(121 97 61 / calc(var(--v25-open-bend) * .09)),transparent 25%,transparent 82%,rgb(110 85 53 / calc(var(--v25-open-bend) * .12))),
+    linear-gradient(90deg,#f9f6eb,#fffef5 10%,#fffdf1 91%,#dcd5bf);
+}
+.stage[data-v25-opening] #left-paper>svg{position:relative}
+.stage[data-v25-opening] #left-paper>svg>rect[fill^="url(#paper-"]{visibility:hidden}
+.stage[data-v25-opening] #edge-index-host,
+.stage[data-v25-opening] .edge-index{transform-style:preserve-3d;isolation:auto}
+.stage[data-v25-opening] .edge-index__leaf{display:block;position:absolute;inset:0}
+.stage[data-v25-opening] .edge-index__leaf[data-side=left]{
+  visibility:var(--v25-open-left-cuts);
+  clip-path:inset(var(--v25-open-index-trim-top) 95% var(--v25-open-index-trim-bottom) -200px);
+  transform-origin:0 50%;
+  transform:translateZ(var(--v25-open-paper-lift)) translateX(480px) rotateY(var(--v25-open-paper-angle))
+    skewY(var(--v25-open-paper-skew)) translateX(-480px) scaleX(var(--v25-open-left-edge));
+}
+.stage[data-v25-opening] .edge-index__leaf[data-side=right]{
+  visibility:var(--v25-open-right-cuts);
+  transform-origin:960px 50%;transform:scaleX(var(--v25-open-right-projected));
+}
+.stage[data-v25-opening] :is(#left-paper,#left-paper-edges,.edge-index__leaf[data-side=left],.v25-binding-title){
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+}
+.stage[data-v25-opening] :is(.v25-front-binding)::before,
+.stage[data-v25-opening] #left-half::before{backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.stage[data-v25-opening] .v25-front-binding{
+  z-index:var(--v25-open-cover-z);transform-style:preserve-3d;
+  /* 480px is the right/spine edge of this sibling rather than an axis
+     inherited from the moving paper. */
+  transform-origin:right 50%;
+  transform:translateZ(var(--v25-open-cover-lift)) rotateY(var(--v25-open-cover-angle));
+}
+.stage[data-v25-opening] .v25-binding-title{
+  position:absolute;inset:-1px -1px -3px;display:grid;place-content:center;gap:13px;text-align:center;
+  padding-bottom:78px;
+  transform:rotateY(180deg) translateZ(3px);
+  border:1px solid #261a14;border-radius:6px 12px 11px 7px / 7px 11px 14px 8px;
+  background:
+    radial-gradient(ellipse at 97% 1%,#986e4b55,transparent 10%),
+    radial-gradient(ellipse at 96% 99%,#a27a585e,transparent 13%),
+    radial-gradient(ellipse at 46% 34%,#a47e571e,transparent 65%),
+    linear-gradient(90deg,#1b100bdd,#170e0966 1.2%,#b18c6248 3.1%,#73553b26 4.2%,#1b120b95 5.4%,#1b120b21 7%,transparent 10%,transparent 97.5%,#23170d80),
+    var(--v25-binding-grain,none) center / 100% 100% no-repeat #36251d;
+  box-shadow:0 2px 1px #261912e5,inset 0 1px 1px #c4986b52,inset -1px -2px 1px #21160fcf;
+  font:600 43px/1.22 var(--serif,serif);letter-spacing:.22em;text-indent:.22em;
+  color:#d1ad70;text-shadow:0 1px 1px #21130b,0 -1px #edcd9333;
+}
+.v25-binding-title::after{
+  /* A blind-pressed edge rather than a printed gold rectangle. */
+  content:"";position:absolute;inset:4.8% 5.5% 4.8% 8.1%;border-radius:7px 9px 11px 7px;
+  box-shadow:inset 0 1px 1px #170e0a4a,0 1px 1px #b78b631c;
+}
+.v25-binding-title small{font-size:15px;letter-spacing:.3em;text-indent:.3em;color:#ba9a63}

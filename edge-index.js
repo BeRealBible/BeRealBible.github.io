@@ -114,12 +114,12 @@
     }
     return {bands,groups,bounds:{leftExtent:normalLeft,rightExtent:normalRight,normalLeftExtent:normalLeft,normalRightExtent:normalRight}};
   }
-  function create(host,{books,pageCount,onSelect,depthScale=1}={}){
+  function create(host,{books,pageCount,onSelect,depthScale=1,splitLeaves=false}={}){
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,root=doc.createElement('nav'),listeners=[];
     root.className='edge-index';root.setAttribute('aria-label','书口书卷目录');
     let state={spread:0,scale:1,currentBook:null,turning:false},destroyed=false,geometry;
-    const add=(tag,className)=>{const el=doc.createElement(tag);el.className=className;root.appendChild(el);return el;};
+    const add=(tag,className,parent=root)=>{const el=doc.createElement(tag);el.className=className;parent.appendChild(el);return el;};
     const listen=(el,type,fn,capture=false)=>{el.addEventListener(type,fn,capture);listeners.push([el,type,fn,capture]);};
     const stop=event=>event.stopPropagation();
     const configureButton=button=>{
@@ -129,14 +129,16 @@
     };
     // The unmarked paper is only a pointer surface for the reader's turn
     // gesture: it must neither receive keyboard focus nor bind a click.
-    const bands={};
+    const bands={},leaves={};
     for(const side of ['left','right']){
-      const band=add('div','edge-index__band');band.dataset.side=side;
+      const leaf=leaves[side]=splitLeaves?add('div','edge-index__leaf'):root;
+      if(splitLeaves)leaf.dataset.side=side;
+      const band=add('div','edge-index__band',leaf);band.dataset.side=side;
       band.setAttribute('aria-hidden','true');bands[side]=band;
     }
     const groupButtons=new Map();
     for(const group of GROUPS)for(const side of ['left','right']){
-      const button=configureButton(add('button','edge-index__group '+(group.nt?'edge-index__nt':'edge-index__ot')));
+      const button=configureButton(add('button','edge-index__group '+(group.nt?'edge-index__nt':'edge-index__ot'),leaves[side]));
       button.dataset.group=String(group.index);button.dataset.side=side;
       button.dataset.track=group.track;button.dataset.row=String(group.row);
       const label=doc.createElement('span');label.className='edge-index__face';label.setAttribute('aria-hidden','true');button.appendChild(label);

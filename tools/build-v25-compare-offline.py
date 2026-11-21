@@ -26,6 +26,8 @@ def link(m):
     tag=m[0];ref=re.search(r'href="([^"]+)"',tag)[1]
     if 'rel="stylesheet"' in tag: return '<style>'+css(path(ref).read_text('utf-8'))+'</style>'
     if 'rel="preload"' in tag:
+        if 'id="v25-binding-grain"' in tag:
+            return tag.replace(ref,'data:image/webp;base64,'+b64(path(ref).read_bytes()))
         assert ref.startswith('v25/reader.js?');return ''
     if 'rel="manifest"' in tag:return ''
     if 'rel="icon"' in tag or 'rel="apple-touch-icon"' in tag:
