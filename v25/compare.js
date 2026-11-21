@@ -100,17 +100,21 @@
       const {chapter,rows}=stream.chunks[n],section=node('section','compare-slip__chunk');
       section.dataset.chunk=String(n);section.dataset.chapter=String(chapter);
       section.append(node('h2','compare-slip__chapter-title','第 '+chapter+' 章'));
+      let paragraph;
       for(const row of rows){
         for(const text of row.titles)section.append(node('h3','compare-slip__section-title',text));
-        const p=node('p','compare-slip__verse'),num=node('span','compare-slip__ref',row.display);
-        p.dataset.ref=row.ref;p.dataset.verseId=row.id;
-        if(row.paragraph)p.dataset.paragraph='';
+        if(!paragraph||row.paragraph||row.titles.length){
+          paragraph=node('p','compare-slip__paragraph');section.append(paragraph);
+        }else paragraph.append(doc.createTextNode(' '));
+        const verses=row.lo===row.hi?String(row.lo):row.lo+'–'+row.hi;
+        const text=node('span','compare-slip__verse'),num=node('sup','compare-slip__ref',verses);
+        text.dataset.ref=row.ref;text.dataset.verseId=row.id;
         const cited=config.cited.has(row.id);
-        if(cited)p.dataset.cited='';
-        p.append(num);
-        if(cited&&config.keywords?.length)win.V25Words.paint(p,row.text,config.keywords);
-        else p.append(doc.createTextNode(row.text));
-        section.append(p);
+        if(cited)text.dataset.cited='';
+        text.append(num);
+        if(cited&&config.keywords?.length)win.V25Words.paint(text,row.text,config.keywords);
+        else text.append(doc.createTextNode(row.text));
+        paragraph.append(text);
       }
       return section;
     }
@@ -133,13 +137,14 @@
       const key=row.code+':'+row.ch;
       if(lastChapter!==key){lastChapter=key;config.onRead?.({bookCode:row.code,bookName:row.name,page:row.page,ref:row.ref});}
     }
-    function firstVisible(){
-      const y=scroll.scrollTop+1;
+    function firstVisible(y=scroll.scrollTop+1){
       return rows.find(p=>p.el.offsetTop+p.el.offsetHeight>y)||rows.at(-1);
     }
     function readScroll(){
       const y=scroll.scrollTop+Math.min(23,scroll.clientHeight*.12);
-      aim((rows.findLast(p=>p.el.offsetTop<=y)||rows[0])?.row);
+      // Multiple verses can share a line. Follow its first visible verse
+      // rather than skipping to the last verse starting on the same line.
+      aim(firstVisible(y)?.row);
     }
     function atEdge(direction,gap=2){
       return direction>0?scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<=gap:scroll.scrollTop<=gap;

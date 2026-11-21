@@ -36,14 +36,14 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   grid-row:3;position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;touch-action:pan-y;user-select:text;
   scrollbar-width:thin;scrollbar-color:#b49a76 transparent;padding:8px 12px 11px;-webkit-text-size-adjust:none;text-size-adjust:none
 }
-.compare-slip__verse{margin:0;padding:2px 4px;border-radius:2px;line-height:1.6}
+.compare-slip__paragraph{margin:0 4px;line-height:1.6}
+.compare-slip__paragraph+.compare-slip__paragraph{margin-top:.5em}
 .compare-slip__chapter-title{margin:7px 4px 5px;font:600 1em/1.3 var(--serif,serif);color:#694b2f}
 .compare-slip__chunk+.compare-slip__chunk{margin-top:12px;padding-top:4px;border-top:1px solid #bfa78580}
-.compare-slip__verse+.compare-slip__verse[data-paragraph]{margin-top:.4em}
 .compare-slip__section-title{margin:7px 4px 3px;font:600 .92em/1.4 var(--serif,serif);color:#725339}
-.compare-slip__verse[data-cited]{background:#eecd8875;box-shadow:inset 2px 0 #b381483d}
+.compare-slip__verse[data-cited]{background:#eecd8875;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .compare-slip__verse mark{background:#d9975d9c;color:#542c18}
-.compare-slip__ref{font:11px/1.2 var(--ui,system-ui,sans-serif);color:#805c3c;margin-right:.6em;white-space:nowrap}
+.compare-slip__ref{font:600 .66em/0 var(--ui,system-ui,sans-serif);color:#805c3c;margin-right:.32em;vertical-align:super;white-space:nowrap}
 .compare-slip__message{margin:6px 4px;color:#735c43}
 .compare-slip__foot{grid-row:4;display:flex;flex-wrap:wrap;align-items:center;gap:1px 5px;padding:0 26px 0 4px;border-top:1px solid #c2ab8880;background:#eee2cb}
 .compare-slip__action{flex:0 0 auto;min-height:32px;padding:3px 5px;color:#59402c;font:12px/1 var(--ui,system-ui,sans-serif)}
@@ -75,6 +75,6 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 }
 @media(forced-colors:active){
   .compare-slip{background:Canvas;color:CanvasText;border-color:CanvasText}
-  .compare-slip__verse[data-cited]{border-inline-start:2px solid Highlight}
+  .compare-slip__verse[data-cited]{outline:1px solid Highlight}
 }
 @media print{.compare-slip{display:none!important}}

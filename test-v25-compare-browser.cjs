@@ -41,6 +41,19 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         assert.ok(box.ref&&box.descriptions===0&&box.title<=box.line+1&&box.head<=40&&box.refRight<=box.titleRight+1,JSON.stringify(box));
         assert.equal(box.wrap,'nowrap');assert.equal(box.bookClip,'ellipsis');
       }
+      async function naturalParagraphs(panel){
+        const layout=await panel.locator('.compare-slip__chunk').first().evaluate(chapter=>{
+          const verses=[...chapter.querySelectorAll('[data-verse-id]')];
+          return {
+            paragraphs:chapter.querySelectorAll('.compare-slip__paragraph').length,verses:verses.length,
+            headers:chapter.querySelectorAll('.compare-slip__chapter-title').length,
+            grouped:verses.some(v=>v.nextElementSibling?.classList.contains('compare-slip__verse')),
+            numbered:verses.every(v=>v.parentElement.matches('p.compare-slip__paragraph')&&
+              /^\d+(?:–\d+)?$/.test(v.querySelector('sup')?.textContent)&&getComputedStyle(v).display==='inline'),
+          };
+        });
+        assert.equal(layout.headers,1);assert.ok(layout.numbered&&layout.grouped&&layout.verses>layout.paragraphs,JSON.stringify(layout));
+      }
       const fit=async()=>{await page.evaluate(()=>document.getElementById('fit-book').click());await page.waitForTimeout(180);};
       const chrome=()=>page.evaluate(()=>PaperImmersion.showChrome());
       const touch=mobile?await context.newCDPSession(page):null;
@@ -72,6 +85,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await bar.locator('[data-float]').click({timeout:4500});await float.waitFor();
       assert.deepEqual(await float.locator('[data-cited]').evaluateAll(rows=>rows.map(row=>row.dataset.ref)),['1:28','1:29']);
       await oneLine(float);
+      await naturalParagraphs(float);
       await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
@@ -92,9 +106,9 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await turn(false,8);await mark('1:31',9);await turn(true,10);await mark('2:1',10);
       await bar.locator('[data-float]').click();await float.waitFor();
       assert.equal(await float.getAttribute('data-page'),'9');
-      assert.ok(await float.locator('p.compare-slip__verse[data-cited][data-ref="1:31"]').count());
-      assert.equal(await float.locator('p[data-ref="2:1"][data-cited]').count(),0);
-      assert.equal(await float.locator('p[data-ref="1:31"]').count(),1);
+      assert.ok(await float.locator('.compare-slip__verse[data-cited][data-ref="1:31"]').count());
+      assert.equal(await float.locator('[data-ref="2:1"][data-cited]').count(),0);
+      assert.equal(await float.locator('[data-ref="1:31"]').count(),1);
       assert.equal(await float.locator('button').filter({hasText:/上一页|下一页|上一张|下一张/}).count(),0);
       const fixed=await float.boundingBox();
       await page.evaluate(()=>document.getElementById('zoom-in').click());await fit();
@@ -123,11 +137,11 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       }else{await area.hover();await page.mouse.wheel(0,200);}
       // Let the mobile fling settle before placing a precise test anchor.
       await page.waitForTimeout(mobile?420:90);
-      await area.evaluate(el=>{el.scrollTop=el.querySelector('p[data-ref="3:4"]').offsetTop-4;});
+      await area.evaluate(el=>{el.scrollTop=el.querySelector('[data-ref="3:4"]').offsetTop-4;});
       await page.waitForFunction(()=>document.getElementById('v25-compare').dataset.chapter==='3',null,{timeout:5000}).catch(async e=>{
         throw Error(JSON.stringify(await area.evaluate(el=>({
           top:el.scrollTop,chapter:el.closest('aside').dataset.chapter,
-          target:el.querySelector('p[data-ref="3:4"]')?.offsetTop,displayed:[...el.children].map(s=>s.dataset.chapter)
+          target:el.querySelector('[data-ref="3:4"]')?.offsetTop,displayed:[...el.children].map(s=>s.dataset.chapter)
         }))),{cause:e});
       });
       assert.ok(await area.locator('.compare-slip__chunk').count()<=3);
@@ -177,6 +191,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       const note=$('#v25-scripture-preview');
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'search');
       await oneLine(note);
+      await naturalParagraphs(note);
       assert.ok(await note.locator('p mark').count());assert.equal(await $('#verse-finder').isVisible(),false);
       await note.locator('[aria-label="返回搜索结果"]').click();assert.ok(await $('#verse-finder').isVisible());
       assert.equal(await $('#vf-input').inputValue(),'创造');
@@ -187,7 +202,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await oneChapter.evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new WheelEvent('wheel',{deltaY:300}));});
       assert.equal(await oneChapter.locator('.compare-slip__chunk').count(),1);
       assert.ok(await oneChapter.locator('[data-verse-id^="JUD."]').count());
-      assert.equal(await oneChapter.locator('p:not([data-verse-id^="JUD."])').count(),0);
+      assert.equal(await oneChapter.locator('[data-verse-id]:not([data-verse-id^="JUD."])').count(),0);
       await note.locator('[aria-label="返回搜索结果"]').click();
       await $('#vf-close').click();
       await page.goto(preview+'?pdf=958&curl=off',{timeout:90000});
@@ -206,6 +221,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await activationOnly(cue);
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'footnote');
       await oneLine(note);
+      await naturalParagraphs(note);
       const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
       const initialHistory=await shelf();await refs.nth(1).click();
       assert.match(await note.locator('.compare-slip__title').textContent(),/利未记/);
