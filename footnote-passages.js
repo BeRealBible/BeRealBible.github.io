@@ -331,7 +331,7 @@
   // Only accept a complete unambiguous reference. "、" lists specific
   // verses (3:5、7 is NOT 3:5–7); ";" may carry a book to another chapter.
   // A range is inclusive. Never show a plausible fragment of a broken note.
-  function resolve(citation,source){
+  function resolveParts(citation,source){
     const idx=index(source);if(!idx||typeof citation!=='string'||citation.length>1024)return empty;
     const text=citation.normalize('NFKC').trim().replace(/[。. ]$/u,'');
     const tokens=text.split(/([、,;])/u),out=[];let book=null,chapter=0;
@@ -345,6 +345,7 @@
       const c2=hit[3]===undefined?c1:Number(hit[3]),v2=hit[4]===undefined?v1:Number(hit[4]);
       if(![c1,v1,c2,v2].every(k=>Number.isSafeInteger(k)&&k>0)||c2<c1||(c1===c2&&v2<v1))return empty;
       if(!chapterOf(idx,book,c1)||!chapterOf(idx,book,c2))return empty;
+      const part=[];
       for(let c=c1;c<=c2;c++){
         const ch=chapterOf(idx,book,c);if(!ch?.verses?.length)return empty;
         const verses=verseMap(idx,ch),first=c===c1?v1:ch.verses[0][0],last=c===c2?v2:ch.verses[ch.verses.length-1][0];
@@ -352,13 +353,15 @@
         for(let v=first;v<=last;v++){
           const value=verses.get(v);
           if(typeof value!=='string'||!value.trim())return empty;
-          out.push({code:book.code,name:book.name,chapter:c,verse:v,text:value});
+          part.push({code:book.code,name:book.name,chapter:c,verse:v,text:value});
         }
       }
+      out.push(part);
       chapter=c2;
     }
     return out;
   }
+  function resolve(citation,source){return resolveParts(citation,source).flat();}
   function passages(note,source){return note?resolve(note.citation,source):empty;}
-  return Object.freeze({seal,notesForPage,byOrdinal,passages,resolve});
+  return Object.freeze({seal,notesForPage,byOrdinal,passages,resolve,resolveParts});
 });

@@ -1,4 +1,4 @@
-.compare-slip,#verse-finder{
+.compare-slip,#verse-finder,#vf-tab,#v25-citation-choice{
   /* Same laid-paper material and muted cinnabar as the book-edge index.
      Keep an opaque paper backing: decoration must not ghost through text. */
   --slip-paper:linear-gradient(90deg,#87602d26,transparent 17px,transparent calc(100% - 5px),#79502716),
@@ -10,18 +10,21 @@
   --slip-shadow:0 5px 16px #25190729,0 1px 3px #281a0c36,inset 0 0 0 1px #fffbedaa;
   --slip-ink:#392d22;
   --slip-red:#834637;
+  --slip-tab-paper:rgba(244,232,205,.76);
 }
 .compare-slip{
   --compare-height-px:380px;
   position:fixed;z-index:46;top:max(52px,env(safe-area-inset-top));right:max(20px,env(safe-area-inset-right));
   width:clamp(310px,31vw,460px);height:min(var(--compare-height-px),55dvh);
-  box-sizing:border-box;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;
+  box-sizing:border-box;display:grid;grid-template-rows:auto minmax(0,1fr);
   color:#29251f;background:var(--slip-paper);
   border:1px solid var(--slip-edge);border-radius:1px;box-shadow:var(--slip-shadow);
   font:15px/1.62 var(--serif,"Songti SC",SimSun,serif);overflow:hidden;
 }
 #verse-finder{background:var(--slip-paper);border:1px solid var(--slip-edge);border-radius:1px;box-shadow:var(--slip-shadow)}
 #verse-finder .vf-foot{background:transparent;border-top-color:var(--slip-hairline)}
+#vf-tab{background:var(--slip-tab-paper);border:1px solid var(--slip-edge);border-radius:1px 4px 4px 1px;color:var(--slip-ink);box-shadow:0 2px 5px #291b1025}
+#vf-tab:hover,#vf-tab:focus-visible{background:rgba(250,241,218,.83)}
 .compare-slip::before,.compare-slip::after,#verse-finder::before{content:"";position:absolute;pointer-events:none}
 .compare-slip::before,#verse-finder::before{inset:4px;border:1px solid var(--slip-hairline)}
 .compare-slip::after{left:8px;top:10px;bottom:9px;width:1px;background:linear-gradient(transparent,#a67d4748 12%,#88483e70 48%,#a67d4748 87%,transparent)}
@@ -35,11 +38,16 @@
 /* The active navigation tools take priority if paper slips overlap. */
 body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
-.compare-slip[data-collapsed]{height:auto!important;grid-template-rows:auto}
-.compare-slip[data-collapsed] :is(.compare-slip__tabs,.compare-slip__scroll,.compare-slip__foot,.compare-slip__resize){display:none}
+.compare-slip[data-collapsed]{
+  width:max-content!important;max-width:min(160px,calc(100vw - 16px));height:auto!important;grid-template-rows:auto;
+  background:var(--slip-tab-paper);box-shadow:0 2px 5px #291b1025;
+}
+.compare-slip[data-collapsed]:hover{background:rgba(250,241,218,.83)}
+.compare-slip[data-collapsed]::after,.compare-slip[data-collapsed] .compare-slip__head::after,
+.compare-slip[data-collapsed] :is(.compare-slip__scroll,.compare-slip__action,.compare-slip__resize){display:none}
+.compare-slip[data-collapsed]::before{inset:2px}
 .compare-slip__head{position:relative;display:flex;align-items:stretch;gap:3px;min-height:38px;padding:0 8px 0 0}
-.compare-slip__head::after,.compare-slip__foot::before{content:"";position:absolute;left:14px;right:12px;height:1px;background:var(--slip-rule);pointer-events:none}
-.compare-slip__head::after{bottom:0}
+.compare-slip__head::after{content:"";position:absolute;bottom:0;left:14px;right:12px;height:1px;background:var(--slip-rule);pointer-events:none}
 .compare-slip__title{flex:1 1 auto;min-width:0;text-align:left;color:inherit;padding:4px 9px 4px 26px;position:relative;cursor:grab;touch-action:none;user-select:none}
 .compare-slip__title::before{content:"";position:absolute;left:15px;top:50%;width:5px;height:10px;transform:translateY(-50%) skewY(-24deg);background:repeating-linear-gradient(#856042 0 1px,transparent 1px 4px);opacity:.86}
 .compare-slip[data-adjust=move] .compare-slip__title{cursor:grabbing}
@@ -47,16 +55,26 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .compare-slip__book{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .compare-slip__address{flex:none;font:600 .94em/1 Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums;color:var(--slip-red);letter-spacing:0}
 .compare-slip__icon{align-self:center;width:33px;min-height:34px;font:18px/1 Georgia,"Times New Roman",serif;color:#684b32;touch-action:manipulation}
+.compare-slip__tools{display:flex;align-items:center;gap:1px;flex:none}
+.compare-slip[data-collapsed] .compare-slip__head{min-height:28px;gap:1px;padding-right:2px}
+.compare-slip[data-collapsed] .compare-slip__title{padding:2px 4px 2px 11px;cursor:pointer}
+.compare-slip[data-collapsed] .compare-slip__title::before{display:none}
+.compare-slip[data-collapsed] .compare-slip__title strong{font-size:12px}
+.compare-slip[data-collapsed] .compare-slip__icon{width:24px;min-height:27px;font-size:14px;padding:0}
 .compare-slip button:focus-visible,.compare-slip__scroll:focus-visible{outline:2px solid #9c6a35;outline-offset:-2px}
 .compare-slip__icon:hover{color:var(--slip-red);background:#a4774020}
-.compare-slip__tabs{grid-row:2;display:flex;gap:8px;padding:1px 12px 2px 15px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#a58a5a66 transparent}
-.compare-slip__tab{position:relative;flex:none;min-height:29px;padding:3px 5px;border:0;color:#634c34;font:12px/1.2 var(--serif,serif)}
-.compare-slip__tab[aria-pressed=true]{color:var(--slip-red)}
-.compare-slip__tab[aria-pressed=true]::after{content:"";position:absolute;left:5px;right:5px;bottom:3px;height:1px;background:#99533b9c;pointer-events:none}
-.compare-slip__tab:hover{color:var(--slip-red)}
+#v25-citation-choice{
+  position:fixed;z-index:49;box-sizing:border-box;display:flex;align-items:center;width:max-content;max-width:min(310px,calc(100vw - 16px));
+  padding:2px 5px;gap:2px;background:var(--slip-paper);border:1px solid var(--slip-edge);border-radius:1px;box-shadow:var(--slip-shadow);
+  overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#a58a5a66 transparent;
+}
+#v25-citation-choice[hidden]{display:none}
+#v25-citation-choice button{flex:none;min-height:30px;padding:3px 8px;color:var(--slip-ink);background:transparent;font:13px/1.2 var(--serif,serif);white-space:nowrap}
+#v25-citation-choice button+button{border-left:1px solid var(--slip-hairline)}
+#v25-citation-choice button:hover,#v25-citation-choice button:focus-visible{color:var(--slip-red);background:#a4774020}
 .compare-slip__scroll{
-  grid-row:3;position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;touch-action:pan-y;user-select:text;
-  scrollbar-width:thin;scrollbar-color:#a58a5aaa transparent;padding:8px 12px 11px 13px;-webkit-text-size-adjust:none;text-size-adjust:none
+  grid-row:2;position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;touch-action:pan-y;user-select:text;
+  scrollbar-width:thin;scrollbar-color:#a58a5aaa transparent;padding:8px 12px 16px 13px;-webkit-text-size-adjust:none;text-size-adjust:none
 }
 /* Match the released paper body's font order and ink. Unlike the desk, the
    flowing text has no per-glyph SVG transform or camera-dependent scale. */
@@ -69,9 +87,7 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .compare-slip__verse mark{background:#d9975d9c;color:#542c18}
 .compare-slip__ref{font:600 .66em/0 var(--ui,system-ui,sans-serif);color:#66472d;margin-right:.32em;vertical-align:super;white-space:nowrap}
 .compare-slip__message{margin:6px 4px;color:#735c43}
-.compare-slip__foot{position:relative;grid-row:4;display:flex;align-items:center;gap:2px;padding:0 26px 0 12px}
-.compare-slip__foot::before{top:0}
-.compare-slip__action{display:inline-grid;place-items:center;flex:0 0 34px;height:31px;margin:0;padding:0;border:0;background:none;border-radius:3px;color:#59402c}
+.compare-slip__action{display:inline-grid;place-items:center;flex:none;width:29px;height:32px;margin:0;padding:0;border:0;background:none;border-radius:3px;color:#59402c;touch-action:manipulation}
 .compare-slip__action svg{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .compare-slip__action:hover:not(:disabled){color:var(--slip-red);background:#a4774020}
 .compare-slip__resize{position:absolute;z-index:2;bottom:0;right:0;width:25px;height:27px;cursor:nwse-resize;touch-action:none;color:#795f43}
@@ -92,17 +108,20 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   .compare-slip{--compare-height-px:260px;top:auto;bottom:max(54px,calc(env(safe-area-inset-bottom) + 42px));right:max(9px,env(safe-area-inset-right));width:min(300px,78vw);height:min(var(--compare-height-px),40dvh);font-size:14px}
   .compare-slip[data-kind=footnote]{--compare-height-px:215px;width:min(273px,76vw)}
   .compare-slip[data-kind=search]{--compare-height-px:264px}
-  .compare-slip__head{min-height:34px}.compare-slip__title strong{font-size:13px}
+  .compare-slip__head{min-height:34px;padding-right:4px}.compare-slip__title strong{font-size:13px}
+  .compare-slip__title{padding-left:20px;padding-right:4px}.compare-slip__title::before{left:11px}
   .compare-slip__icon{width:30px;min-height:33px}
-  .compare-slip__scroll{padding:5px 8px 8px 11px}.compare-slip__action{flex-basis:40px;height:36px}
-  .compare-slip__resize{width:33px;height:34px}.compare-slip__foot{padding-right:34px}
+  .compare-slip__scroll{padding:5px 8px 16px 11px}.compare-slip__action{width:32px;height:33px}
+  .compare-slip[data-collapsed] .compare-slip__icon{width:28px;min-height:30px}
+  .compare-slip__resize{width:31px;height:29px}
+  #v25-citation-choice button{min-height:36px}
 }
+@media(prefers-reduced-transparency:reduce){.compare-slip[data-collapsed],#vf-tab{background:#f4e8cd}}
 @media(forced-colors:active){
-  .compare-slip,#verse-finder{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none}
+  .compare-slip,#verse-finder,#vf-tab,#v25-citation-choice{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none}
   .compare-slip::before,.compare-slip::after,#verse-finder::before{display:none}
-  .compare-slip__title strong,.compare-slip__address,.compare-slip__tab[aria-pressed=true]{color:CanvasText}
-  .compare-slip__tab[aria-pressed=true]{text-decoration:underline}
+  .compare-slip__title strong,.compare-slip__address{color:CanvasText}
   .compare-slip__resize::after{background:CanvasText}
   .compare-slip__verse[data-cited]{outline:1px solid Highlight}
 }
-@media print{.compare-slip{display:none!important}}
+@media print{.compare-slip,#v25-citation-choice{display:none!important}}

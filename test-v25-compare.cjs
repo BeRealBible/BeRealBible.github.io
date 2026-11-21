@@ -70,6 +70,12 @@ test('library supplies verse paragraphs, short titles and noncontiguous citation
   assert.ok(new Set(g.chunks[2].rows.map(r=>r.page)).size>1,'one chapter may cover multiple printed pages');
   assert.equal(library.index('JUD').chunks.length,1);
 });
+test('citation choices preserve the printed distinction between separate verses and a range',()=>{
+  const split=s=>Passages.resolveParts(s,Source).map(part=>part.map(v=>v.code+'.'+v.chapter+':'+v.verse));
+  assert.deepEqual(split('创 1:1、2'),[['GEN.1:1'],['GEN.1:2']]);
+  assert.deepEqual(split('赛62:10–11；亚9:9。'),[['ISA.62:10','ISA.62:11'],['ZEC.9:9']]);
+  assert.deepEqual(split('创1:1；2'),[]);
+});
 test('continuous scrolling keeps neighboring chunks and evicts only the far side',()=>{
   assert.deepEqual(C.windowRange(0,0,-1,4),{lo:0,hi:0});
   assert.deepEqual(C.windowRange(0,0,1,4),{lo:0,hi:1});

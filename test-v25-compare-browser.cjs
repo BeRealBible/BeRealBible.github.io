@@ -55,25 +55,22 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         assert.equal(layout.headers,1);assert.ok(layout.numbered&&layout.grouped&&layout.verses>layout.paragraphs,JSON.stringify(layout));
       }
       async function iconBar(panel,keys){
-        const bar=await panel.locator('.compare-slip__foot').evaluate(foot=>({
-          text:foot.textContent.trim(),
-          buttons:[...foot.querySelectorAll('button:not([hidden])')].map(b=>({
-            key:b.dataset.action,svg:!!b.querySelector('svg path'),label:b.getAttribute('aria-label'),tip:b.title
-          }))
-        }));
-        assert.equal(bar.text,'','no repeated chapter status or text buttons');
-        assert.deepEqual(bar.buttons.map(b=>b.key),keys);
-        assert.ok(bar.buttons.every(b=>b.svg&&b.label&&b.tip===b.label),JSON.stringify(bar));
+        const buttons=await panel.locator('.compare-slip__head [data-action]:not([hidden])').evaluateAll(all=>all.map(b=>({
+          key:b.dataset.action,svg:!!b.querySelector('svg path'),label:b.getAttribute('aria-label'),tip:b.title,text:b.textContent.trim()
+        })));
+        assert.equal(await panel.locator('footer').count(),0,'no extra toolbar under the text');
+        assert.deepEqual(buttons.map(b=>b.key),keys);
+        assert.ok(buttons.every(b=>b.svg&&!b.text&&b.label&&b.tip===b.label),JSON.stringify(buttons));
       }
       async function paperTheme(panel){
         const look=await panel.evaluate(el=>{
           const style=s=>getComputedStyle(el.querySelector(s));
           return {material:getComputedStyle(el).backgroundImage,head:style('header').backgroundColor,
-            foot:style('footer').backgroundColor,ink:style('.compare-slip__paragraph').color,
+            ink:style('.compare-slip__paragraph').color,
             corner:getComputedStyle(el.querySelector('.compare-slip__resize'),'::after').clipPath};
         });
         assert.match(look.material,/data:image\/svg\+xml/);
-        assert.equal(look.head,'rgba(0, 0, 0, 0)');assert.equal(look.foot,'rgba(0, 0, 0, 0)');
+        assert.equal(look.head,'rgba(0, 0, 0, 0)');
         assert.equal(look.ink,'rgb(41, 37, 31)');assert.match(look.corner,/^polygon/);
       }
       const fit=async()=>{await page.evaluate(()=>document.getElementById('fit-book').click());await page.waitForTimeout(180);};
@@ -189,8 +186,17 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       const moved=await float.boundingBox();assert.ok(moved.x<before.x-24&&Math.abs(moved.y-before.y)>25);
       await drag(float.locator('.compare-slip__resize'),-35,-35);
       const smaller=await float.boundingBox();assert.ok(smaller.width<moved.width-20&&smaller.height<moved.height-20,JSON.stringify({before,moved,smaller,errors}));
-      await float.locator('[aria-label="收起经文浮窗"]').click();assert.ok((await float.boundingBox()).height<64);
-      await float.locator('[aria-label="展开经文浮窗"]').click();assert.equal(await float.getAttribute('data-chapter'),'3');
+      await float.locator('[aria-label="收起经文浮窗"]').click();
+      const compact=await float.boundingBox();
+      assert.ok(compact.width<135&&compact.height<37&&compact.width<smaller.width*.68,JSON.stringify({small:smaller,compact}));
+      assert.match(await float.locator('.compare-slip__title').textContent(),/^创 3:/);
+      assert.match(await float.evaluate(el=>getComputedStyle(el).backgroundColor),/^rgba\(/);
+      assert.equal(await float.locator('[data-action]:visible').count(),0);
+      if(process.env.COMPARE_SCREENSHOTS)await float.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'compact-scripture-'+width+'.png')});
+      await float.locator('.compare-slip__title').click();assert.equal(await float.getAttribute('data-chapter'),'3');
+      assert.equal(await float.getAttribute('data-collapsed'),null);
+      const restored=await float.boundingBox();
+      assert.ok(Math.abs(restored.width-smaller.width)<1,JSON.stringify({smaller,compact,restored}));
       await area.evaluate(el=>el.scrollTop=el.scrollHeight);
       await chapter(4).waitFor({state:'attached'});
       assert.equal(await area.locator('.compare-slip__chunk').count(),3);
@@ -231,46 +237,50 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await oneChapter.locator('[data-verse-id]:not([data-verse-id^="JUD."])').count(),0);
       await note.locator('[aria-label="返回搜索结果"]').click();
       await $('#vf-close').click();
+      await $('#vf-tab').waitFor();assert.match(await $('#vf-tab').evaluate(el=>getComputedStyle(el).backgroundColor),/^rgba\(/);
       await page.goto(preview+'?pdf=958&curl=off',{timeout:90000});
       await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
       const cue=$('[data-note-page="958"][data-note-ordinal="1"]').first();
-      async function activationOnly(citation){
+      const chooser=$('#v25-citation-choice');
+      async function activationOnly(citation,popup=note){
         assert.equal(await citation.evaluate(el=>getComputedStyle(el).cursor),'pointer');
-        if(mobile){await citation.tap();await note.waitFor();return;}
-        await citation.hover();await note.waitFor({state:'hidden',timeout:2000});
-        await citation.focus();assert.equal(await note.isVisible(),false);
-        await citation.press('Enter');await note.waitFor();assert.equal(await citation.getAttribute('aria-expanded'),'true');
-        await page.keyboard.press('Escape');await note.waitFor({state:'hidden'});
+        if(mobile){await citation.tap();await popup.waitFor();return;}
+        await citation.hover();await popup.waitFor({state:'hidden',timeout:2000});
+        await citation.focus();assert.equal(await popup.isVisible(),false);
+        await citation.press('Enter');await popup.waitFor();assert.equal(await citation.getAttribute('aria-expanded'),'true');
+        await page.keyboard.press('Escape');await popup.waitFor({state:'hidden'});
         assert.equal(await citation.getAttribute('aria-expanded'),'false');
-        await citation.click();await note.waitFor();
+        await citation.click();await popup.waitFor();
       }
-      await activationOnly(cue);
+      await activationOnly(cue,chooser);
+      assert.equal(await note.isVisible(),false);
+      assert.equal(await chooser.locator('button').count(),3);
+      const initialHistory=await shelf();
+      await chooser.locator('button').nth(1).click();await chooser.waitFor({state:'hidden'});
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'footnote');
       await oneLine(note);
       await naturalParagraphs(note);
-      await iconBar(note,mobile?['jump','pin']:['jump','pin','fork']);
+      await iconBar(note,['jump','pin']);
       await paperTheme(note);
-      const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
-      const initialHistory=await shelf();await refs.nth(1).click();
-      assert.match(await note.locator('.compare-slip__title').textContent(),/利未记/);
+      assert.match(await note.locator('.compare-slip__title').textContent(),/^利 /);
+      assert.equal(await note.locator('[data-verse-id]:not([data-verse-id^="LEV."])').count(),0);
       assert.deepEqual(await shelf(),initialHistory,'preview does not add history');
-      if(!mobile){
-        await note.locator('[aria-label="将当前引用另开一个对照窗"]').click();
-        await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/利未记/);
-        assert.equal(await note.isVisible(),true);
-      }
+      await note.locator('[aria-label="固定经文浮窗"]').click();
+      await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/^利 /);
+      await note.waitFor({state:'hidden'});
       if(process.env.COMPARE_SCREENSHOTS){
         // Reproduce the Isaiah/Zechariah citation shown in the feedback.
         await page.goto(preview+'?pdf=978&curl=off',{timeout:90000});
         await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
-        await activationOnly($('[data-note-page="978"][data-note-ordinal="1"]').first());
-        assert.deepEqual(await note.locator('.compare-slip__tab').allTextContents(),['赛 62:11','亚 9:9']);
+        await activationOnly($('[data-note-page="978"][data-note-ordinal="1"]').first(),chooser);
+        assert.deepEqual(await chooser.locator('button').allTextContents(),['赛 62:11','亚 9:9']);
+        await chooser.locator('button').first().click();await note.waitFor();
         const content=note.locator('.compare-slip__scroll'),ref=note.locator('[data-ref="63:2"]');
         if(!await ref.count())await content.evaluate(el=>{el.scrollTop=el.scrollHeight;});
         await ref.waitFor({state:'attached'});
         await content.evaluate(el=>{el.scrollTop=el.querySelector('[data-ref="63:2"]').offsetTop-8;});
         assert.equal(await ref.locator('sup').textContent(),'2');
-        await iconBar(note,mobile?['jump','pin']:['jump','pin','fork']);
+        await iconBar(note,['jump','pin']);
         await note.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'isaiah-icon-bar-'+width+'.png')});
       }
       await page.goto(preview+'?pdf=954&curl=off',{timeout:90000});
@@ -295,7 +305,8 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.deepEqual(refsBoth,['( 出埃及记 40:37-38 和合本 )','( 利未记 1:1 和合本 )']);
       await turn(false,100);await acrossBooks();
       await bar.locator('[data-float]').click();await float.waitFor();
-      assert.match(await float.locator('.compare-slip__title').textContent(),/^出埃及记 /);
+      assert.match(await float.locator('.compare-slip__title').textContent(),/^出 /);
+      assert.match(await float.locator('.compare-slip__title').getAttribute('aria-label'),/^出埃及记 /);
       assert.match(await float.locator('.compare-slip__title').getAttribute('title'),/40:37–38/);
       assert.equal(await float.locator('[data-cited]').count(),2);
       assert.equal(await float.locator('[data-verse-id^="LEV."]').count(),0);
