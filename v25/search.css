@@ -7,7 +7,7 @@
 #vf-list button{text-align:left;display:block;width:100%;padding:9px 5px;border-top:1px dotted #baa888;color:inherit}
 #vf-list strong,#vf-list span{display:block}#vf-list strong{font:600 12px var(--ui);margin-bottom:3px;color:#775733;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#vf-list span{font:15px/1.58 var(--serif)}
 #vf-list button[data-seen] strong:after{content:' · 已看';font:10px var(--ui);color:#887a63}#vf-list button[aria-current=true]{background:#dfcda84a;box-shadow:inset 2px 0 #9b7447}
-#vf-list mark{color:inherit;background:#ebca8e8c}#vf-more,#vf-examples button{color:#795b3b;font:13px var(--serif);min-height:34px}
+#vf-more,#vf-examples button{color:#795b3b;font:13px var(--serif);min-height:34px}
 .vf-foot{padding:3px 10px;border-top:1px solid #b8a58675;background:#f0e6d0}#vf-tab{writing-mode:vertical-rl;min-width:32px;min-height:70px;letter-spacing:.13em;font-size:13px;color:#fff1cf;background:linear-gradient(90deg,#796643,#8e7853);border:1px solid #695635;box-shadow:1px 2px 4px #47321b40;border-radius:2px 6px 6px 2px}
 .vf-found{fill:#9b411d!important}#verse-finder button:focus-visible,#vf-tab:focus-visible{outline:2px solid #8b6740;outline-offset:-2px}
 #vf-scroll{position:relative}#vf-list{position:static}
@@ -77,6 +77,5 @@
 /* The bottom shelf overlays the stage. Only lift the return/column tabs
    while that shelf is actually shown; no change to the book camera. */
 .paper-immersive[data-reader-chrome="visible"][data-reader-scene="reading"] .stage>.spread-start-shortcut:not([hidden]){bottom:calc(var(--rh-foot,46px) + 6px)}
-#vf-list mark{background:#edc77d;color:#452e18;border-radius:1px}
 .paper svg .vf-word-layer{fill:#ebc57e;fill-opacity:.78}
 .paper svg text.vf-word{fill:#633813!important}

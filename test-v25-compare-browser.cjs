@@ -73,6 +73,20 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         assert.equal(look.head,'rgba(0, 0, 0, 0)');
         assert.equal(look.ink,'rgb(41, 37, 31)');assert.match(look.corner,/^polygon/);
       }
+      const transparent='rgba(0, 0, 0, 0)';
+      async function citationInk(panel){
+        const active=await panel.locator('.compare-slip__verse[data-cited]').first().evaluate(el=>{
+          const s=getComputedStyle(el),ref=getComputedStyle(el.querySelector('sup'));
+          return [s.color,ref.color,s.backgroundColor,s.backgroundImage];
+        });
+        assert.deepEqual(active,['rgb(138, 49, 43)','rgb(138, 49, 43)',transparent,'none']);
+        assert.equal(await panel.locator('.compare-slip__verse:not([data-cited])').first().evaluate(el=>getComputedStyle(el).color),'rgb(41, 37, 31)');
+      }
+      async function keywordInk(mark){
+        assert.deepEqual(await mark.evaluate(el=>{
+          const s=getComputedStyle(el);return [s.color,s.backgroundColor,s.textDecorationLine];
+        }),['rgb(101, 37, 32)',transparent,'underline']);
+      }
       const fit=async()=>{await page.evaluate(()=>document.getElementById('fit-book').click());await page.waitForTimeout(180);};
       const chrome=()=>page.evaluate(()=>PaperImmersion.showChrome());
       const touch=mobile?await context.newCDPSession(page):null;
@@ -100,6 +114,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       };
       await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       await mark('1:31',9,true);await bar.waitFor({timeout:4000});
+      assert.equal(await $('.paper-ink-mark--selected').first().evaluate(el=>getComputedStyle(el).fill),'rgb(245, 217, 154)');
       await mark('1:29',9);await mark('1:28',9);
       await bar.locator('[data-float]').click({timeout:4500});await float.waitFor();
       assert.deepEqual(await float.locator('[data-cited]').evaluateAll(rows=>rows.map(row=>row.dataset.ref)),['1:28','1:29']);
@@ -107,6 +122,8 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await naturalParagraphs(float);
       await iconBar(float,['jump']);
       await paperTheme(float);
+      await citationInk(float);
+      if(process.env.COMPARE_SCREENSHOTS)await float.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'selection-red-ink-'+width+'.png')});
       await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
@@ -231,13 +248,17 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await float.locator('[aria-label="关闭经文浮窗"]').click();await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       await mark('2:1',10,true);await page.keyboard.press('Control+k');await bar.waitFor({state:'detached'});
       assert.equal(await $('.paper-ink-mark--selected').count(),0);assert.ok(await $('#vf-input').isVisible());
-      await $('#vf-input').fill('创造');await $('#vf-list button mark').first().waitFor();await $('#vf-list button').first().click();
+      await $('#vf-input').fill('创造');await $('#vf-list button mark').first().waitFor();
+      await keywordInk($('#vf-list button mark').first());await $('#vf-list button').first().click();
       const note=$('#v25-scripture-preview');
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'search');
       await oneLine(note);
       await naturalParagraphs(note);
       await iconBar(note,['back','jump','pin']);
       await paperTheme(note);
+      await citationInk(note);
+      await keywordInk(note.locator('p mark').first());
+      if(process.env.COMPARE_SCREENSHOTS)await note.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'search-red-ink-'+width+'.png')});
       assert.ok(await note.locator('p mark').count());assert.equal(await $('#verse-finder').isVisible(),false);
       await note.locator('[aria-label="返回搜索结果"]').click();assert.ok(await $('#verse-finder').isVisible());
       assert.equal(await $('#vf-input').inputValue(),'创造');
@@ -276,11 +297,13 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await naturalParagraphs(note);
       await iconBar(note,['jump','pin']);
       await paperTheme(note);
+      await citationInk(note);
       assert.match(await note.locator('.compare-slip__title').textContent(),/^利 /);
       assert.equal(await note.locator('[data-verse-id]:not([data-verse-id^="LEV."])').count(),0);
       assert.deepEqual(await shelf(),initialHistory,'preview does not add history');
       await note.locator('[aria-label="固定经文浮窗"]').click();
       await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/^利 /);
+      await citationInk(float);
       await note.waitFor({state:'hidden'});
       if(process.env.COMPARE_SCREENSHOTS){
         // Reproduce the Isaiah/Zechariah citation shown in the feedback.
@@ -301,6 +324,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
       const parallel=$('[data-note-page="954"][data-parallel]').first();
       await activationOnly(parallel);
+      await citationInk(note);
       assert.equal(await note.getAttribute('data-kind'),'footnote');
       assert.equal(await stage.getAttribute('data-spread'),'954');
       // The end of Exodus and beginning of Leviticus are on different
@@ -376,6 +400,8 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await owned.count(),5);
       assert.equal(await openWindows.count(),3);
       assert.ok(await windowAt('PSA.23:1').locator('p mark').count());
+      await citationInk(windowAt('PSA.23:1'));
+      await keywordInk(windowAt('PSA.23:1').locator('p mark').first());
       // Keeping all five as paper tabs must not create an extra quota or
       // leave any tab overlapping another or outside the screen.
       await page.evaluate(()=>document.querySelectorAll('.compare-slip[data-role=fixed]:not([hidden]):not([data-collapsed]) button[aria-label="收起经文浮窗"]').forEach(b=>b.click()));
