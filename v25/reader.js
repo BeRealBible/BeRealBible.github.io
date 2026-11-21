@@ -530,7 +530,18 @@
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
   selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,scripture,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
-  chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:(page,requested)=>jump(page,null,null,requested),
+  const openingChoice=window.PaperEdgeChapters.openingPreference(storage);
+  window.PaperEdgeChapters.mountOpeningChoice($('book-picker-opening'),openingChoice);
+  function selectIndexChapter(page,requested){
+    if(openingChoice.get()==='page'){jump(page,null,null,requested);return;}
+    $('book-picker').close();
+    const chunks=scripture.index(requested.bookCode)?.chunks;
+    const number=requested.ref?parseInt(requested.ref,10):null;
+    const row=(number===null?chunks?.[0]:chunks?.find(chunk=>chunk.chapter===number))?.rows[0];
+    if(!row){feedback('未找到这一章的经文');return;}
+    compare.open(row);
+  }
+  chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:selectIndexChapter,opening:openingChoice,
     getBookFrame:bookFrame,onZoom:zoomWithChapterMenu,
     getPreview:(index,chapter)=>chapterPreview(D.books[index]?.code,chapter),
     getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingLocation().ref,10)||1})});
@@ -544,7 +555,7 @@
   }
   function showChapters(i){
     const b=D.books[i],host=$('book-picker-chapters');host.replaceChildren();
-    const add=(text,page,chapter)=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=()=>jump(page,null,null,{bookCode:b.code,ref:chapter?chapter+':1':null});host.appendChild(button);};
+    const add=(text,page,chapter)=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=()=>selectIndexChapter(page,{bookCode:b.code,ref:chapter?chapter+':1':null});host.appendChild(button);};
     add('卷首',b.first);for(const c of b.chapters)add(`第 ${c.chapter} 章`,c.page,c.chapter);
     $('book-picker-title').textContent=b.name;$('book-picker-books').hidden=true;host.hidden=false;$('book-picker-back').hidden=false;
   }

@@ -8,6 +8,20 @@ const library=require('./v25/scripture').create(Source,{...db,get(){throw Error(
 const load=n=>{const k=Math.floor(n/32);db.installPack(k,require('./paper-pages/'+db.packs[k]));};
 const events=()=>{const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};};
 const genesis=(ref,page=10)=>({bookCode:'GEN',bookName:'创世记',ref,page});
+test('index opening is shared, defaults to the full page, and survives reload',()=>{
+  const {openingPreference}=require('./v25/chapters'),storage=events(),pref=openingPreference(storage),received=[];
+  const off=pref.subscribe(value=>received.push(value));
+  assert.equal(pref.get(),'page');
+  assert.equal(pref.set('unsupported'),'page');
+  assert.equal(pref.set('float'),'float');
+  assert.equal(openingPreference(storage).get(),'float');
+  assert.equal(pref.set('float'),'float');
+  pref.set('page');off();pref.set('float');
+  assert.deepEqual(received,['page','float','page']);
+  const blocked=openingPreference({getItem(){throw Error('read');},setItem(){throw Error('write');}});
+  assert.equal(blocked.get(),'page');
+  assert.equal(blocked.set('float'),'float');
+});
 test('the canonical reader resolves by address, not print bytes or split fragments',()=>{
   const locs=[{page:10,ref:'2:1'},{page:9,ref:'1:31'},{page:10,ref:'1:31'}];
   const [a,b]=library.from(locs,true),gene=Source.books.find(b=>b.code==='GEN');

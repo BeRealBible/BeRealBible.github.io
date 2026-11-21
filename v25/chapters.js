@@ -6,6 +6,7 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const constants=Object.freeze({WIDTH:360,MARGIN:12,MIN_TARGET:23,DESKTOP_CELL:24,MOBILE_BREAKPOINT:640,PADDING:38,NUMBER_GAP:1,NUMBER_GUTTER:10,PREVIEW_GAP:12});
+  const OPENING_KEY='paper-bible-index-opening-v1';
   let instance=0;
   const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
   const clamp=(value,lo,hi)=>Math.max(lo,Math.min(hi,value));
@@ -57,7 +58,54 @@
     const dock=chooseDock(anchor,viewport),available=dockBounds(dock,viewport);
     return placeDock(dock,{width:Math.min(available.width,size.width),height:Math.min(available.height,size.height)});
   }
-  function create(host,{books,onSelect,getCurrent,getPreview,getBookFrame,onZoom,onDismiss}={}){
+  function openingPreference(storage){
+    let value='page';const listeners=new Set();
+    try{if(storage?.getItem(OPENING_KEY)==='float')value='float';}catch{}
+    return {
+      get:()=>value,
+      set(next){
+        if((next!=='page'&&next!=='float')||next===value)return value;
+        value=next;try{storage?.setItem(OPENING_KEY,value);}catch{}
+        for(const update of listeners)update(value);
+        return value;
+      },
+      subscribe(update){listeners.add(update);update(value);return ()=>listeners.delete(update);}
+    };
+  }
+  function mountOpeningChoice(host,preference){
+    const doc=host.ownerDocument;
+    host.setAttribute('role','radiogroup');host.setAttribute('aria-label','索引打开方式');
+    const label=doc.createElement('span');label.className='index-opening__label';
+    label.textContent='打开';label.setAttribute('aria-hidden','true');host.appendChild(label);
+    const defs=[
+      ['page','全页打开','M5 3.5h14a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1ZM8 8h8M8 12h8m-8 4h6'],
+      ['float','浮窗打开','M8 4H4v12m4-8h12v12H8zm0 4h12m-9 4h6']
+    ];
+    const buttons=defs.map(([value,name,d])=>{
+      const button=doc.createElement('button');
+      button.type='button';button.className='index-opening__button';button.dataset.opening=value;
+      button.title=name;button.setAttribute('role','radio');button.setAttribute('aria-label',name);
+      const svg=doc.createElementNS('http://www.w3.org/2000/svg','svg'),path=doc.createElementNS(svg.namespaceURI,'path');
+      svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');
+      path.setAttribute('d',d);svg.appendChild(path);button.appendChild(svg);
+      const text=doc.createElement('span');text.textContent=value==='page'?'全页':'浮窗';text.setAttribute('aria-hidden','true');button.appendChild(text);
+      button.addEventListener('click',()=>preference.set(value));
+      host.appendChild(button);return button;
+    });
+    function onKey(event){
+      if(!buttons.includes(event.target))return;
+      const {key}=event;
+      if(!['Home','End','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(key))return;
+      const target=buttons[key==='Home'?0:key==='End'?1:1-buttons.indexOf(event.target)];
+      event.preventDefault();event.stopPropagation();preference.set(target.dataset.opening);target.focus({preventScroll:true});
+    }
+    host.addEventListener('keydown',onKey);
+    const unsubscribe=preference.subscribe(value=>{
+      for(const b of buttons){const selected=b.dataset.opening===value;b.tabIndex=selected?0:-1;b.setAttribute('aria-checked',String(selected));}
+    });
+    return {buttons,destroy(){unsubscribe();host.removeEventListener('keydown',onKey);for(const b of [label,...buttons])b.remove();}};
+  }
+  function create(host,{books,onSelect,getCurrent,getPreview,getBookFrame,onZoom,onDismiss,opening}={}){
     if(!host?.ownerDocument||!Array.isArray(books))throw new TypeError('A DOM host and canonical books are required');
     const doc=host.ownerDocument,win=doc.defaultView,portal=doc.body||host,staticListeners=[],dynamicListeners=[];
     const root=doc.createElement('div');root.className='edge-chapters';root.hidden=true;
@@ -77,6 +125,7 @@
     const sheet=add(panel,'div','edge-chapters__sheet');
     const header=add(sheet,'header','edge-chapters__header');
     const heading=add(header,'div','edge-chapters__heading'),title=add(heading,'h2','edge-chapters__title');title.id='edge-chapters-title-'+(++instance);panel.setAttribute('aria-labelledby',title.id);
+    const openChoice=opening?mountOpeningChoice(add(sheet,'div','index-opening edge-chapters__opening'),opening):null;
     const bookbar=add(sheet,'div','edge-chapters__books');bookbar.setAttribute('role','group');bookbar.setAttribute('aria-label','选择书卷');
     const grid=add(sheet,'div','edge-chapters__grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','选择章节');
     const corner=add(panel,'i','edge-chapters__corner');corner.setAttribute('aria-hidden','true');
@@ -119,7 +168,10 @@
     function layout(savedChapter){
       if(!opened||destroyed)return;
       const f=bookFrame(),known=openedFrame,ratio=f.scale/known.scale,viewport=getViewport();
-      const s=viewport.width<640?Math.min(f.scale,1.12):f.scale;
+      const leafScale=viewport.width<640?Math.min(f.scale,1.12):f.scale;
+      // The hinge still follows the book. At whole-book phone scale the
+      // chapter targets and the new icon pair must not shrink to tiny dots.
+      const s=openChoice?Math.max(.88,leafScale):leafScale;
       // Reproject the original point on the physical bookmark; never choose a new
       // corner in response to zoom, pan, mode changes, or the chapter count.
       dock={corner:hinge.corner,x:hinge.x+(f.x-known.x)+(hinge.x-known.x)*(ratio-1),y:hinge.y+(f.y-known.y)+(hinge.y-known.y)*(ratio-1)};
@@ -137,7 +189,7 @@
         }
       }
       const cell=viewport.width<constants.MOBILE_BREAKPOINT?constants.MIN_TARGET:constants.DESKTOP_CELL;
-      const rect=panel.getBoundingClientRect?.(),estimate=74+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(mobile?40:36):cell+1);
+      const rect=panel.getBoundingClientRect?.(),estimate=74+(openChoice?32:0)+(members.length>1?20:0)+Math.ceil(chapterButtons.length/size.columns)*(mode==='preview'?(mobile?40:36):cell+1);
       const p=placeDock(dock,{width:size.width*s,height:Math.min(size.maxHeight*s,rect?.height||estimate*s)});
       panel.style.left=p.left+'px';panel.style.top=p.top+'px';
       layoutKey=key;restoreChapter(mark,s);
@@ -218,7 +270,8 @@
         event.preventDefault();event.stopPropagation();onZoom(event.key==='-'?1/1.2:1.2);return;
       }
       if(event.key!=='Tab')return;
-      const focusables=[...modeButtons,closeButton,...bookButtons,...chapterButtons].filter(button=>!button.hidden&&!button.disabled);
+      const routeButtons=openChoice?.buttons.filter(button=>button.tabIndex===0)||[];
+      const focusables=[...modeButtons,closeButton,...routeButtons,...bookButtons,...chapterButtons].filter(button=>!button.hidden&&!button.disabled);
       const first=focusables[0],last=focusables[focusables.length-1],active=doc.activeElement;
       if(!focusables.includes(active)||event.shiftKey&&active===first||!event.shiftKey&&active===last){event.preventDefault();event.stopPropagation();(event.shiftKey?last:first)?.focus?.({preventScroll:true});}
     }
@@ -263,10 +316,10 @@
     portal.appendChild(root);
     function destroy(){
       if(destroyed)return;close('destroy');destroyed=true;removeDynamic();
-      sizeObserver?.disconnect();
+      sizeObserver?.disconnect();openChoice?.destroy();
       for(const [node,type,fn,capture] of staticListeners)node.removeEventListener(type,fn,capture);root.remove();
     }
     return {open,close,isOpen:()=>opened,getMode:()=>mode,setMode,reposition:position,getDock:()=>opened?{...dock}:null,destroy,element:root};
   }
-  return {constants,chapterEntries,menuSize,chooseDock,dockBounds,placeDock,place,create};
+  return {constants,chapterEntries,menuSize,chooseDock,dockBounds,placeDock,place,openingPreference,mountOpeningChoice,create};
 });
