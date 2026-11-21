@@ -65,6 +65,17 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         assert.deepEqual(bar.buttons.map(b=>b.key),keys);
         assert.ok(bar.buttons.every(b=>b.svg&&b.label&&b.tip===b.label),JSON.stringify(bar));
       }
+      async function paperTheme(panel){
+        const look=await panel.evaluate(el=>{
+          const style=s=>getComputedStyle(el.querySelector(s));
+          return {material:getComputedStyle(el).backgroundImage,head:style('header').backgroundColor,
+            foot:style('footer').backgroundColor,ink:style('.compare-slip__paragraph').color,
+            corner:getComputedStyle(el.querySelector('.compare-slip__resize'),'::after').clipPath};
+        });
+        assert.match(look.material,/data:image\/svg\+xml/);
+        assert.equal(look.head,'rgba(0, 0, 0, 0)');assert.equal(look.foot,'rgba(0, 0, 0, 0)');
+        assert.equal(look.ink,'rgb(41, 37, 31)');assert.match(look.corner,/^polygon/);
+      }
       const fit=async()=>{await page.evaluate(()=>document.getElementById('fit-book').click());await page.waitForTimeout(180);};
       const chrome=()=>page.evaluate(()=>PaperImmersion.showChrome());
       const touch=mobile?await context.newCDPSession(page):null;
@@ -98,6 +109,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await oneLine(float);
       await naturalParagraphs(float);
       await iconBar(float,['jump']);
+      await paperTheme(float);
       await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
@@ -205,6 +217,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await oneLine(note);
       await naturalParagraphs(note);
       await iconBar(note,['back','jump','pin']);
+      await paperTheme(note);
       assert.ok(await note.locator('p mark').count());assert.equal(await $('#verse-finder').isVisible(),false);
       await note.locator('[aria-label="返回搜索结果"]').click();assert.ok(await $('#verse-finder').isVisible());
       assert.equal(await $('#vf-input').inputValue(),'创造');
@@ -236,6 +249,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await oneLine(note);
       await naturalParagraphs(note);
       await iconBar(note,mobile?['jump','pin']:['jump','pin','fork']);
+      await paperTheme(note);
       const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
       const initialHistory=await shelf();await refs.nth(1).click();
       assert.match(await note.locator('.compare-slip__title').textContent(),/利未记/);
