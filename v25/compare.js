@@ -19,7 +19,8 @@
       const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
     }
     const panel=node('aside','compare-slip'),head=node('header','compare-slip__head'),name=node('button','compare-slip__title');
-    const title=node('strong'),sub=node('small','compare-slip__subtitle'),tabs=node('div','compare-slip__tabs');
+    const title=node('strong'),bookTitle=node('span','compare-slip__book'),refTitle=node('span','compare-slip__address'),tabs=node('div','compare-slip__tabs');
+    title.append(bookTitle,doc.createTextNode(' '),refTitle);
     const scroll=node('div','compare-slip__scroll'),foot=node('footer','compare-slip__foot'),status=node('span','compare-slip__status');
     const btn=(cls,text,label,click)=>{
       const b=node('button',cls,text);b.type='button';b.title=label;b.setAttribute('aria-label',label);
@@ -33,7 +34,7 @@
     const pin=btn('compare-slip__action','固定','固定经文浮窗',()=>config?.onPin?.(currentGroup(),activeRow));
     const fork=btn('compare-slip__action','另开对照','将当前引用另开一个对照窗',()=>config?.onFork?.(currentGroup(),activeRow));
     panel.id=id;panel.dataset.role=role;panel.hidden=true;panel.setAttribute('aria-label','经文浮窗');
-    name.type='button';name.title='拖动标题栏移动；也可使用方向键';name.append(title,sub);
+    name.type='button';name.append(title);
     scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','浮窗经文');
     tabs.setAttribute('role','group');tabs.setAttribute('aria-label','引用经文位置');
     foot.append(back,jump,pin,fork,status);head.append(name,minimize,exit);
@@ -119,7 +120,11 @@
     }
     function aim(row){
       if(!row||!config)return;
-      activeRow=row;title.textContent=row.name+' '+row.display;
+      activeRow=row;bookTitle.textContent=row.name;refTitle.textContent=row.display;
+      const label=row.name+' '+row.display+(config.label?'（'+config.label+'）':'');
+      // Keep origin and movement hints discoverable without a second line.
+      name.setAttribute('aria-label',label+'，用方向键移动浮窗');
+      name.title=label+'；拖动标题栏移动，也可使用方向键';
       panel.dataset.chapter=String(row.ch);
       if(row.page!==null)panel.dataset.page=String(row.page);else delete panel.dataset.page;
       status.textContent='第 '+row.ch+' 章';
@@ -186,7 +191,6 @@
       which=whichIndex;const selected=currentGroup(),row=seed||selected[0];
       if(!row)return;
       config.cited=new Set(selected.map(v=>v.id));
-      sub.textContent=config.label||'经文';
       [...tabs.children].forEach((tab,n)=>tab.setAttribute('aria-pressed',String(n===which)));
       stream=scripture.index(row.code);lo=hi=row.chunk;
       scroll.replaceChildren(renderChunk(row.chunk));gather();

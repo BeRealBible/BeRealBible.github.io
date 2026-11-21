@@ -18,13 +18,13 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
 .compare-slip[data-collapsed]{height:auto!important;grid-template-rows:auto}
 .compare-slip[data-collapsed] :is(.compare-slip__tabs,.compare-slip__scroll,.compare-slip__foot,.compare-slip__resize){display:none}
-.compare-slip__head{display:flex;align-items:stretch;gap:3px;min-height:42px;background:#eadbc0a6;border-bottom:1px solid #bfa78580;padding:0 5px 0 0}
+.compare-slip__head{display:flex;align-items:stretch;gap:3px;min-height:38px;background:#eadbc0a6;border-bottom:1px solid #bfa78580;padding:0 5px 0 0}
 .compare-slip__title{flex:1 1 auto;min-width:0;text-align:left;color:inherit;padding:4px 9px 4px 26px;position:relative;cursor:grab;touch-action:none;user-select:none}
 .compare-slip__title::before{content:"";position:absolute;left:10px;top:50%;width:8px;height:14px;transform:translateY(-50%);background:radial-gradient(circle,#836549 1px,transparent 1.3px) 0 0/4px 5px}
 .compare-slip[data-adjust=move] .compare-slip__title{cursor:grabbing}
-.compare-slip__title strong,.compare-slip__subtitle{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.compare-slip__title strong{font:600 14px/1.2 var(--ui,system-ui,sans-serif);color:#523e2f}
-.compare-slip__subtitle{font:11px/1.35 var(--ui,system-ui,sans-serif);color:#755c40;margin-top:3px}
+.compare-slip__title strong{display:flex;align-items:baseline;gap:.35em;white-space:nowrap;overflow:hidden;font:600 14px/1.2 var(--ui,system-ui,sans-serif);color:#523e2f}
+.compare-slip__book{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.compare-slip__address{flex:none;font-variant-numeric:tabular-nums}
 .compare-slip__icon{align-self:center;width:33px;min-height:34px;font:19px/1 var(--ui,system-ui,sans-serif);color:#654e36;touch-action:manipulation}
 .compare-slip button:focus-visible,.compare-slip__scroll:focus-visible{outline:2px solid #9c6a35;outline-offset:-2px}
 .compare-slip__icon:hover{background:#c8ae7a40}
@@ -66,7 +66,8 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   .compare-slip{--compare-height-px:260px;top:auto;bottom:max(54px,calc(env(safe-area-inset-bottom) + 42px));right:max(9px,env(safe-area-inset-right));width:min(300px,78vw);height:min(var(--compare-height-px),40dvh);font-size:14px}
   .compare-slip[data-kind=footnote]{--compare-height-px:215px;width:min(273px,76vw)}
   .compare-slip[data-kind=search]{--compare-height-px:264px}
-  .compare-slip__head{min-height:37px}.compare-slip__title strong{font-size:13px}.compare-slip__subtitle{font-size:10px}
+  .compare-slip__head{min-height:34px}.compare-slip__title strong{font-size:13px}
+  .compare-slip__icon{width:30px;min-height:33px}
   .compare-slip__scroll{padding:5px 7px 8px}.compare-slip__action{min-height:36px}
   .compare-slip[data-kind=search] .compare-slip__status{display:none}
   .compare-slip__resize{width:33px;height:34px}.compare-slip__foot{padding-right:34px}

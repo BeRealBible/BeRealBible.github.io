@@ -30,6 +30,17 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await page.goto(preview+'?ref=GEN.1:1&curl=off',{timeout:90000});
       await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
       const $=s=>page.locator(s),stage=$('#stage'),float=$('#v25-compare'),bar=$('.paper-selection-tools');
+      async function oneLine(panel){
+        const box=await panel.locator('.compare-slip__head').evaluate(head=>{
+          const title=head.querySelector('strong'),book=title.querySelector('.compare-slip__book'),ref=title.querySelector('.compare-slip__address');
+          const t=title.getBoundingClientRect(),r=ref.getBoundingClientRect(),css=getComputedStyle(title);
+          return {title:t.height,line:parseFloat(css.lineHeight),wrap:css.whiteSpace,bookClip:getComputedStyle(book).textOverflow,
+            titleRight:t.right,refRight:r.right,head:head.getBoundingClientRect().height,ref:ref.textContent,
+            descriptions:head.querySelectorAll('small').length};
+        });
+        assert.ok(box.ref&&box.descriptions===0&&box.title<=box.line+1&&box.head<=40&&box.refRight<=box.titleRight+1,JSON.stringify(box));
+        assert.equal(box.wrap,'nowrap');assert.equal(box.bookClip,'ellipsis');
+      }
       const fit=async()=>{await page.evaluate(()=>document.getElementById('fit-book').click());await page.waitForTimeout(180);};
       const chrome=()=>page.evaluate(()=>PaperImmersion.showChrome());
       const touch=mobile?await context.newCDPSession(page):null;
@@ -60,6 +71,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await mark('1:29',9);await mark('1:28',9);
       await bar.locator('[data-float]').click({timeout:4500});await float.waitFor();
       assert.deepEqual(await float.locator('[data-cited]').evaluateAll(rows=>rows.map(row=>row.dataset.ref)),['1:28','1:29']);
+      await oneLine(float);
       await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
@@ -157,15 +169,19 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       }
       await $('[aria-label^="在浮窗打开 创世记 1:"]').click();
       await float.waitFor();assert.equal(await float.getAttribute('data-page'),'9');assert.equal(await stage.getAttribute('data-spread'),main);
+      await oneLine(float);
       await float.locator('[aria-label="关闭经文浮窗"]').click();await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       await mark('2:1',10,true);await page.keyboard.press('Control+k');await bar.waitFor({state:'detached'});
       assert.equal(await $('.paper-ink-mark--selected').count(),0);assert.ok(await $('#vf-input').isVisible());
       await $('#vf-input').fill('创造');await $('#vf-list button mark').first().waitFor();await $('#vf-list button').first().click();
       const note=$('#v25-scripture-preview');
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'search');
+      await oneLine(note);
       assert.ok(await note.locator('p mark').count());assert.equal(await $('#verse-finder').isVisible(),false);
       await note.locator('[aria-label="返回搜索结果"]').click();assert.ok(await $('#verse-finder').isVisible());
       assert.equal(await $('#vf-input').inputValue(),'创造');
+      assert.equal(await $('#verse-finder header h2').count(),0);
+      assert.equal(await $('#vf-status').evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap');
       await $('#vf-input').fill('犹 1:1');await $('#vf-list button').filter({hasText:'犹大书 1:1'}).first().click();
       const oneChapter=note.locator('.compare-slip__scroll');
       await oneChapter.evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new WheelEvent('wheel',{deltaY:300}));});
@@ -179,6 +195,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       const cue=$('[data-note-page="958"][data-note-ordinal="1"]').first();
       if(mobile)await cue.tap();else await cue.hover();
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'footnote');
+      await oneLine(note);
       const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
       const initialHistory=await shelf();await refs.nth(1).click();
       assert.match(await note.locator('.compare-slip__title').textContent(),/利未记/);
@@ -205,10 +222,16 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await turn(false,100);await acrossBooks();
       await bar.locator('[data-float]').click();await float.waitFor();
       assert.match(await float.locator('.compare-slip__title').textContent(),/^出埃及记 /);
-      assert.match(await float.locator('.compare-slip__subtitle').textContent(),/40:37–38/);
+      assert.match(await float.locator('.compare-slip__title').getAttribute('title'),/40:37–38/);
       assert.equal(await float.locator('[data-cited]').count(),2);
       assert.equal(await float.locator('[data-verse-id^="LEV."]').count(),0);
       assert.equal(await stage.getAttribute('data-spread'),'102');
+      // Very narrow windows keep the reference visible even for a long book name.
+      await page.evaluate(()=>V25ScriptureWindows.open({bookCode:'2TH',ref:'3:16'}));
+      const grip=float.locator('.compare-slip__resize');
+      for(let i=0;i<7;i++)await grip.press('Shift+ArrowLeft');
+      await oneLine(float);
+      assert.equal(await float.locator('.compare-slip__address').textContent(),'3:16');
       assert.deepEqual(errors,[]);
       console.log(width,'PASS chapter and book clipboard, pinned prefix, 3-chapter rolling window, history, search & notes');
       await context.close();
