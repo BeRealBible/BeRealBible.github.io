@@ -519,12 +519,15 @@
     }});
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
-  const compare=window.V25Compare.mount({stage,db:window.V25OriginalData,feedback,
-    clean:window.PaperTextSelection.clipboardText,onRead:loc=>history?.visitFloat(loc)});
+  const paper=window.V25OriginalData,scripture=window.V25Scripture.create(window.BIBLE_SOURCE,paper);
+  const compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
+    onRead:loc=>history?.visitFloat(loc),onJump:({page,code,ref})=>{
+      if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
+    }});
   history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,byChapter:true,
     onFloat:loc=>{selection?.reset({keepFocus:true});compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
-  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,
+  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,scripture,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:(page,requested)=>jump(page,null,null,requested),
     getBookFrame:bookFrame,onZoom:zoomWithChapterMenu,
@@ -813,7 +816,7 @@
     const {code,ref}=e.detail||{},page=window.V25OriginalData.lookup(code,ref);
     if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
   });
-  finder=window.mountVerseFinder({
+  finder=window.mountVerseFinder({scripture,windows:compare,
     navigate:(page,requested)=>jump(page,null,null,requested),
     origin:()=>({...readingLocation(),pose:capturePose()}),
     restore:o=>jump(o.page,o.pose,null,{ref:o.ref,bookCode:o.bookCode}),

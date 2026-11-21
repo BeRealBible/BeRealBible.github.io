@@ -18,12 +18,8 @@
 #verse-finder[data-compact] .vf-top{justify-content:flex-end}
 #vf-tab:before{content:"";position:absolute;inset:-4px}
 
-/* Camera-bound paper must not lag a live zoom or pan. */
-#verse-finder,#vf-tab,#footnote-preview{transition:none!important;animation:none!important}
-/* Preview-only: print content, not tutorial chrome. */
-#footnote-preview{line-height:1.34;padding:5px 8px;border-radius:2px;text-size-adjust:none;-webkit-text-size-adjust:none}
-:is(#footnote-preview,#vf-preview) .footnote-preview__verse{display:block;margin:0}
-:is(#footnote-preview,#vf-preview) .footnote-preview__verse+.footnote-preview__verse{margin-top:.16em}
+/* Only the search results list is camera-bound; scripture has its own window. */
+#verse-finder,#vf-tab{transition:none!important;animation:none!important}
 .edge-chapters__sheet{padding-top:8px}.edge-chapters__header{min-height:20px;padding-right:66px}
 .edge-chapters__books,.edge-chapters__header{margin-bottom:3px}
 .vf-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 3px;padding:6px 8px 0}
@@ -84,27 +80,6 @@
 /* The bottom shelf overlays the stage. Only lift the return/column tabs
    while that shelf is actually shown; no change to the book camera. */
 .paper-immersive[data-reader-chrome="visible"][data-reader-scene="reading"] .stage>.spread-start-shortcut:not([hidden]){bottom:calc(var(--rh-foot,46px) + 6px)}
-#footnote-preview:not([hidden]){display:flex;flex-direction:column;overflow:hidden}
-:is(#footnote-preview,#vf-preview) .citation-head{flex:none;display:flex;justify-content:flex-end;border-bottom:1px solid #ab916e55;padding-bottom:2px}
-:is(#footnote-preview,#vf-preview) .citation-jump{font:inherit;font-weight:600;color:#79532d;padding:2px 4px;min-height:22px}
-:is(#footnote-preview,#vf-preview) .citation-scroll{position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;touch-action:pan-y;overflow-anchor:none;color:#716958}
-:is(#footnote-preview,#vf-preview) .footnote-preview__verse{font-weight:400;cursor:text;line-height:1.46}
-:is(#footnote-preview,#vf-preview) .footnote-preview__verse[data-cited]{color:#48321f;font-weight:600}
-:is(#footnote-preview,#vf-preview) .verse-no{font-size:.78em;font-weight:normal;color:#796e5c;margin-right:.25em}
-:is(#footnote-preview,#vf-preview) .citation-block+.citation-block{border-top:1px dotted #aa9476;margin-top:.55em;padding-top:.45em}
-/* The reverse of the same paper slip, not a modal over the book. The results
-   remain mounted on the other face so their loaded rows and marks survive. */
-#vf-preview{display:none}
-#verse-finder[data-preview]>:not(#vf-preview){display:none}
-#verse-finder[data-preview]>#vf-preview{display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:5px 8px;font-size:11px;line-height:1.46}
-#vf-preview .citation-head{align-items:center;justify-content:space-between;gap:4px}
-#vf-preview .citation-back{padding:2px 4px;color:#765e42;min-height:22px;font:inherit}
-#vf-preview .citation-jump{white-space:nowrap}
-#verse-finder[data-layout=narrow] #vf-preview{font-size:10.5px}
-/* A search hit needs two levels of emphasis even on small Song type:
-   the cited verse is dark and ruled; only matched wording gets gold ink wash. */
-#vf-preview .citation-scroll .footnote-preview__verse{padding:2px 4px;border-left:2px solid transparent;color:#786d5e}
-#vf-preview .citation-scroll .footnote-preview__verse[data-cited]{border-color:#93663f;color:#392b1f;font-weight:700;background:#aa815015}
-#vf-preview .footnote-preview__verse mark,#vf-list mark{background:#edc77d;color:#452e18;border-radius:1px}
+#vf-list mark{background:#edc77d;color:#452e18;border-radius:1px}
 .paper svg .vf-word-layer{fill:#ebc57e;fill-opacity:.78}
 .paper svg text.vf-word{fill:#633813!important}

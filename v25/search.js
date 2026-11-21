@@ -9,10 +9,14 @@
     '希伯来书':'HEB','普通书信':'JAS 1PE 2PE 1JN 2JN 3JN JUD','启示录':'REV'
   };
   const category=new Map(Object.entries(groups).flatMap(([group,codes])=>codes.split(' ').map(code=>[code,group])));
-  function catalogue(source,lookup){
+  function catalogue(source,lookup,scripture){
     const rows=[],byBook=new Map();
     for(const b of source.books){
       for(const alias of [b.code,b.short,b.name])byBook.set(norm(alias),b.code);
+      if(scripture){
+        for(const r of scripture.index(b.code).rows)rows.push({book:b.name,code:b.code,ref:r.ref,page:r.page,text:r.text,key:norm(r.text),display:r.display});
+        continue;
+      }
       for(const ch of b.chapters)for(const [n,text] of ch.verses){
         const ref=ch.chapter+':'+n,page=lookup(b.code,ref);
         if(!Number.isInteger(page)||typeof text!=='string')continue;
@@ -24,20 +28,20 @@
       if(!q)return [];
       const addr=/^(.+?)(\d+)(?:章|:)(\d+)节?$/.exec(q);
       const book=addr&&byBook.get(addr[1]),ref=book&&(+addr[2]+':'+(+addr[3]));
+      const target=book&&(scripture?.resolve({code:book,ref})[0]?.ref||ref);
       const result=[],need=book?[]:words.terms(raw);
       for(const r of rows){
         if(scope!=='all'&&scope!=='book:'+r.code&&scope!==category.get(r.code))continue;
-        if(book?!(r.code===book&&r.ref===ref):!words.ordered(r.key,need))continue;
+        if(book?!(r.code===book&&r.ref===target):!words.ordered(r.key,need))continue;
         if(result.length===limit){result.truncated=true;break;}result.push(r);
       }
       result.terms=need;return result;
     };
   }
   if(typeof module==='object'&&module.exports){module.exports={catalogue,groups};return;}
-  root.mountVerseFinder=({navigate,interrupt,origin,restore,camera})=>{
+  root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,windows})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more');
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
-    const preview=document.createElement('section');preview.id='vf-preview';preview.setAttribute('aria-label','搜索结果经文预览');panel.append(preview);
     const key='paper:v25:slip:1',clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
     const trigger=document.createElement('button');trigger.className='rh-toggle';trigger.type='button';trigger.title='搜索经文（Ctrl / ⌘ + K）';trigger.setAttribute('aria-label','搜索经文');
     trigger.append(tab.querySelector('svg').cloneNode(true));
@@ -133,11 +137,10 @@
       const z=next?c.scale:Math.min(c.scale,1.15,roomW/147,roomH/120);
       const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
         height=Math.min(next?432:(mode==='browse'&&results.length?280:242),roomH/z),
-        show=mode==='browse'||mode==='preview'||(mode==='read'&&next),g=[next,w,height,z].join(':');
+        show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
       if(!anchor&&!panel.hidden)remember();
       const wasHidden=panel.hidden;
-      panel.hidden=!show;tab.hidden=mode==='off'||show;panel.dataset.layout=next?'wide':'narrow';
-      panel.toggleAttribute('data-preview',mode==='preview');
+      panel.hidden=!show;tab.hidden=mode==='off'||mode==='preview'||show;panel.dataset.layout=next?'wide':'narrow';
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
       function place(node,scale){
         node.dataset.dockX=px;node.dataset.dockY=py;node.dataset.paperX=mount.bx;node.dataset.paperY=mount.by;
@@ -157,7 +160,9 @@
     function setMode(next){
       if(next!=='browse')closeGroups();
       if(!panel.hidden)remember();
-      mode=next;layout();persist();
+      mode=next;
+      if(next!=='preview'&&windows.preview.is('search'))windows.preview.close('screen');
+      layout();persist();
     }
     function open(edit=false){
       if(document.querySelector('dialog[open]'))return;
@@ -196,23 +201,28 @@
       const r=results[i],b=list.children[i];if(!r||!b)return;
       const prev=current;current=i;seen.add(i);if(list.children[prev])decorate(list.children[prev],prev);decorate(b,i);
       if(focus){input.blur();remember(i);}
-      const [chapter,verse]=r.ref.split(':').map(Number);
-      const face=root.V25VerseSlip(preview,[{code:r.code,chapter,verse}],{
-        keywords:results.terms,
-        onBack:backToResults,
-        onJump:()=>{
-          setMode('read');navigate(r.page,{bookCode:r.code,ref:r.ref,search:true,keywords:results.terms});
+      const keywords=results.terms;
+      const opened=windows.openPreview([{code:r.code,ref:r.ref}],{
+        kind:'search',label:'搜索命中经文',ariaLabel:'搜索结果经文浮窗',keywords,focus,onBack:true,
+        onClose:reason=>{
+          if(mode!=='preview'||reason==='screen')return;
+          if(reason==='back'||reason==='dismiss')backToResults();
+          else setMode(reason==='pin'?'tucked':'browse');
+        },
+        onJump:loc=>{
+          if(!Number.isInteger(loc.page))return;
+          setMode('read');navigate(loc.page,{bookCode:loc.code,ref:loc.ref,search:true,keywords});
           layout();if(wide)landOnResult(false);stage.focus({preventScroll:true});persist();
         }
       });
-      if(!face)return;
-      mode='preview';layout();face.align();if(focus)face.back.focus({preventScroll:true});persist();
+      if(!opened)return;
+      mode='preview';layout();persist();
     }
     function append(count=24){
       const from=list.children.length;
       for(let i=from;i<Math.min(results.length,from+count);i++){
         const r=results[i],b=document.createElement('button'),ref=document.createElement('strong'),excerpt=document.createElement('span');
-        b.type='button';b.dataset.i=i;ref.textContent=r.book+' '+r.ref;
+        b.type='button';b.dataset.i=i;ref.textContent=r.book+' '+(r.display||r.ref);
         words.paint(excerpt,r.text,results.terms);
         b.append(ref,excerpt);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
       }
@@ -221,7 +231,7 @@
     function refresh(force=false){
       clearTimeout(timer);const next=input.value.trim();if(next===q&&!force)return;
       if(q!==next)trails={};q=next;current=-1;seen.clear();anchor=null;
-      if(q&&!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r));
+      if(q&&!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r),scripture);
       results=q?lookup(q,scope):[];list.replaceChildren();scroll.scrollTop=0;append();
       $('vf-status').textContent=q?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();

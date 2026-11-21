@@ -51,7 +51,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       const shelf=()=>page.evaluate(()=>[...document.querySelectorAll('.rh-chip')].map(n=>({text:n.textContent,id:n.dataset.id,current:n.getAttribute('aria-current')})));
       const jump=async(q,book,ref)=>{
         await page.keyboard.press('Control+k');await $('#vf-input').fill(q);await $('#vf-list button').first().click();
-        await $('#vf-preview .citation-jump').click();
+        await $('#v25-scripture-preview .citation-jump').click();
         const close=$('#vf-close');if(await close.isVisible())await close.click();
         await page.waitForFunction(({book,ref})=>document.querySelector('.rh-chip[aria-current=page]')?.getAttribute('aria-label').endsWith(ref)&&document.getElementById('stage').dataset.book===book,{book,ref});
       };
@@ -64,45 +64,85 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await turn(false,8);assert.equal(await $('.paper-ink-mark--selected').count(),1);
       await bar.locator('[data-copy]').click();await bar.waitFor({state:'detached'});
       const [quote]=await page.evaluate(()=>copyTest);
-      assert.match(quote,/天地万物都造齐了。\n\( 创世记 1:31-2:1 和合本 \)/);
-      assert.equal((quote.match(/神看着/g)||[]).length,1);
+      const expected=await page.evaluate(()=>{
+        const g=BIBLE_SOURCE.books[0];return g.chapters[0].verses.find(r=>r[0]===31)[1]+g.chapters[1].verses[0][1];
+      });
+      assert.equal(quote,expected+'\n( 创世记 1:31-2:1 和合本 )');
       console.log(width,'cross-page clipboard passed');
-      await mark('1:31',9,true);await turn(true,10);await mark('2:1',10);
+      await mark('1:31',9,true);await turn(true,10);
+      assert.equal(await $('.paper-ink-mark--selected').count(),1);
+      await mark('1:31',10);assert.ok(await bar.locator('[data-copy]').isDisabled());
+      await turn(false,8);await mark('1:31',9);await turn(true,10);await mark('2:1',10);
       await bar.locator('[data-float]').click();await float.waitFor();
-      assert.equal(await float.getAttribute('data-page'),'9');assert.equal(await $('.compare-slip__verse[data-cited]').count(),1);
+      assert.equal(await float.getAttribute('data-page'),'9');
+      assert.ok(await float.locator('p.compare-slip__verse[data-cited][data-ref="1:31"]').count());
+      assert.equal(await float.locator('p[data-ref="1:31"]').count(),1);
+      assert.equal(await float.locator('button').filter({hasText:/上一页|下一页|上一张|下一张/}).count(),0);
+      const fixed=await float.boundingBox();
+      await page.evaluate(()=>document.getElementById('zoom-in').click());await fit();
+      assert.deepEqual(await float.boundingBox(),fixed);
       await jump('创 3:1','GEN','3:1');assert.equal(await float.getAttribute('data-page'),'9');
       await chrome();const main=await stage.getAttribute('data-spread');
       assert.equal((await shelf()).filter(r=>r.text==='创 3').length,1);
       const threeId=(await shelf()).find(r=>r.text==='创 3').id;
-      const area=$('.compare-slip__scroll');
-      await area.evaluate(el=>el.scrollTop=el.scrollHeight);await page.waitForTimeout(500);
-      if(mobile){
-        const box=await area.boundingBox(),p={x:box.x+45,y:box.y+box.height*.72};
-        await send('touchStart',[p]);await send('touchMove',[{x:p.x,y:p.y-48}]);await send('touchEnd',[]);
-      }else{await area.hover();await page.mouse.wheel(0,280);}
-      await page.waitForFunction(()=>document.getElementById('v25-compare').dataset.page==='10');
+      const area=float.locator('.compare-slip__scroll'),chapter=n=>area.locator('.compare-slip__chunk[data-chapter="'+n+'"]');
+      await chapter(2).waitFor({state:'attached'});
       await area.evaluate(el=>{el.scrollTop=el.querySelector('[data-ref="2:5"]').offsetTop;});
       await page.waitForFunction(()=>[...document.querySelectorAll('.rh-chip')].some(n=>n.textContent==='创 2'));
       assert.equal((await shelf())[0].text,'创 2');
       assert.equal((await shelf()).find(r=>r.current==='page').id,threeId);
-      await $('.compare-slip__page[aria-label="浮窗下一页"]').click();
-      await page.waitForFunction(()=>document.getElementById('v25-compare').dataset.page==='11');
+      await area.evaluate(el=>el.scrollTop=el.scrollHeight);await page.waitForTimeout(150);
+      await chapter(3).waitFor({state:'attached'});
+      assert.equal(await area.locator('.compare-slip__chunk').count(),3);
+      assert.equal(await chapter(1).count(),1);
+      // A continued native gesture scrolls into the appended chapter;
+      // the preceding chapters stay mounted.
+      if(mobile){
+        const box=await area.boundingBox(),p={x:box.x+45,y:box.y+box.height*.72};
+        await send('touchStart',[p]);
+        for(const dy of [15,30,48]){await page.waitForTimeout(50);await send('touchMove',[{x:p.x,y:p.y-dy}]);}
+        await page.waitForTimeout(150);await send('touchEnd',[]);
+      }else{await area.hover();await page.mouse.wheel(0,200);}
+      // Let the mobile fling settle before placing a precise test anchor.
+      await page.waitForTimeout(mobile?420:90);
+      await area.evaluate(el=>{el.scrollTop=el.querySelector('p[data-ref="3:4"]').offsetTop-4;});
+      await page.waitForFunction(()=>document.getElementById('v25-compare').dataset.chapter==='3',null,{timeout:5000}).catch(async e=>{
+        throw Error(JSON.stringify(await area.evaluate(el=>({
+          top:el.scrollTop,chapter:el.closest('aside').dataset.chapter,
+          target:el.querySelector('p[data-ref="3:4"]')?.offsetTop,displayed:[...el.children].map(s=>s.dataset.chapter)
+        }))),{cause:e});
+      });
+      assert.ok(await area.locator('.compare-slip__chunk').count()<=3);
       assert.equal(await stage.getAttribute('data-spread'),main);
       assert.equal((await shelf()).filter(r=>r.text==='创 3').length,1);assert.equal((await shelf())[0].id,threeId);
       assert.ok((await float.boundingBox()).width<(mobile?width*.81:width*.45));
       if(process.env.COMPARE_SCREENSHOTS)await page.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'v25-compare-'+width+'.png')});
       async function drag(handle,dx,dy){
         const pos=await handle.boundingBox(),p={x:pos.x+pos.width*.5,y:pos.y+pos.height*.5};
-        if(!mobile){await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+dx,p.y+dy,{steps:6});await page.mouse.up();}
+        const target=await handle.evaluate((el,{x,y})=>el.contains(document.elementFromPoint(x,y)),p);
+        assert.ok(target,'handle is reachable: '+await handle.getAttribute('class'));
+        if(!mobile){
+          await page.mouse.move(p.x,p.y);await page.mouse.down();assert.ok(await float.getAttribute('data-adjust'),JSON.stringify({errors,pos,p}));
+          await page.mouse.move(p.x+dx,p.y+dy,{steps:6});
+          assert.ok(await float.getAttribute('data-adjust'),JSON.stringify({errors,pos,p,after:await float.boundingBox()}));
+          await page.mouse.up();
+        }
         else{await send('touchStart',[p]);await send('touchMove',[{x:p.x+dx,y:p.y+dy}]);await send('touchEnd',[]);}
       }
-      const before=await float.boundingBox();await drag($('.compare-slip__title'),-38,mobile?-42:40);
+      const before=await float.boundingBox();await drag(float.locator('.compare-slip__title'),-38,mobile?-42:40);
       const moved=await float.boundingBox();assert.ok(moved.x<before.x-24&&Math.abs(moved.y-before.y)>25);
-      await drag($('.compare-slip__resize'),-35,-35);
-      const smaller=await float.boundingBox();assert.ok(smaller.width<moved.width-20&&smaller.height<moved.height-20);
-      await $('[aria-label="收起经文浮窗"]').click();assert.ok((await float.boundingBox()).height<64);
-      await $('[aria-label="展开经文浮窗"]').click();assert.equal(await float.getAttribute('data-page'),'11');
-      await $('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
+      await drag(float.locator('.compare-slip__resize'),-35,-35);
+      const smaller=await float.boundingBox();assert.ok(smaller.width<moved.width-20&&smaller.height<moved.height-20,JSON.stringify({before,moved,smaller,errors}));
+      await float.locator('[aria-label="收起经文浮窗"]').click();assert.ok((await float.boundingBox()).height<64);
+      await float.locator('[aria-label="展开经文浮窗"]').click();assert.equal(await float.getAttribute('data-chapter'),'3');
+      await area.evaluate(el=>el.scrollTop=el.scrollHeight);
+      await chapter(4).waitFor({state:'attached'});
+      assert.equal(await area.locator('.compare-slip__chunk').count(),3);
+      assert.equal(await chapter(1).count(),0);
+      for(let i=0;i<3&&!await chapter(1).count();i++){await area.evaluate(el=>el.scrollTop=0);await page.waitForTimeout(120);}
+      await chapter(1).waitFor({state:'attached'});
+      assert.equal(await area.locator('.compare-slip__chunk').count(),3);
+      await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await chrome();
       const one=$('.rh-chip').filter({hasText:'创 1'});
       if(!mobile)await one.hover();
@@ -111,11 +151,39 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       }
       await $('[aria-label^="在浮窗打开 创世记 1:"]').click();
       await float.waitFor();assert.equal(await float.getAttribute('data-page'),'9');assert.equal(await stage.getAttribute('data-spread'),main);
-      await $('[aria-label="关闭经文浮窗"]').click();await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
+      await float.locator('[aria-label="关闭经文浮窗"]').click();await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       await mark('2:1',10,true);await page.keyboard.press('Control+k');await bar.waitFor({state:'detached'});
       assert.equal(await $('.paper-ink-mark--selected').count(),0);assert.ok(await $('#vf-input').isVisible());
+      await $('#vf-input').fill('创造');await $('#vf-list button mark').first().waitFor();await $('#vf-list button').first().click();
+      const note=$('#v25-scripture-preview');
+      await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'search');
+      assert.ok(await note.locator('p mark').count());assert.equal(await $('#verse-finder').isVisible(),false);
+      await note.locator('[aria-label="返回搜索结果"]').click();assert.ok(await $('#verse-finder').isVisible());
+      assert.equal(await $('#vf-input').inputValue(),'创造');
+      await $('#vf-input').fill('犹 1:1');await $('#vf-list button').filter({hasText:'犹大书 1:1'}).first().click();
+      const oneChapter=note.locator('.compare-slip__scroll');
+      await oneChapter.evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new WheelEvent('wheel',{deltaY:300}));});
+      assert.equal(await oneChapter.locator('.compare-slip__chunk').count(),1);
+      assert.ok(await oneChapter.locator('[data-verse-id^="JUD."]').count());
+      assert.equal(await oneChapter.locator('p:not([data-verse-id^="JUD."])').count(),0);
+      await note.locator('[aria-label="返回搜索结果"]').click();
+      await $('#vf-close').click();
+      await page.goto(preview+'?pdf=958&curl=off',{timeout:90000});
+      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
+      const cue=$('[data-note-page="958"][data-note-ordinal="1"]').first();
+      if(mobile)await cue.tap();else await cue.hover();
+      await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'footnote');
+      const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
+      const initialHistory=await shelf();await refs.nth(1).click();
+      assert.match(await note.locator('.compare-slip__title').textContent(),/利未记/);
+      assert.deepEqual(await shelf(),initialHistory,'preview does not add history');
+      if(!mobile){
+        await note.locator('[aria-label="将当前引用另开一个对照窗"]').click();
+        await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/利未记/);
+        assert.equal(await note.isVisible(),true);
+      }
       assert.deepEqual(errors,[]);
-      console.log(width,'PASS cross-page copy & zoom, non-modal floating reader, two-way history dedupe, drag & resize, minimize, search reset');
+      console.log(width,'PASS library copy, 3-chunk scrolling both ways, independent zoom & drag, chapter history, unified search & multi-reference notes');
       await context.close();
     }
   }finally{await browser.close();}

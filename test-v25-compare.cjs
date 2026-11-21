@@ -1,23 +1,49 @@
 'use strict';
 const assert=require('node:assert/strict'),test=require('node:test'),fs=require('node:fs'),vm=require('node:vm');
 const C=require('./v25/compare'),H=require('./v25/history'),S=require('./text-selection');
+const Source=require('./data/bible-source'),Passages=require('./footnote-passages'),find=require('./v25/search').catalogue;
 const window={};vm.runInNewContext(fs.readFileSync(require.resolve('./v25-original-data'),'utf8'),{window,atob});
 const db=window.V25OriginalData;
+const library=require('./v25/scripture').create(Source,{...db,get(){throw Error('Must not read print ink');}});
 const load=n=>{const k=Math.floor(n/32);db.installPack(k,require('./paper-pages/'+db.packs[k]));};
 const events=()=>{const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};};
 const genesis=(ref,page=10)=>({bookCode:'GEN',bookName:'创世记',ref,page});
-test('quoted range may span pages and chapters, but it cannot skip a verse or mix books',()=>{
-  const a=C.rangeFor(db,[{page:10,ref:'2:1'},{page:9,ref:'1:31'},{page:10,ref:'1:31'}]);
-  assert.deepEqual({book:a.bookCode,from:a.from,to:a.to},{book:'GEN',from:1031,to:2001});
-  assert.equal(C.rangeFor(db,[{page:9,ref:'1:29'},{page:10,ref:'2:1'}]),null);
-  assert.equal(C.rangeFor(db,[{page:9,ref:'1:31'},{page:61,ref:'1:1'}]),null);
+test('the canonical reader resolves by address, not print bytes or split fragments',()=>{
+  const locs=[{page:10,ref:'2:1'},{page:9,ref:'1:31'},{page:10,ref:'1:31'}];
+  const [a,b]=library.from(locs,true),gene=Source.books.find(b=>b.code==='GEN');
+  assert.equal(library.groups([a,b]).length,1);
+  assert.deepEqual([a.ref,b.ref],['1:31','2:1']);
+  const exact=gene.chapters[0].verses.find(([n])=>n===31)[1]+gene.chapters[1].verses[0][1];
+  assert.equal(library.quote(locs),exact+'\n( 创世记 1:31-2:1 和合本 )');
+  assert.equal(library.groups(library.from([{page:9,ref:'1:29'},{page:10,ref:'2:1'}],true)).length,2);
 });
-test('float renders reviewed print fragments, not headings or chapter-number glyphs',()=>{
-  load(9);load(10);
-  const rows=n=>C.rowsFor(db,n,db.get(n)[3],S.clipboardText);
-  assert.equal(rows(9).at(-1).ref,'1:31');
-  assert.equal(rows(10)[0].ref,'1:31');
-  assert.equal(rows(10).find(r=>r.ref==='2:1').text,'天地万物都造齐了。');
+test('a combined range uses its one real body; direct search by an alias finds it too',()=>{
+  const a=library.resolve({code:'GEN',ref:'24:29-30'})[0];
+  assert.equal(a,library.resolve({code:'GEN',ref:'24:30'})[0]);
+  assert.equal(a.display,'24:29–30');
+  assert.equal(library.quote([{code:'GEN',ref:'24:30'}]),a.text+'\n( 创世记 24:29-30 和合本 )');
+  const search=find(Source,db.lookup,library);
+  assert.equal(search('创 24:30')[0].text,a.text);
+});
+test('library supplies verse paragraphs, short titles and noncontiguous citation groups',()=>{
+  const a=library.resolve({code:'GEN',ref:'1:1'})[0];
+  assert.deepEqual(a.titles,['神的创造']);assert.equal(a.paragraph,true);
+  const note=Passages.byOrdinal(958,1);
+  const groups=library.groups(library.from(Passages.resolve(note.citation,Source)));
+  assert.deepEqual(groups.map(g=>g[0].code),['EXO','LEV','DEU']);
+  const g=library.index('GEN');
+  assert.equal(g.chunks.length,50);
+  assert.ok(g.chunks[1].rows.every(r=>r.ch===2&&r.code==='GEN'));
+  assert.ok(new Set(g.chunks[2].rows.map(r=>r.page)).size>1,'one chapter may cover multiple printed pages');
+  assert.equal(library.index('JUD').chunks.length,1);
+});
+test('continuous scrolling keeps neighboring chunks and evicts only the far side',()=>{
+  assert.deepEqual(C.windowRange(0,0,-1,4),{lo:0,hi:0});
+  assert.deepEqual(C.windowRange(0,0,1,4),{lo:0,hi:1});
+  assert.deepEqual(C.windowRange(0,1,1,4),{lo:0,hi:2});
+  assert.deepEqual(C.windowRange(0,2,1,4),{lo:1,hi:3});
+  assert.deepEqual(C.windowRange(1,3,-1,4),{lo:0,hi:2});
+  assert.deepEqual(C.windowRange(2,4,1,4),{lo:2,hi:4});
 });
 test('cross-page copy stitches the selected split verse only once in canonical order',()=>{
   const first=db.lookup('ACT','7:56'),last=first+1;load(first);load(last);

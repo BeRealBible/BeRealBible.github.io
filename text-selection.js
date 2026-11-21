@@ -274,7 +274,7 @@
       return {x,y:center-height/2,width:right-x,height};
     }),...mergeRects(unknown)];
   }
-  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat}){
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,scripture}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
@@ -369,6 +369,25 @@
     }
     const markKey=(index,id)=>index+'|'+id;
     function clearPaint(){for(const mark of painted.values())mark.remove();painted.clear();}
+    const location=(page,u)=>({page,ref:verseOf(u)?u.group.slice(6):null});
+    function verseKey(index,unit){
+      const loc=location(index,unit);
+      return loc.ref?scripture.resolve(loc).map(r=>r.id).join('+'):'';
+    }
+    function paintSelection(){
+      clearPaint();
+      if(!active?.count)return;
+      papers.forEach((paper,side)=>{
+        const svg=paper.querySelector('svg'),{index}=getPage(side);
+        if(!svg||(!scripture&&!active.faces.has(index)))return;
+        const entry=model(side,svg);if(!entry)return;
+        const face=active.faces.get(index);
+        for(const unit of entry.units){
+          const selected=scripture?active.refs.has(verseKey(index,unit)):face?.selected.has(unit.id);
+          if(selected)painted.set(markKey(index,unit.id),draw({entry,unit},'selected'));
+        }
+      });
+    }
     function refresh(){
       clearPaint();
       papers.forEach((paper,side)=>{
@@ -377,16 +396,16 @@
         // these groups. Rebuild rather than drawing a second translucent coat.
         for(const kind of ['saved','focus','selected'])for(const g of svg.querySelectorAll('.paper-ink-mark--'+kind))g.remove();
         const {page,index,books}=getPage(side),key=recordKey(page,index,books[page.b]),saved=pageMarks(key);
-        const focused=focus?.key===key,selected=active?.faces.get(index)?.selected;
-        if(!saved.possible&&!focused&&!selected)return;
+        const focused=focus?.key===key;
+        if(!saved.possible&&!focused)return;
         const entry=model(side,svg);if(!entry)return;
         if(saved.possible)for(const unit of entry.units)if(saved.has(unit.id))draw({entry,unit},'saved');
         if(focused){
           const unit=entry.units.find(candidate=>candidate.id===focus.unitId);
           if(unit)focusMark=draw({entry,unit},'focus');
         }
-        if(selected)for(const unit of entry.units)if(selected.has(unit.id))painted.set(markKey(index,unit.id),draw({entry,unit},'selected'));
       });
+      paintSelection();
       suspended=false;if(bar){bar.hidden=false;anchorBar();}
     }
     function clearFocus(){focusMark?.remove();focusMark=null;focus=null;}
@@ -438,14 +457,29 @@
     }
     function schedule(){if(active&&refreshFrame===null)refreshFrame=win.requestAnimationFrame(()=>{refreshFrame=null;anchorBar();});}
     function actionLabel(b,text){b.setAttribute('aria-label',text);b.setAttribute('title',text);}
-    function allSaved(){return !!active.count&&[...active.faces.values()].every(f=>{
-      const saved=pageMarks(f.key);return [...f.selected.keys()].every(id=>saved.has(id));
-    });}
+    function highlightEntries(){
+      const result=new Map(),add=(key,id)=>result.set(key+'|'+id,{key,id});
+      const db=scripture&&win.V25OriginalData;
+      for(const face of active.faces.values())for(const unit of face.selected.values()){
+        add(face.key,unit.id);
+        if(!db)continue;
+        // Keep existing print annotation IDs, including both fragments of a
+        // single logical verse. They are not the source of its copied text.
+        const book=db.books[face.page.b],ref=verseKey(face.index,unit);
+        for(const step of [-1,1])for(let n=face.index+step;db.pages[n]?.b===face.page.b;n+=step){
+          if(!db.tags(n).some(t=>t.role==='body'&&t.ref===unit.group.slice(6)))break;
+          const p=db.pages[n],key=recordKey(p,n,book),list=commands(p,n,db.books).filter(c=>c.role!=='footer-rule');
+          for(const u of indexFace(p,list).units)if(verseKey(n,u)===ref)add(key,u.id);
+        }
+      }
+      return [...result.values()];
+    }
+    function allSaved(){return !!active.count&&(active.highlights??=highlightEntries()).every(({key,id})=>pageMarks(key).has(id));}
     function highlight(){
       if(!active?.count)return;
       const remove=allSaved();
       let durable=true;
-      for(const {key,selected} of active.faces.values())for(const id of selected.keys()){
+      for(const {key,id} of active.highlights){
         try{storage.setItem(key+'~used','1');storage.setItem(unitKey(key,id),remove?'0':'1');session.get(key)?.delete(id);}
         catch{durable=false;if(!session.has(key))session.set(key,new Map());session.get(key).set(id,!remove);}
       }
@@ -454,14 +488,24 @@
     function toggle(t){
       serial++;
       const {index,side,key,bookName,page,units,svg}=t.entry,id=t.unit.id,k=markKey(index,id);
-      let face=active.faces.get(index);
-      if(face?.selected.delete(id)){
-        painted.get(k)?.remove();painted.delete(k);active.count--;
-        if(!face.selected.size)active.faces.delete(index);
+      const ref=scripture?verseKey(index,t.unit):null;
+      if(scripture&&!ref){feedback('请选择有经文节号的正文');return;}
+      const picked=ref?active.refs.get(ref):null,previous=picked||{index,id};
+      const old=active.faces.get(previous.index);
+      if(old?.selected.delete(previous.id)){
+        const oldKey=markKey(previous.index,previous.id);
+        painted.get(oldKey)?.remove();painted.delete(oldKey);active.count--;
+        if(ref)active.refs.delete(ref);
+        if(!old.selected.size)active.faces.delete(previous.index);
       }else{
+        let face=active.faces.get(index);
         if(!face){face={index,key,bookName,page,units,selected:new Map()};active.faces.set(index,face);}
-        face.selected.set(id,t.unit);active.count++;painted.set(k,draw(t,'selected'));
+        face.selected.set(id,t.unit);active.count++;
+        if(ref)active.refs.set(ref,{index,id});
+        else painted.set(k,draw(t,'selected'));
       }
+      if(scripture)paintSelection();
+      active.highlights=null;
       active.anchor={index,side,point:t.point,...(!crossPage&&{svg})};
       bar.querySelector('.paper-copy-field')?.remove();syncPen();anchorBar();
     }
@@ -480,6 +524,7 @@
     // Clipboard event for Ctrl/Cmd+C on the focused paper reader. Inputs
     // (including the search box and manual-copy fallback) keep normal Copy.
     function selectionQuote(){
+      if(scripture)return scripture.quote(pickedLocations());
       return pagesClipboardQuote(active.faces.values(),win.V25OriginalData);
     }
     function keyboardCopy(e){
@@ -547,17 +592,12 @@
         closeSearch();
       });
       searchForm=form;bar.dataset.searchOpen='true';
-      if(crossPage){serial++;active.faces.clear();active.count=0;clearPaint();delete stage.dataset.textSelection;}
+      if(crossPage){serial++;active.faces.clear();active.refs.clear();active.count=0;clearPaint();delete stage.dataset.textSelection;}
       bar.querySelector('[data-search]').setAttribute('aria-expanded','true');
       bar.appendChild(form);anchorBar();field.focus({preventScroll:true});
     }
-    function floatSelection(){
-      if(!active?.count)return;
-      const entries=[...active.faces.values()].flatMap(face=>[...face.selected.values()].map(unit=>({
-        page:face.index,ref:verseOf(unit)?unit.group.slice(6):null
-      })));
-      if(onFloat(entries))reset();
-    }
+    const pickedLocations=()=>[...active.faces.values()].flatMap(face=>[...face.selected.values()].map(unit=>location(face.index,unit)));
+    function floatSelection(){if(active?.count&&onFloat(pickedLocations()))reset();}
     function initBar(){
       bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label',crossPage?'经文选区':'本页选文');
       function button(name,key,path,fn){
@@ -591,8 +631,10 @@
     function hold(t){
       if(!isCurrent(t))return false;
       if(searchForm&&crossPage)reset();
-      if(active){if(!searchForm&&sameFace(t)&&!active.faces.get(t.entry.index)?.selected.has(t.unit.id))toggle(t);return true;}
-      clearFocus();active={faces:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
+      const ref=scripture&&verseKey(t.entry.index,t.unit);
+      if(scripture&&!ref){feedback('请选择有经文节号的正文');return false;}
+      if(active){if(!searchForm&&sameFace(t)&&!(ref?active.refs.has(ref):active.faces.get(t.entry.index)?.selected.has(t.unit.id)))toggle(t);return true;}
+      clearFocus();active={faces:new Map(),refs:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
     }
     stage.addEventListener('contextmenu',e=>{
       if(e.target?.closest?.('.paper-selection-tools'))return;
