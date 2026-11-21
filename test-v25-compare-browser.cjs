@@ -220,7 +220,12 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       else{
         const r=await one.boundingBox();await send('touchStart',[{x:r.x+r.width/2,y:r.y+r.height/2}]);await page.waitForTimeout(470);await send('touchEnd',[]);
       }
-      await $('[aria-label^="在浮窗打开 创世记 1:"]').click();
+      const floatAction=$('[aria-label^="在浮窗打开 创世记 1:"]');
+      assert.deepEqual(await floatAction.evaluate(el=>{
+        const other=el.parentElement.querySelector('.rh-delete'),a=getComputedStyle(el),b=getComputedStyle(other);
+        return [a.backgroundColor===b.backgroundColor,a.color===b.color];
+      }),[true,true],'the history float action uses the same paper treatment as delete');
+      await floatAction.click();
       await float.waitFor();assert.equal(await float.getAttribute('data-page'),'9');assert.equal(await stage.getAttribute('data-spread'),main);
       await oneLine(float);
       await float.locator('[aria-label="关闭经文浮窗"]').click();await page.evaluate(()=>PaperImmersion.hideChrome());await fit();

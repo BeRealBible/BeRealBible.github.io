@@ -15,7 +15,8 @@ html.paper-immersive,.paper-immersive body,.paper-immersive .stage-wrap{backgrou
 .paper-immersive .rh-item[data-current]{color:#493528;background:#e1c9a6;border-color:#98764e67}
 .paper-immersive .rh-chip:hover,.paper-immersive .rh-undo:hover{color:#713f25}
 .paper-immersive .rh-action{color:#765235}
-.paper-immersive .rh-item[data-reveal]:not([data-pinned]) .rh-pin,.paper-immersive .rh-item[data-reveal] .rh-delete{background:#f4e8d6;color:#70492f}
+.paper-immersive .rh-item[data-reveal]:not([data-pinned]) .rh-pin,.paper-immersive .rh-item[data-reveal] :is(.rh-delete,.rh-float){background:#f4e8d6;color:#70492f}
+.paper-immersive .rh-item[data-reveal] .rh-float:is(:hover,:focus-visible){background:#ead9be}
 .paper-immersive .rh-rail button:focus-visible,.pcz-control :focus-visible{outline:2px solid #8a613a;outline-offset:-2px}
 .pcz-control{position:relative;flex:none;color:#594636;font:12px/1.45 var(--ui,system-ui,sans-serif)}
 .stage-wrap>.pcz-control{position:absolute;left:max(12px,env(safe-area-inset-left));bottom:12px;z-index:37}

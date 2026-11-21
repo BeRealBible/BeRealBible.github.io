@@ -98,12 +98,6 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 @media(pointer:coarse),(max-width:559px){
   .paper-selection-tools[data-docked] button{width:36px;height:36px}
 }
-#reading-history .rh-item[data-reveal] .rh-float{
-  position:fixed;inset:auto;top:var(--rh-tools-bottom);left:calc(var(--rh-tools-left) + var(--rh-action-width));
-  transform:translateY(-100%);z-index:1;background:#40382e;box-shadow:0 0 0 1px #aa957660
-}
-#reading-history .rh-item[data-reveal]:not([data-pinned]) .rh-float{left:calc(var(--rh-tools-left) + 2 * var(--rh-action-width))}
-#reading-history .rh-float:hover,#reading-history .rh-float:focus-visible{color:#ffdb9f}
 @media(max-width:639px){
   .compare-slip{--compare-height-px:260px;top:auto;bottom:max(54px,calc(env(safe-area-inset-bottom) + 42px));right:max(9px,env(safe-area-inset-right));width:min(300px,78vw);height:min(var(--compare-height-px),40dvh);font-size:14px}
   .compare-slip[data-kind=footnote]{--compare-height-px:215px;width:min(273px,76vw)}
@@ -112,6 +106,7 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   .compare-slip__title{padding-left:20px;padding-right:4px}.compare-slip__title::before{left:11px}
   .compare-slip__icon{width:30px;min-height:33px}
   .compare-slip__scroll{padding:5px 8px 16px 11px}.compare-slip__action{width:32px;height:33px}
+  .compare-slip__paragraph{font-size:15px}
   .compare-slip[data-collapsed] .compare-slip__icon{width:28px;min-height:30px}
   .compare-slip__resize{width:31px;height:29px}
   #v25-citation-choice button{min-height:36px}
