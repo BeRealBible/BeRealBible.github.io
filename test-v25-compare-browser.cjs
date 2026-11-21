@@ -193,7 +193,17 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await page.goto(preview+'?pdf=958&curl=off',{timeout:90000});
       await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
       const cue=$('[data-note-page="958"][data-note-ordinal="1"]').first();
-      if(mobile)await cue.tap();else await cue.hover();
+      async function activationOnly(citation){
+        assert.equal(await citation.evaluate(el=>getComputedStyle(el).cursor),'pointer');
+        if(mobile){await citation.tap();await note.waitFor();return;}
+        await citation.hover();await note.waitFor({state:'hidden',timeout:2000});
+        await citation.focus();assert.equal(await note.isVisible(),false);
+        await citation.press('Enter');await note.waitFor();assert.equal(await citation.getAttribute('aria-expanded'),'true');
+        await page.keyboard.press('Escape');await note.waitFor({state:'hidden'});
+        assert.equal(await citation.getAttribute('aria-expanded'),'false');
+        await citation.click();await note.waitFor();
+      }
+      await activationOnly(cue);
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'footnote');
       await oneLine(note);
       const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
@@ -205,6 +215,12 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/利未记/);
         assert.equal(await note.isVisible(),true);
       }
+      await page.goto(preview+'?pdf=954&curl=off',{timeout:90000});
+      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
+      const parallel=$('[data-note-page="954"][data-parallel]').first();
+      await activationOnly(parallel);
+      assert.equal(await note.getAttribute('data-kind'),'footnote');
+      assert.equal(await stage.getAttribute('data-spread'),'954');
       // The end of Exodus and beginning of Leviticus are on different
       // spreads, so this must survive an actual desk turn, not a jump.
       await page.goto(preview+'?ref=EXO.40:38&curl=off',{timeout:90000});

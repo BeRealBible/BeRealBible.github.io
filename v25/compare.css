@@ -9,6 +9,7 @@
 }
 .compare-slip[hidden]{display:none}
 .compare-slip [hidden]{display:none!important}
+#book-volume .paper > .v25-footnote-target{cursor:pointer}
 .compare-slip[data-role=secondary]{left:max(20px,env(safe-area-inset-left));right:auto}
 .compare-slip[data-role=preview]{z-index:49}
 .compare-slip[data-kind=footnote]{--compare-height-px:285px;width:clamp(255px,26vw,350px)}
