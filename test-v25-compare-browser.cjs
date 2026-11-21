@@ -182,8 +182,29 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/利未记/);
         assert.equal(await note.isVisible(),true);
       }
+      // The end of Exodus and beginning of Leviticus are on different
+      // spreads, so this must survive an actual desk turn, not a jump.
+      await page.goto(preview+'?ref=EXO.40:38&curl=off',{timeout:90000});
+      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
+      await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
+      async function acrossBooks(){
+        await mark('40:37',101,true);await mark('40:38',101);
+        await turn(true,102);await mark('1:1',102);
+        assert.equal(await bar.getAttribute('data-pages'),'2');
+      }
+      await acrossBooks();
+      await bar.locator('[data-copy]').click();await bar.waitFor({state:'detached'});
+      const [fromBoth]=await page.evaluate(()=>copyTest),refsBoth=fromBoth.split('\n\n').map(block=>block.split('\n').at(-1));
+      assert.deepEqual(refsBoth,['( 出埃及记 40:37-38 和合本 )','( 利未记 1:1 和合本 )']);
+      await turn(false,100);await acrossBooks();
+      await bar.locator('[data-float]').click();await float.waitFor();
+      assert.match(await float.locator('.compare-slip__title').textContent(),/^出埃及记 /);
+      assert.match(await float.locator('.compare-slip__subtitle').textContent(),/40:37–38/);
+      assert.equal(await float.locator('[data-cited]').count(),2);
+      assert.equal(await float.locator('[data-verse-id^="LEV."]').count(),0);
+      assert.equal(await stage.getAttribute('data-spread'),'102');
       assert.deepEqual(errors,[]);
-      console.log(width,'PASS library copy, 3-chunk scrolling both ways, independent zoom & drag, chapter history, unified search & multi-reference notes');
+      console.log(width,'PASS chapter and book clipboard, pinned prefix, 3-chapter rolling window, history, search & notes');
       await context.close();
     }
   }finally{await browser.close();}

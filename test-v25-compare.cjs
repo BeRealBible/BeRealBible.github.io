@@ -33,6 +33,20 @@ test('the reported Genesis selection uses four chapters and only two intra-chapt
   const locs=[{code:'GEN',ref:'1:1'},{code:'GEN',ref:'1:2'},{code:'EXO',ref:'1:1'}];
   assert.match(library.quote(locs),/\( 创世记 1:1-2 和合本 \)\n\n[^\n]+\n\( 出埃及记 1:1 和合本 \)$/);
 });
+test('cross-chapter pin keeps the earliest contiguous run and does not jump over a gap',()=>{
+  const refs=['43:16','42:16','42:15','42:18'].map(ref=>({code:'GEN',ref}));
+  assert.deepEqual(library.pinSelection(refs).map(r=>r.id),['GEN.42:15','GEN.42:16']);
+  const continuous=['2:3','2:1','1:31'].map(ref=>({code:'GEN',ref}));
+  assert.deepEqual(library.pinSelection(continuous).map(r=>r.id),['GEN.1:31','GEN.2:1']);
+  assert.deepEqual(library.pinSelection([{code:'GEN',ref:'42:15'},{code:'GEN',ref:'43:16'}]).map(r=>r.id),['GEN.42:15']);
+  assert.deepEqual(library.pinSelection([{code:'GEN',ref:'42:15'},{code:'GEN',ref:'42:18'}]),[]);
+});
+test('cross-book pin stops at the boundary; copy still keeps both books',()=>{
+  const picks=[{code:'LEV',ref:'1:1'},{code:'EXO',ref:'40:38'},{code:'EXO',ref:'40:37'}];
+  assert.deepEqual(library.pinSelection(picks).map(r=>r.id),['EXO.40:37','EXO.40:38']);
+  const refs=library.quote(picks).split('\n\n').map(part=>part.split('\n').at(-1));
+  assert.deepEqual(refs,['( 出埃及记 40:37-38 和合本 )','( 利未记 1:1 和合本 )']);
+});
 test('a combined range uses its one real body; direct search by an alias finds it too',()=>{
   const a=library.resolve({code:'GEN',ref:'24:29-30'})[0];
   assert.equal(a,library.resolve({code:'GEN',ref:'24:30'})[0]);

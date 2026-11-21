@@ -235,10 +235,10 @@
       return panel.open({kind:'compare',label:'经文对照',groups,onRead,onJump,focus:true,...settings});
     }
     function openSelection(locs){
-      const resolved=locs.map(loc=>scripture.resolve(loc)),groups=scripture.groups(scripture.from(locs,true));
-      if(groups.length!==1||resolved.some(r=>!r.length)){feedback('浮窗需要同一书卷内相邻的经文');return false;}
-      const [a]=groups[0],b=groups[0].at(-1);
-      return display(groups,{label:'对照 · '+scripture.label(a,b)});
+      const run=scripture.pinSelection(locs);
+      if(!run.length){feedback('浮窗需要从相邻的经文开始');return false;}
+      const [a]=run,b=run.at(-1);
+      return display([run],{label:'对照 · '+scripture.label(a,b)});
     }
     function open(loc){
       const resolved=scripture.resolve(loc);

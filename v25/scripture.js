@@ -72,6 +72,15 @@
       }
       return list;
     }
+    function pinSelection(locs){
+      if(locs.some(loc=>!resolve(loc).length))return [];
+      const rows=from(locs,true);
+      if(!rows.length)return [];
+      const runs=groups(rows),first=rows[0],last=rows.at(-1);
+      // A pinned reader stays in one book. Across chapter/book selections,
+      // start at the earliest selected verse and keep only its contiguous run.
+      return runs.length===1||first.code!==last.code||first.ch!==last.ch?runs[0]:[];
+    }
     function quote(locs){
       const out=[];
       for(const row of from(locs,true)){
@@ -89,7 +98,7 @@
         return runs.map(run=>run.map(row=>row.text).join('')).join('...')+'\n( '+name+' '+names.join(',')+' 和合本 )';
       }).join('\n\n');
     }
-    return {index,resolve,from,groups,quote,label};
+    return {index,resolve,from,groups,pinSelection,quote,label};
   }
   return {create,parse};
 });
