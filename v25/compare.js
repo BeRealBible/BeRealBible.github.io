@@ -21,23 +21,31 @@
     const panel=node('aside','compare-slip'),head=node('header','compare-slip__head'),name=node('button','compare-slip__title');
     const title=node('strong'),bookTitle=node('span','compare-slip__book'),refTitle=node('span','compare-slip__address'),tabs=node('div','compare-slip__tabs');
     title.append(bookTitle,doc.createTextNode(' '),refTitle);
-    const scroll=node('div','compare-slip__scroll'),foot=node('footer','compare-slip__foot'),status=node('span','compare-slip__status');
+    const scroll=node('div','compare-slip__scroll'),foot=node('footer','compare-slip__foot');
     const btn=(cls,text,label,click)=>{
       const b=node('button',cls,text);b.type='button';b.title=label;b.setAttribute('aria-label',label);
       if(click)b.onclick=click;return b;
     };
+    const action=(key,label,path,click)=>{
+      const b=btn('compare-slip__action'+(key==='jump'?' citation-jump':''),'',label,click);
+      b.dataset.action=key;
+      const svg=doc.createElementNS('http://www.w3.org/2000/svg','svg'),line=doc.createElementNS(svg.namespaceURI,'path');
+      svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');
+      line.setAttribute('d',path);svg.append(line);b.append(svg);return b;
+    };
     const minimize=btn('compare-slip__icon','−','收起经文浮窗',()=>collapse(!collapsed));
     const exit=btn('compare-slip__icon','×','关闭经文浮窗',()=>close('dismiss',true));
     const resize=btn('compare-slip__resize','','拖动调整浮窗大小；也可使用方向键');
-    const back=btn('compare-slip__action','‹ 返回结果','返回搜索结果',()=>close('back',true));
-    const jump=btn('compare-slip__action citation-jump','在主书查看 ↗','在主书查看',()=>{if(activeRow)config?.onJump?.(activeRow);});
-    const pin=btn('compare-slip__action','固定','固定经文浮窗',()=>config?.onPin?.(currentGroup(),activeRow));
-    const fork=btn('compare-slip__action','另开对照','将当前引用另开一个对照窗',()=>config?.onFork?.(currentGroup(),activeRow));
+    const back=action('back','返回搜索结果','M20 12H4m7-7-7 7 7 7',()=>close('back',true));
+    const jump=action('jump','在主书查看','M13 5h6v6m0-6-8 8m7 0v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',()=>{if(activeRow)config?.onJump?.(activeRow);});
+    const pin=action('pin','固定经文浮窗','m15 4 5 5-3 1-3 4 .5 2.5L13 18l-7-7 1.5-1.5 2.5.5 4-3 1-3ZM9.5 14.5 4 20',()=>config?.onPin?.(currentGroup(),activeRow));
+    const fork=action('fork','将当前引用另开一个对照窗','M8 8h13v12H8zM16 8V4H3v12h5m7-5v6m-3-3h6',()=>config?.onFork?.(currentGroup(),activeRow));
     panel.id=id;panel.dataset.role=role;panel.hidden=true;panel.setAttribute('aria-label','经文浮窗');
     name.type='button';name.append(title);
     scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','浮窗经文');
     tabs.setAttribute('role','group');tabs.setAttribute('aria-label','引用经文位置');
-    foot.append(back,jump,pin,fork,status);head.append(name,minimize,exit);
+    foot.setAttribute('role','group');foot.setAttribute('aria-label','浮窗操作');
+    foot.append(back,jump,pin,fork);head.append(name,minimize,exit);
     panel.append(head,tabs,scroll,foot,resize);stage.parentElement.append(panel);
     const currentGroup=()=>config?.groups[which];
     const clock=()=>win.performance.now();
@@ -131,9 +139,9 @@
       name.title=label+'；拖动标题栏移动，也可使用方向键';
       panel.dataset.chapter=String(row.ch);
       if(row.page!==null)panel.dataset.page=String(row.page);else delete panel.dataset.page;
-      status.textContent='第 '+row.ch+' 章';
       jump.disabled=row.page===null;
-      jump.setAttribute('aria-label','在主书查看 '+row.short+' '+row.display);
+      jump.title='在主书查看 '+row.short+' '+row.display;
+      jump.setAttribute('aria-label',jump.title);
       const key=row.code+':'+row.ch;
       if(lastChapter!==key){lastChapter=key;config.onRead?.({bookCode:row.code,bookName:row.name,page:row.page,ref:row.ref});}
     }

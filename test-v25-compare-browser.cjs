@@ -54,6 +54,17 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         });
         assert.equal(layout.headers,1);assert.ok(layout.numbered&&layout.grouped&&layout.verses>layout.paragraphs,JSON.stringify(layout));
       }
+      async function iconBar(panel,keys){
+        const bar=await panel.locator('.compare-slip__foot').evaluate(foot=>({
+          text:foot.textContent.trim(),
+          buttons:[...foot.querySelectorAll('button:not([hidden])')].map(b=>({
+            key:b.dataset.action,svg:!!b.querySelector('svg path'),label:b.getAttribute('aria-label'),tip:b.title
+          }))
+        }));
+        assert.equal(bar.text,'','no repeated chapter status or text buttons');
+        assert.deepEqual(bar.buttons.map(b=>b.key),keys);
+        assert.ok(bar.buttons.every(b=>b.svg&&b.label&&b.tip===b.label),JSON.stringify(bar));
+      }
       const fit=async()=>{await page.evaluate(()=>document.getElementById('fit-book').click());await page.waitForTimeout(180);};
       const chrome=()=>page.evaluate(()=>PaperImmersion.showChrome());
       const touch=mobile?await context.newCDPSession(page):null;
@@ -86,6 +97,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.deepEqual(await float.locator('[data-cited]').evaluateAll(rows=>rows.map(row=>row.dataset.ref)),['1:28','1:29']);
       await oneLine(float);
       await naturalParagraphs(float);
+      await iconBar(float,['jump']);
       await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
@@ -192,6 +204,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'search');
       await oneLine(note);
       await naturalParagraphs(note);
+      await iconBar(note,['back','jump','pin']);
       assert.ok(await note.locator('p mark').count());assert.equal(await $('#verse-finder').isVisible(),false);
       await note.locator('[aria-label="返回搜索结果"]').click();assert.ok(await $('#verse-finder').isVisible());
       assert.equal(await $('#vf-input').inputValue(),'创造');
@@ -222,6 +235,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'footnote');
       await oneLine(note);
       await naturalParagraphs(note);
+      await iconBar(note,mobile?['jump','pin']:['jump','pin','fork']);
       const refs=note.locator('.compare-slip__tab');assert.equal(await refs.count(),3);
       const initialHistory=await shelf();await refs.nth(1).click();
       assert.match(await note.locator('.compare-slip__title').textContent(),/利未记/);
@@ -230,6 +244,20 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await note.locator('[aria-label="将当前引用另开一个对照窗"]').click();
         await float.waitFor();assert.match(await float.locator('.compare-slip__title').textContent(),/利未记/);
         assert.equal(await note.isVisible(),true);
+      }
+      if(process.env.COMPARE_SCREENSHOTS){
+        // Reproduce the Isaiah/Zechariah citation shown in the feedback.
+        await page.goto(preview+'?pdf=978&curl=off',{timeout:90000});
+        await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
+        await activationOnly($('[data-note-page="978"][data-note-ordinal="1"]').first());
+        assert.deepEqual(await note.locator('.compare-slip__tab').allTextContents(),['赛 62:11','亚 9:9']);
+        const content=note.locator('.compare-slip__scroll'),ref=note.locator('[data-ref="63:2"]');
+        if(!await ref.count())await content.evaluate(el=>{el.scrollTop=el.scrollHeight;});
+        await ref.waitFor({state:'attached'});
+        await content.evaluate(el=>{el.scrollTop=el.querySelector('[data-ref="63:2"]').offsetTop-8;});
+        assert.equal(await ref.locator('sup').textContent(),'2');
+        await iconBar(note,mobile?['jump','pin']:['jump','pin','fork']);
+        await note.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'isaiah-icon-bar-'+width+'.png')});
       }
       await page.goto(preview+'?pdf=954&curl=off',{timeout:90000});
       await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
