@@ -4,13 +4,14 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 const {pathToFileURL}=require('node:url');
 const origin='http://127.0.0.1:37129';
+const entry=process.argv[2];
 const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.webp':'image/webp'};
 (async()=>{
   const browser=await chromium.launch({executablePath:process.env.BROWSER_EXE||undefined,headless:true});
   try{
     for(const width of (process.env.TEST_WIDTHS||'1280,390').split(',').map(Number)){
       const mobile=width<500,context=await browser.newContext({viewport:{width,height:840},isMobile:mobile,hasTouch:mobile,reducedMotion:'reduce'});
-      await context.route('**/*',async route=>{
+      if(!entry)await context.route('**/*',async route=>{
         const url=new URL(route.request().url());
         if(url.protocol==='file:'&&process.env.PREVIEW_FILE&&url.pathname===pathToFileURL(process.env.PREVIEW_FILE).pathname)return route.continue();
         if(url.origin!==origin)return route.abort();
@@ -26,10 +27,30 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         window.copyTest=[];
         Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.copyTest.push(text)}});
       });
-      const preview=process.env.PREVIEW_FILE?pathToFileURL(process.env.PREVIEW_FILE).href:origin+'/index.html';
-      await page.goto(preview+'?ref=GEN.1:1&curl=off',{timeout:90000});
-      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
+      const preview=entry||(process.env.PREVIEW_FILE?pathToFileURL(process.env.PREVIEW_FILE).href:origin+'/index.html');
+      async function visit(params){
+        const url=new URL(preview);
+        for(const [key,value] of Object.entries({...params,curl:'off'}))url.searchParams.set(key,value);
+        await page.goto(url.href,{timeout:90000});
+        await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
+      }
+      await visit({ref:'GEN.1:1'});
       const $=s=>page.locator(s),stage=$('#stage'),float=$('#v25-compare'),bar=$('.paper-selection-tools');
+      async function compactToolbar({near}={}){
+        const layout=await bar.evaluate(el=>{
+          const b=el.getBoundingClientRect(),stage=el.parentElement.getBoundingClientRect();
+          const ink=[...el.parentElement.querySelectorAll('.paper-ink-mark--selected')].map(m=>m.getBoundingClientRect())
+            .filter(m=>m.width&&m.height&&m.right>stage.left&&m.left<stage.right&&m.bottom>stage.top&&m.top<stage.bottom);
+          const keys=[...el.querySelectorAll(':scope > button')].map(n=>n.getBoundingClientRect());
+          return {fitted:b.left>=stage.left&&b.right<=stage.right&&b.top>=stage.top&&b.bottom<=stage.bottom,
+            docked:el.hasAttribute('data-docked'),visible:ink.length,
+            singleRow:keys.length===5&&keys.every((k,i)=>k.top===keys[0].top&&k.width>=43&&k.height>=43&&
+              (!i||k.left>=keys[i-1].right-.5)),gap:ink.length?Math.max(ink[0].top-b.bottom,b.top-ink[0].bottom):null};
+        });
+        assert.ok(layout.fitted&&layout.singleRow,JSON.stringify(layout));
+        if(near)assert.ok(layout.visible&&!layout.docked&&layout.gap>=12&&layout.gap<=16,JSON.stringify(layout));
+        else assert.ok(layout.visible||layout.docked,JSON.stringify(layout));
+      }
       async function oneLine(panel){
         const box=await panel.locator('.compare-slip__head').evaluate(head=>{
           const title=head.querySelector('strong'),book=title.querySelector('.compare-slip__book'),ref=title.querySelector('.compare-slip__address');
@@ -115,6 +136,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       await mark('1:31',9,true);await bar.waitFor({timeout:4000});
       assert.equal(await $('.paper-ink-mark--selected').first().evaluate(el=>getComputedStyle(el).fill),'rgb(245, 217, 154)');
+      if(mobile)await compactToolbar({near:true});
       await mark('1:29',9);await mark('1:28',9);
       await bar.locator('[data-float]').click({timeout:4500});await float.waitFor();
       assert.deepEqual(await float.locator('[data-cited]').evaluateAll(rows=>rows.map(row=>row.dataset.ref)),['1:28','1:29']);
@@ -127,6 +149,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await float.locator('[aria-label="关闭经文浮窗"]').click();await float.waitFor({state:'hidden'});
       await mark('1:31',9,true);await bar.waitFor();
       await turn(true,10);await bar.waitFor();assert.equal(await bar.getAttribute('data-pages'),'1');
+      if(mobile)await compactToolbar();
       await mark('2:1',10);assert.equal(await bar.getAttribute('data-pages'),'2');
       await page.evaluate(()=>document.getElementById('zoom-in').click());
       await fit();assert.equal(await bar.getAttribute('data-pages'),'2');
@@ -277,8 +300,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await note.locator('[aria-label="返回搜索结果"]').click();
       await $('#vf-close').click();
       await $('#vf-tab').waitFor();assert.match(await $('#vf-tab').evaluate(el=>getComputedStyle(el).backgroundColor),/^rgba\(/);
-      await page.goto(preview+'?pdf=958&curl=off',{timeout:90000});
-      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
+      await visit({pdf:958});await fit();
       const cue=$('[data-note-page="958"][data-note-ordinal="1"]').first();
       const chooser=$('#v25-citation-choice');
       async function activationOnly(citation,popup=note){
@@ -311,8 +333,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await note.waitFor({state:'hidden'});
       if(process.env.COMPARE_SCREENSHOTS){
         // Reproduce the Isaiah/Zechariah citation shown in the feedback.
-        await page.goto(preview+'?pdf=978&curl=off',{timeout:90000});
-        await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
+        await visit({pdf:978});await fit();
         await activationOnly($('[data-note-page="978"][data-note-ordinal="1"]').first(),chooser);
         assert.deepEqual(await chooser.locator('button').allTextContents(),['赛 62:11','亚 9:9']);
         await chooser.locator('button').first().click();await note.waitFor();
@@ -324,8 +345,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await iconBar(note,['jump','pin']);
         await note.screenshot({path:path.join(process.env.COMPARE_SCREENSHOTS,'isaiah-icon-bar-'+width+'.png')});
       }
-      await page.goto(preview+'?pdf=954&curl=off',{timeout:90000});
-      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});await fit();
+      await visit({pdf:954});await fit();
       const parallel=$('[data-note-page="954"][data-parallel]').first();
       await activationOnly(parallel);
       await citationInk(note);
@@ -333,8 +353,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await stage.getAttribute('data-spread'),'954');
       // The end of Exodus and beginning of Leviticus are on different
       // spreads, so this must survive an actual desk turn, not a jump.
-      await page.goto(preview+'?ref=EXO.40:38&curl=off',{timeout:90000});
-      await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
+      await visit({ref:'EXO.40:38'});
       await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       async function acrossBooks(){
         await mark('40:37',101,true);await mark('40:38',101);

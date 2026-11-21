@@ -591,13 +591,20 @@
     searchAnchor=null;hideStartShortcut();hideColumnShortcut();focus='custom';transform();return true;
   }
   function pointerDown(e){
-    const touchLabel=e.pointerType==='touch'?e.target?.closest?.('.edge-index__group'):null;
+    let target=e.target;
+    if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact]')){
+      // A nearby button may win the browser's touch adjustment even when
+      // the actual contact is on adjacent ink. Keep that tap in the book.
+      const exact=document.elementFromPoint(e.clientX,e.clientY);
+      if(exact?.closest('text[data-role]')&&stage.contains(exact))target=exact;
+    }
+    const touchLabel=e.pointerType==='touch'?target?.closest?.('.edge-index__group'):null;
     const contact=touchLabel?relative(e):null,atEdge=contact&&inwardDirection((contact.x-x)/scale,(contact.y-y)/scale,null);
-    const candidate=e.target?.closest?.('.edge-index__band')||
+    const candidate=target?.closest?.('.edge-index__band')||
       (touchLabel&&atEdge===(touchLabel.dataset.side==='right'?1:-1)?touchLabel:null),
       band=candidate&&!candidate.disabled?candidate:null;
     suppressBandClick=null;
-    if(jumpState||chapters?.isOpen()||e.button>0||(!band&&e.target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
+    if(jumpState||chapters?.isOpen()||e.button>0||(!band&&target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
     // A new touch should not be lost in the short release animation.
     if(smoothTurn&&e.pointerType==='touch'&&fold?.settling&&pointers.size===0){
       queuedTurns=[];finishFold(fold.commit);
@@ -614,7 +621,7 @@
       stage.classList.remove('curl-dragging');
       const c=centroid();gesture={pinched:true,band:gesture?.band||band,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance()};return;
     }
-    const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,e.target);
+    const start=relative(e),token=fold||band?null:selection?.hit(e.clientX,e.clientY,target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
       edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,

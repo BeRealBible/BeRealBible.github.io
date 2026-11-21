@@ -140,9 +140,6 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .compare-slip__resize:hover::after{filter:brightness(1.06)}
 .paper-selection-tools[hidden]{display:none}
 .paper-selection-tools[data-docked]{background:#fbf2ddf2}
-@media(pointer:coarse),(max-width:559px){
-  .paper-selection-tools[data-docked] button{width:36px;height:36px}
-}
 @media(max-width:639px){
   #v25-compare-tabs{max-width:calc(100vw - 18px)}
   .compare-slip{font-size:14px}

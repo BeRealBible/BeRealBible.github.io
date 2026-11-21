@@ -22,6 +22,14 @@
 .paper-selection-tools button:before{content:"";position:absolute;inset:calc(-1 * var(--ink-hit-pad,0px)) 0}
 .paper-selection-tools button:disabled{opacity:.38}
 .paper-selection-tools button:focus-visible{outline-offset:-2px}
+.paper-selection-tools:is([data-compact],[data-docked],[data-floating]):not([data-search-open]){
+  width:max-content
+}
+.paper-selection-tools:is([data-compact],[data-docked],[data-floating]):not(:has(>.paper-copy-field.manual)){
+  flex-wrap:nowrap
+}
+.paper-selection-tools:is([data-compact],[data-docked],[data-floating])>button{flex:1 1 auto;min-width:0;transition-property:none}
+.paper-selection-tools[data-compact]>button{width:44px;height:44px}
 .paper-copy-field{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .paper-copy-field.manual{position:static;flex:1 1 100%;width:112px;min-width:0;height:55px;margin:3px;opacity:1;pointer-events:auto;font:11px/1.45 var(--serif,serif);user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
 /* Ask in-place, at readable screen size even when the page is zoomed out. */

@@ -75,6 +75,8 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.deepEqual(await selected(act),['7:56']);
         assert.deepEqual(await tools(act).locator('button').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('aria-label'))),
           ['复制','网页搜索','高亮','另开对照','退出']);
+        assert.ok(await tools(act).locator(':scope > button').evaluateAll(nodes=>
+          nodes.every(n=>n.getBoundingClientRect().top===nodes[0].getBoundingClientRect().top)));
         assert.deepEqual(await position(),main);
         const gold=await verse(act,'7:56').evaluate(n=>getComputedStyle(n).backgroundColor);
         assert.equal(gold,'rgb(245, 217, 154)');

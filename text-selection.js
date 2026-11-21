@@ -486,30 +486,41 @@
       if(!crossPage&&(getPage(side).index!==index||svg!==old)){reset();return;}
       if(!scale||!r.width||!r.height)return;
       const px=sheet.left-r.left+point.x*scale,py=sheet.top-r.top+point.y*scale;
-      // Touch hit testing may snap a nearby verse tap to an anchored
-      // toolbar button (including Exit), even outside its visible bounds.
-      const touch=win.matchMedia?.('(pointer: coarse)')?.matches;
-      if(crossPage&&!searchForm&&(touch||r.width<560||getPage(side).index!==index||px<0||px>r.width||py<0||py>r.height)){
+      const compact=crossPage&&!searchForm&&(r.width<560||win.matchMedia?.('(pointer: coarse)')?.matches);
+      if(compact)bar.dataset.compact='';else delete bar.dataset.compact;
+      const visible=[...painted].map(([key,m])=>({key,box:m.getBoundingClientRect()})).filter(({box:b})=>
+        b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.right&&b.bottom>r.top&&b.top<r.bottom);
+      // Keep cross-page actions available even when none of the picked ink
+      // is on screen. As soon as selected ink returns, use that as the anchor.
+      if(crossPage&&!searchForm&&!visible.length){
         bar.dataset.docked='';bar.style.maxWidth=Math.max(1,r.width-12)+'px';
         bar.style.setProperty('--ink-hit-pad','0px');bar.style.left='50%';bar.style.top='6px';bar.style.transform='translateX(-50%)';return;
       }
       delete bar.dataset.docked;
-      const displayScale=searchForm?1:scale;
+      const displayScale=searchForm||compact?1:scale;
       bar.style.maxWidth=Math.max(1,(r.width-12)/displayScale)+'px';bar.style.transform='scale('+displayScale+')';
-      // Extra transparent hit padding, in screen pixels, never magnifies the ink.
-      bar.style.setProperty('--ink-hit-pad',Math.max(0,(40/scale-29)/2)+'px');
-      const bounds=bar.getBoundingClientRect(),pad=6,gap=14*scale;
+      bar.style.setProperty('--ink-hit-pad',compact?'0px':Math.max(0,(40/scale-29)/2)+'px');
+      const bounds=bar.getBoundingClientRect(),pad=6,gap=14*displayScale;
       const within=(v,a,b)=>Math.max(a,Math.min(v,Math.max(a,b)));
-      // Use the visible selected ink, not just the last touch point. If the
-      // selection is tall, prefer an available side before overlaying it.
-      const rects=[...painted.values()].map(m=>m.getBoundingClientRect()).filter(b=>b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.left+r.width&&b.bottom>r.top&&b.top<r.top+r.height);
+      const atAnchor=getPage(side).index===index&&px>=0&&px<=r.width&&py>=0&&py<=r.height;
+      let rects=visible.map(({box})=>box);
+      if(compact&&rects.length){
+        // Widely separated picks should not send the toolbar to the edge of
+        // the screen. Use the last selected verse, or the nearest visible one.
+        const distance=b=>Math.hypot(px-within(px,b.left-r.left,b.right-r.left),py-within(py,b.top-r.top,b.bottom-r.top));
+        rects=[visible.find(m=>m.key===active.anchor.key)?.box||
+          rects.reduce((nearest,b)=>distance(b)<distance(nearest)?b:nearest)];
+      }
       const top=rects.length?Math.min(...rects.map(b=>b.top-r.top)):py;
       const bottom=rects.length?Math.max(...rects.map(b=>b.bottom-r.top)):py;
       const left=rects.length?Math.min(...rects.map(b=>b.left-r.left)):px;
       const right=rects.length?Math.max(...rects.map(b=>b.right-r.left)):px;
-      const centered=within(px-bounds.width*.5,pad,r.width-bounds.width-pad);
+      const anchorX=rects.length?within(atAnchor?px:(left+right)/2,Math.max(0,left),Math.min(r.width,right)):px;
+      const centered=within(anchorX-bounds.width*.5,pad,r.width-bounds.width-pad);
       const upper=top-gap-bounds.height,lower=bottom+gap,maxY=r.height-bounds.height-pad;
       let x=centered,y=upper>=pad?upper:lower;
+      // In the whole-book view, prefer the desk over covering more body text.
+      if(compact&&lower<=maxY&&lower>=sheet.bottom-r.top&&upper+bounds.height>sheet.top-r.top)y=lower;
       if(upper<pad&&lower>maxY){
         if(right+gap+bounds.width<=r.width-pad){x=right+gap;y=py-bounds.height*.5;}
         else if(left-gap-bounds.width>=pad){x=left-gap-bounds.width;y=py-bounds.height*.5;}
@@ -640,7 +651,7 @@
       }
       if(scripture)paintSelection();
       active.highlights=null;
-      active.anchor={index,side,point:t.point,...(!crossPage&&{svg})};
+      active.anchor={index,side,key:k,point:t.point,...(!crossPage&&{svg})};
       bar.querySelector('.paper-copy-field')?.remove();syncPen();anchorBar();
     }
     function syncPen(){
@@ -704,6 +715,21 @@
       bar=makeToolbar(doc,{copy,search:openSearch,highlight,float:onFloat&&floatSelection,
         exit:()=>{reset();stage.focus({preventScroll:true});}},crossPage?'经文选区':'本页选文');
       stage.appendChild(bar);
+      if(crossPage){
+        // A compatibility click from a verse must not activate tools that
+        // appeared under the finger. Require a real press on that button.
+        let pressed=null;
+        bar.addEventListener('pointerdown',e=>{
+          const button=e.target.closest('button');
+          // Chromium can snap a touch to a nearby control even on pointerdown.
+          pressed=button&&(e.pointerType!=='touch'||button.contains(doc.elementFromPoint(e.clientX,e.clientY)))?button:null;
+        },true);
+        bar.addEventListener('pointercancel',()=>{pressed=null;});
+        bar.addEventListener('click',e=>{
+          const button=e.target.closest('button'),previous=pressed;pressed=null;
+          if(button&&e.detail!==0&&button!==previous){e.preventDefault();e.stopImmediatePropagation();}
+        },true);
+      }
       bar.addEventListener('keydown',e=>{
         if(searchForm)e.stopPropagation(); // Editing keys must not turn/zoom the book.
         if(e.key==='Escape'){e.stopPropagation();e.preventDefault();if(searchForm)closeSearch();else{reset();stage.focus({preventScroll:true});}}
