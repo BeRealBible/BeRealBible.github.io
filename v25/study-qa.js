@@ -51,12 +51,51 @@
     }
     return {has,query};
   }
-  function mount({stage,paper,citationLinks,openCitation,closeCitation}){
+  function describeSelection(next,books){
+    const order=new Map(books.map((book,i)=>[book.code,{...book,i}])),groups=new Map();
+    for(const {code,ch,lo,hi=lo} of next){
+      if(!order.has(code))continue;
+      const key=addr(code,ch);
+      if(!groups.has(key))groups.set(key,{code,ch,whole:false,ranges:[]});
+      const group=groups.get(key);
+      if(lo==null)group.whole=true;
+      else group.ranges.push([lo,hi]);
+    }
+    const sorted=[...groups.values()].sort((a,b)=>order.get(a.code).i-order.get(b.code).i||a.ch-b.ch);
+    const objects=[],keys=[],labels=[];
+    for(const {code,ch,whole,ranges} of sorted){
+      let volume=labels.at(-1);
+      if(volume?.code!==code){volume={code,parts:[]};labels.push(volume);}
+      if(whole){
+        objects.push({code,ch});keys.push(addr(code,ch));
+        const last=volume.parts.at(-1);
+        if(last?.end===ch-1)last.end=ch;
+        else volume.parts.push({start:ch,end:ch});
+        continue;
+      }
+      const merged=[];
+      for(const r of ranges.sort((a,b)=>a[0]-b[0]||a[1]-b[1])){
+        const last=merged.at(-1);
+        if(last&&last[1]+1>=r[0])last[1]=Math.max(last[1],r[1]);
+        else merged.push(r);
+      }
+      const sections=merged.map(([lo,hi])=>{
+        objects.push({code,ch,lo,hi});keys.push(addr(code,ch)+':'+lo+'-'+hi);
+        return lo===hi?String(lo):lo+'–'+hi;
+      });
+      volume.parts.push({text:ch+':'+sections.join('、')});
+    }
+    const title=key=>labels.map(({code,parts})=>{
+      const book=order.get(code);
+      return (book[key]||book.name)+' '+parts.map(p=>p.text||(p.start===p.end?p.start:p.start+'–'+p.end)+'章').join('、');
+    }).join('；');
+    return {objects,key:keys.join('|'),title:title('short'),fullTitle:title('name')};
+  }
+  function mount({stage,paper,citationLinks,openWindow,openCitation}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
-    const dialog=$('study-qa'),settings=$('study-settings'),list=$('study-qa-list'),status=$('study-qa-status');
-    const pref=$('study-marks-enabled'),scroll=$('study-qa-scroll'),notices=$('study-settings-status');
+    const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled'),notices=$('study-settings-status');
     const root=doc.documentElement,marked=new WeakSet();
-    let inventory=null,pending=null,objects=[],previousFocus=null,serial=0,observer=null,frame=null,leftToReader=false;
+    let inventory=null,pending=null,observer=null,frame=null;
     let marking=false,epoch=0;
     function load(){
       if(inventory)return Promise.resolve(inventory);
@@ -64,7 +103,7 @@
         pending=(async()=>{
           const offline=win.__paperOffline;
           if(offline)return createIndex(JSON.parse(await offline.take('study-qa-data')));
-          const response=await win.fetch(asset+'?v='+dialog.dataset.revision);
+          const response=await win.fetch(asset+'?v='+template.dataset.revision);
           if(!response.ok)throw Error('QAP library unavailable: '+response.status);
           return createIndex(await response.json());
         })().then(index=>inventory=index).finally(()=>pending=null);
@@ -95,9 +134,7 @@
         }
         if(a<z)node.append(doc.createTextNode(plain.slice(a,z)));
       }
-      citationLinks.append(host,plain,{context,write,open:(ref,anchor)=>openCitation(ref,{
-        anchor,portal:dialog,onLeave(){leftToReader=true;dialog.close();}
-      })});
+      citationLinks.append(host,plain,{context,write,open:(ref,anchor)=>openCitation(ref,{anchor})});
     }
     function answerNode(item,context){
       const body=doc.createElement('div');body.className='study-qa__answer';
@@ -116,44 +153,27 @@
       el.addEventListener('toggle',()=>{if(el.open&&el.childElementCount===1)el.append(answerNode(item,context));});
       return el;
     }
-    function render(){
-      list.replaceChildren();
-      if(!inventory)return;
-      const items=inventory.query(objects);
-      status.textContent=items.length?'':'这里暂无问答。';
-      const frag=doc.createDocumentFragment();
-      for(const item of items)frag.append(row(item));
-      list.append(frag);scroll.scrollTop=0;
-    }
     function open(next,restore){
-      if(!next.length)return false;
-      const unique=new Map(next.map(o=>[addr(o.code,o.ch)+'.'+(o.lo??'chapter')+'.'+(o.hi??o.lo??''),o]));
-      closeCitation(dialog);
-      objects=[...unique.values()];previousFocus=restore;leftToReader=false;
-      let version=++serial;
-      status.textContent='正在载入经文问答…';render();
-      if(!dialog.open)dialog.showModal();
-      if(!inventory)load().then(()=>{if(dialog.open&&version===serial)render();},()=>{
-        if(dialog.open&&version===serial)status.textContent='问答未能载入。请关闭后重试。';
-      });
-      return true;
+      const {objects,key,title,fullTitle}=describeSelection(next,paper.books);
+      if(!objects.length)return false;
+      return openWindow({key,title,fullTitle,restore,render(scroll){
+        const content=template.content.cloneNode(true);
+        const status=content.querySelector('.study-qa__status'),list=content.querySelector('.study-qa__list');
+        scroll.append(content);
+        function render(){
+          if(!list.isConnected)return;
+          const items=inventory.query(objects),frag=doc.createDocumentFragment();
+          status.textContent=items.length?'':'这里暂无问答。';
+          for(const item of items)frag.append(row(item));
+          list.append(frag);
+        }
+        if(inventory)render();
+        else{
+          status.textContent='正在载入经文问答…';
+          load().then(render,()=>{if(status.isConnected)status.textContent='问答未能载入。请关闭后重试。';});
+        }
+      }});
     }
-    dialog.addEventListener('pointerdown',e=>{
-      if(e.target!==dialog&&!e.target.closest('.compare-slip,.scripture-cite'))closeCitation(dialog);
-    },true);
-    dialog.addEventListener('click',e=>{
-      if(e.target!==dialog)return;
-      const r=dialog.getBoundingClientRect();
-      if((e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)&&closeCitation(dialog,true)){
-        e.stopImmediatePropagation();e.preventDefault();
-      }
-    },true);
-    dialog.addEventListener('close',()=>{
-      closeCitation(dialog);serial++;list.replaceChildren();
-      if(leftToReader)return;
-      if(previousFocus?.isConnected)previousFocus.focus({preventScroll:true});
-      else stage.focus({preventScroll:true});
-    });
 
     function markPaper(svg){
       if(marked.has(svg))return;
@@ -219,5 +239,5 @@
     try{setMarking(win.localStorage.getItem(KEY)==='1');}catch{}
     return {open,openSettings(){if(!settings.open)settings.showModal();}};
   }
-  return {createIndex,chapterOf,mount};
+  return {createIndex,chapterOf,describeSelection,mount};
 });

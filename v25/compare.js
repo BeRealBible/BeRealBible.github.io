@@ -1,4 +1,4 @@
-/* One scripture reader for comparison, search hits and printed citations. */
+/* One window stack for scripture readers and study slips. */
 (function(root,factory){
   const api=factory();
   if(typeof module==='object'&&module.exports)module.exports=api;
@@ -8,6 +8,8 @@
   const LIMIT=3,MAX_PINNED=5,MAX_EXPANDED=3,clamp=(n,a,b)=>Math.max(a,Math.min(n,Math.max(a,b)));
   const slipScale=(scale,wide)=>wide&&Number.isFinite(scale)&&scale>0?Math.max(.88,scale):1;
   function slipSize(kind,w,h,compact){
+    if(kind==='study')return {width:compact?Math.min(330,w*.84):clamp(w*.39,360,520),
+      height:compact?Math.min(360,h*.44):Math.min(460,h*.59)};
     const width=compact?kind==='footnote'?Math.min(273,w*.76):Math.min(300,w*.78):
       kind==='footnote'?clamp(w*.26,255,350):clamp(w*.31,310,460);
     const height=compact?(kind==='footnote'?215:kind==='search'?264:260):(kind==='footnote'?285:kind==='search'?350:380);
@@ -18,7 +20,7 @@
     else if(direction>0&&hi<last){hi++;lo=Math.max(lo,hi-LIMIT+1);}
     return {lo,hi};
   }
-  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse,select,getZoom}){
+  function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse,onHide,select,getZoom}){
     const doc=stage.ownerDocument,win=doc.defaultView;
     let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null,placed=null,foldedMark=null;
     let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0;
@@ -55,6 +57,7 @@
     tools.append(back,jump,pin,minimize,exit);head.append(name,tools);
     panel.append(head,scroll,resize);home.append(panel);
     const picking=select&&win.V25FloatSelection?.mount({panel,scroll,scripture,current:()=>activeRow,...select});
+    const pickingHints=['data-verse-picking','aria-keyshortcuts','aria-description'].map(attr=>[attr,scroll.getAttribute(attr)]);
     const clock=()=>win.performance.now();
     function limits(){
       const vv=win.visualViewport,width=vv?.width??win.innerWidth,height=vv?.height??win.innerHeight;
@@ -63,6 +66,10 @@
       return {left:x+8,top:y+8,right:x+width-8,bottom:y+height-Math.min(height*.35,Math.max(10,foot)+10),width,height};
     }
     function readingMark(){
+      if(config?.kind==='study'){
+        const top=scroll.scrollTop,el=[...scroll.querySelectorAll('[data-qap]')].find(n=>n.offsetTop+n.offsetHeight>top);
+        return {el,offset:el?el.offsetTop-top:0,top};
+      }
       const el=firstVisible()?.el;
       return el?{el,offset:el.offsetTop-scroll.scrollTop}:null;
     }
@@ -95,7 +102,8 @@
       Object.assign(panel.style,{zoom:String(z),left:left/z+'px',top:top/z+'px',right:'auto',bottom:'auto',
         width:width/z+'px',height:height/z+'px'});
       panel.dataset.slipScale=String(z);
-      if(mark?.el.isConnected)scroll.scrollTop=mark.el.offsetTop-mark.offset;
+      if(mark?.el?.isConnected)scroll.scrollTop=mark.el.offsetTop-mark.offset;
+      else if(mark?.top!=null)scroll.scrollTop=mark.top;
       lastTop=scroll.scrollTop;
     }
     function fitRect(box,kind){
@@ -134,18 +142,20 @@
     }
     sizeFrom(name,'move');sizeFrom(resize,'size');
     function labelTitle(){
-      if(!activeRow||!config)return;
-      const label=activeRow.name+' '+activeRow.display+(config.label?'（'+config.label+'）':'');
-      name.setAttribute('aria-label',label+(collapsed?'，展开经文浮窗':'，用方向键移动浮窗'));
+      if(!config)return;
+      const study=config.kind==='study';
+      if(!study&&!activeRow)return;
+      const label=study?'思考问答 '+config.fullTitle:activeRow.name+' '+activeRow.display+(config.label?'（'+config.label+'）':'');
+      name.setAttribute('aria-label',label+(collapsed?'，展开'+(study?'问答':'经文')+'浮窗':'，用方向键移动浮窗'));
       name.title=label+(collapsed?'；点击展开':'；拖动标题栏移动，也可使用方向键');
     }
     function collapse(value){
       const focused=panel.contains(doc.activeElement);
-      if(value&&!collapsed){foldedMark=readingMark();picking?.close();}
+      if(value&&!collapsed){foldedMark=readingMark();picking?.close();onHide?.();}
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
       const target=value&&dock?dock:config?.portal||home;
       if(panel.parentNode!==target)target.append(panel);
-      minimize.textContent=value?'+':'−';minimize.title=value?'展开经文浮窗':'收起经文浮窗';
+      minimize.textContent=value?'+':'−';minimize.title=(value?'展开':'收起')+(config.kind==='study'?'问答':'经文')+'浮窗';
       minimize.setAttribute('aria-label',minimize.title);minimize.setAttribute('aria-expanded',String(!value));
       labelTitle();placed=null;
       if(!value){reflow(foldedMark);foldedMark=null;}
@@ -157,7 +167,7 @@
     }
     function close(reason='dismiss',restore=false){
       if(!config)return;
-      picking?.close();
+      picking?.close();onHide?.();
       const closed=config;config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
@@ -231,7 +241,7 @@
       lastTop=scroll.scrollTop;loadedAt=clock();
     }
     scroll.addEventListener('scroll',()=>{
-      if(!config||collapsed)return;
+      if(!config||collapsed||!stream)return;
       const top=scroll.scrollTop,delta=top-lastTop;
       if(Math.abs(delta)<.5)return;
       lastTop=top;readScroll();
@@ -278,15 +288,24 @@
       lastTop=scroll.scrollTop;loadedAt=0;aim(row);
     }
     function open(settings){
-      if(!settings.rows?.length)return false;
+      const study=settings.kind==='study';
+      if(study?typeof settings.render!=='function':!settings.rows?.length)return false;
       close('replace');
       config=settings;lastChapter=null;lastTop=0;activeRow=null;
       panel.dataset.kind=config.kind;panel.hidden=false;
       panel.setAttribute('aria-label',config.ariaLabel||'经文对照浮窗');
+      scroll.setAttribute('aria-label',study?'思考问答列表':'浮窗经文');
+      for(const [attr,value] of pickingHints){
+        if(study||value===null)scroll.removeAttribute(attr);
+        else scroll.setAttribute(attr,value);
+      }
+      exit.title=study?'关闭问答浮窗':'关闭经文浮窗';exit.setAttribute('aria-label',exit.title);
+      if(study){bookTitle.textContent='思考问答';refTitle.textContent=config.title;}
       back.hidden=!config.onBack;jump.hidden=!config.onJump;pin.hidden=!config.onPin;minimize.hidden=role==='preview';
       manual=null;foldedMark=null;panel.removeAttribute('style');
       collapse(false);
-      show(config.seed);
+      if(study){scroll.scrollTop=0;config.render(scroll);}
+      else show(config.seed);
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
     }
@@ -296,13 +315,13 @@
     const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
     const limitNote=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
-    dock.setAttribute('role','group');dock.setAttribute('aria-label','已收起的经文浮窗');
+    dock.setAttribute('role','group');dock.setAttribute('aria-label','已收起的浮窗');
     limitNote.id='v25-compare-limit';limitNote.setAttribute('role','status');
     stage.parentElement.append(home,dock,limitNote);
     let limitTimer;
     function showLimit(){
       clearTimeout(limitTimer);
-      limitNote.textContent=`已固定 ${MAX_PINNED} 个经文浮窗，请先关闭一个。`;
+      limitNote.textContent=`已有 ${MAX_PINNED} 个浮窗，请先关闭一个。`;
       limitTimer=setTimeout(()=>{limitNote.textContent='';},3500);
     }
     const wide=win.matchMedia('(min-width:800px)'),canZoom=win.CSS?.supports?.('zoom','1');
@@ -311,7 +330,7 @@
     let clock=0,citationAnchor=null;
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
-        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),
+        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>closeCitation(pin.panel),
         select:marks&&{marks,onStudy,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
       return pin;
     });
@@ -325,10 +344,10 @@
       pin.used=++clock;
       pin.panel.style.setProperty('--slip-priority',pin.used);
     }
-    function makeRoom(){
-      const ordered=expanded().sort((a,b)=>a.used-b.used);
+    function makeRoom(keepOpen){
+      const opened=expanded(),ordered=opened.filter(pin=>pin!==keepOpen).sort((a,b)=>a.used-b.used);
       // A preview borrows screen space, never a fixed-window slot.
-      if(ordered.length+Number(!preview.panel.hidden)>=MAX_EXPANDED)ordered[0]?.collapse(true);
+      if(opened.length+Number(!preview.panel.hidden)>=MAX_EXPANDED)ordered[0]?.collapse(true);
     }
     function place(pin){
       const taken=new Set(expanded().map(item=>item.panel.dataset.slot));
@@ -336,23 +355,31 @@
       if(current!==undefined&&!taken.has(current))return;
       pin.panel.dataset.slot=String(Array.from({length:MAX_EXPANDED},(_,i)=>i).find(i=>!taken.has(String(i))));
     }
-    function activate(pin){
-      if(pin.panel.hasAttribute('data-collapsed')){makeRoom();place(pin);pin.collapse(false);}
+    function activate(pin,keepOpen){
+      if(pin.panel.hasAttribute('data-collapsed')){makeRoom(keepOpen);place(pin);pin.collapse(false);}
       used(pin);pin.focus();
     }
-    function display(rows,settings={},promote=false){
-      const key=rows.map(row=>row.id).sort().join('|');
+    function displaySlot(key,settings,{promote=false,keepOpen}={}){
       const existing=pins.find(pin=>!pin.panel.hidden&&pin.key===key);
       const target=existing||pins.find(pin=>pin.panel.hidden);
       if(!target){showLimit();return false;}
       clearTimeout(limitTimer);limitNote.textContent='';
       if(promote)preview.close('pin');
-      if(existing){activate(existing);return true;}
-      makeRoom();delete target.panel.dataset.slot;place(target);
-      target.key=key;target.panel.dataset.citation=key;
-      const ok=target.open({kind:'compare',label:'经文对照',rows,onRead,onJump,focus:true,...settings});
+      if(existing){activate(existing,keepOpen);return true;}
+      makeRoom(keepOpen);delete target.panel.dataset.slot;place(target);
+      target.key=key;
+      if(settings.kind==='study'){target.panel.dataset.studyKey=key;delete target.panel.dataset.citation;}
+      else{target.panel.dataset.citation=key;delete target.panel.dataset.studyKey;}
+      const ok=target.open({focus:true,...settings});
       if(ok)used(target);
       return ok;
+    }
+    function display(rows,settings={},options){
+      return displaySlot(rows.map(row=>row.id).sort().join('|'),{kind:'compare',label:'经文对照',rows,onRead,onJump,...settings},options);
+    }
+    function openStudy({key,title,fullTitle,render,restore}){
+      return displaySlot('study:'+key,{kind:'study',title,fullTitle,render,ariaLabel:'思考问答 '+fullTitle,
+        onClose(_,focus){if(focus&&restore?.isConnected&&restore.getClientRects().length)restore.focus({preventScroll:true});}});
     }
     function openSelection(locs,notice=feedback){
       const run=scripture.pinSelection(locs);
@@ -380,29 +407,23 @@
     function openPreview(locs,settings){
       const rows=scripture.from(locs);
       if(!rows.length||rows.some(row=>row.code!==rows[0].code))return false;
-      if(preview.panel.hidden)makeRoom();
-      const pin=(selected,seed)=>{
-        const ok=display(selected,settings.keywords?.length?
-          {seed,keywords:settings.keywords,label:'对照 · 搜索命中'}:{seed},true);
-        if(ok&&settings.onLeave){
-          settings.onLeave('pin');
-          const key=selected.map(row=>row.id).sort().join('|');
-          pins.find(item=>item.key===key&&!item.panel.hidden)?.focus();
-        }
-        return ok;
-      };
+      if(preview.panel.hidden)makeRoom(settings.keepOpen);
+      const pin=(selected,seed)=>display(selected,settings.keywords?.length?
+        {seed,keywords:settings.keywords,label:'对照 · 搜索命中'}:{seed,highlightRows:settings.highlightRows},
+        {promote:true,keepOpen:settings.keepOpen});
       return preview.open({...settings,rows,
         onPin:pin,
-        onJump:settings.onJump||((row)=>{preview.close('jump');settings.onLeave?.('jump');onJump?.(row);})});
+        onJump:settings.onJump||((row)=>{preview.close('jump');onJump?.(row);})});
     }
     // Portaling into the active dialog keeps the same preview interactive
     // above its caller, without a second scripture renderer or a new slot.
-    function openCitation(reference,{anchor,portal,onLeave}={}){
+    function openCitation(reference,{anchor,portal}={}){
       if(!reference?.locations?.length||!anchor?.isConnected||portal&&!portal.contains(anchor))return false;
       if(citationAnchor===anchor&&!preview.panel.hidden){preview.close('dismiss',true);return true;}
       const highlightRows=scripture.from(reference.locations.filter(loc=>!loc.whole));
+      const keepOpen=pins.find(pin=>!pin.panel.hidden&&pin.panel.contains(anchor));
       const ok=openPreview(reference.locations,{kind:'footnote',label:'引用经文',ariaLabel:'引用经文浮窗',
-        focus:true,anchor,portal,onLeave,highlightRows,
+        focus:true,anchor,portal,keepOpen,highlightRows,
         onClose(_,restore){
           if(citationAnchor===anchor)citationAnchor=null;
           anchor.setAttribute('aria-expanded','false');
@@ -414,11 +435,14 @@
       }
       return ok;
     }
-    function closeCitation(portal,restore=false){
-      if(!citationAnchor||!portal?.contains(preview.panel))return false;
+    function closeCitation(container,restore=false){
+      if(!citationAnchor||container&&!container.contains(citationAnchor))return false;
       preview.close('outside',restore);return true;
     }
-    return {open,openSelection,openPreview,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights};
+    doc.addEventListener('pointerdown',e=>{
+      if(citationAnchor&&!preview.panel.contains(e.target)&&!e.target.closest?.('.scripture-cite,.pcz-control,.zoom-tools'))closeCitation();
+    },true);
+    return {open,openStudy,openSelection,openPreview,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights};
   }
   return {mount,windowRange,slipScale,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });

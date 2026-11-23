@@ -409,7 +409,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       const focused=await page.evaluateHandle(()=>document.activeElement);
       assert.equal(await openPin('PSA','23:1'),false);
       await limit.waitFor({state:'visible'});
-      assert.match(await limit.textContent(),/已固定 5 个.*请先关闭一个/);
+      assert.match(await limit.textContent(),/已有 5 个浮窗.*请先关闭一个/);
       assert.ok(await focused.evaluate(el=>el===document.activeElement),'the notice does not steal focus');
       await focused.dispose();
       assert.ok(await limit.evaluate(el=>{

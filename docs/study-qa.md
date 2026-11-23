@@ -7,3 +7,4 @@
 - 更改数据后运行 `node tools/stamp-preview.cjs . --index-only`，并验证 `python tools/test-import-study-qa.py`、`node test-v25-study-qa.cjs` 和问答浏览器测试。
 - 纸本章号、章首小标题和固定窗章标题支持长按。提示线只受本机设置控制，不影响选择和查看。首次打开问答或主动开启提示线才载入问答库；离线 HTML 把同一份数据压缩内嵌。
 - QAP 正文按问答条目的来源卷章调用独立的 `V25CitationLinks`（识别／渲染）与 `V25ScriptureWindows.openCitation`（显示经文）。将来的笔记或其他浮窗可以同样传入正文和卷章上下文，无需提供问答条目或加载问答库。
+- 问答通过 `V25ScriptureWindows.openStudy` 使用已有的固定浮窗与纸签槽位；相同选择只唤回原窗。每窗的答案开合和滚动状态各自保存。引用的固定操作不移除问答窗。

@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {createIndex,chapterOf}=require('./v25/study-qa.js');
+const {createIndex,chapterOf,describeSelection}=require('./v25/study-qa.js');
 const library=require('./data/study-qa.json');
 const bible=require('./data/bible-source.js');
 const verses=new Map(bible.books.map(b=>[b.code,new Map(b.chapters.map(c=>[c.chapter,new Set(c.verses.map(v=>v[0]))]))]));
@@ -32,4 +32,10 @@ assert.equal(chapterOf('heading','4:1'),4);
 assert.equal(chapterOf('chapter','4:1'),4);
 assert.equal(chapterOf('heading','4:3'),null);
 assert.equal(chapterOf('body','4:1'),null);
+const selection=describeSelection([inChapter('2SA',4),one('2SA',3,6),one('2SA',3,1),one('2SA',3,2),one('2SA',4,7)],bible.books);
+assert.equal(selection.title,'撒下 3:1–2、6、4章');
+assert.equal(selection.fullTitle,'撒母耳记下 3:1–2、6、4章');
+assert.equal(selection.key,'2SA.3:1-2|2SA.3:6-6|2SA.4');
+assert.equal(describeSelection([inChapter('2SA',4),inChapter('2SA',3)],bible.books).title,'撒下 3–4章');
+assert.equal(describeSelection([one('2SA',3,1)],bible.books).title,'撒下 3:1');
 console.log('PASS QAP structure, canonical coordinates, non-contiguous selection, and cross-book/chapter lookup');

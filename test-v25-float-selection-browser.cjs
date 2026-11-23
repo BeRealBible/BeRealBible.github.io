@@ -152,7 +152,7 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.deepEqual(await selected(rom),['8:2'],'a refused sixth window retains the selection');
         const limit=$('#v25-compare-limit');
         await limit.waitFor({state:'visible'});
-        assert.match(await limit.textContent(),/已固定 5 个.*请先关闭一个/);
+        assert.match(await limit.textContent(),/已有 5 个浮窗.*请先关闭一个/);
         assert.deepEqual(errors,[]);
         console.log(width,'PASS fixed-verse selection, split-vs physical highlight sync, reload, copy/search, multi-chapter selection, and another window');
       }finally{await ctx.close();}
