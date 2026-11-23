@@ -1,6 +1,9 @@
 """Fast coverage of citation parsing before replacing the published QAP library."""
 import importlib.util
+import json
+import tempfile
 import unittest
+from hashlib import sha256
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("import_study_qa", Path(__file__).with_name("import-study-qa.py"))
@@ -13,6 +16,36 @@ class StudyImport(unittest.TestCase):
 
     def setUp(self):
         self.refs = module.References(self.bible)
+
+    def test_display_projection_counts_unique_actual_verses_per_chapter(self):
+        display = lambda *scope: module.primary_display(list(scope), self.refs)
+        self.assertEqual(display(["1KI", 1, 2, 3], ["1KI", 1, 3, 3], ["1KI", 1, 5, 5]),
+                         [["1KI", 1, 2, 3], ["1KI", 1, 5, 5]])
+        self.assertEqual(display(["1KI", 1, 12, 14], ["1KI", 1, 7, 7], ["1KI", 2, 4, 6]),
+                         [["1KI", 1, 7, 7], ["1KI", 2, 4, 6]])
+        self.assertEqual(display(["1KI", 1, 5, 14], ["1KI", 2, 5, 15], ["1KI", 3]),
+                         [["1KI", 1, 5, 5], ["1KI", 2], ["1KI", 3]])
+        self.assertEqual(display(["1KI", 1], ["1KI", 1, 6, 10]), [["1KI", 1]])
+        with self.assertRaises(ValueError):
+            display(["1KI", 1, 50, 999])
+
+    def test_reviews_apply_only_to_verified_text(self):
+        reviewed = {"id": "1KI.1.1", "q": "Q", "a": "A", "refs": [["1KI", 1]]}
+        legacy = {"id": "2SA.1.1", "q": "Q", "a": "A", "refs": [["2SA", 1]]}
+        scope = [["1KI", 2, 1, 5]]
+        digest = sha256(module.compact_json([["1KI.1.1", "Q", "A"]]).encode("utf-8")).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            (path / "1KI.json").write_text(json.dumps({
+                "schema": 1, "textSha256": digest, "items": {reviewed["id"]: scope},
+            }), encoding="utf-8")
+            rows = [legacy.copy(), reviewed.copy()]
+            self.assertEqual(module.apply_primary_reviews(rows, self.refs, path), 1)
+            self.assertEqual(rows[0], legacy)
+            self.assertEqual(rows[1], {**reviewed, "refs": [["1KI", 2, 1, 1]], "primary": scope})
+            rows[1]["a"] = "changed"
+            with self.assertRaisesRegex(ValueError, "text changed"):
+                module.apply_primary_reviews(rows, self.refs, path)
 
     def test_citations(self):
         self.assertEqual(self.refs.parse("《撒母耳記下》第二章末与第三章开头", "2SA", 3),

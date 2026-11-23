@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 from collections import Counter, defaultdict
+from hashlib import sha256
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,79 @@ V = r"节"
 def source_books():
     raw = (ROOT / "data/bible-source.js").read_text(encoding="utf-8")
     return json.JSONDecoder().raw_decode(raw.split("function(){return ", 1)[1])[0]["books"]
+
+
+def compact_json(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def primary_display(primary, index):
+    """Project reviewed scopes to chapter titles or to the verses that should advertise the QAP."""
+    if not isinstance(primary, list) or not primary:
+        raise ValueError("Expected at least one primary passage")
+    groups = {}
+    for ref in primary:
+        if (not isinstance(ref, list) or len(ref) not in (2, 4) or not isinstance(ref[0], str)
+                or any(type(n) is not int for n in ref[1:])):
+            raise ValueError(f"Invalid primary coordinate: {ref}")
+        code, chapter, *limits = ref
+        key = (code, chapter)
+        canonical = index.verses.get(code, {}).get(chapter)
+        if not canonical:
+            raise ValueError(f"Unknown primary chapter: {ref}")
+        if not limits:
+            groups[key] = None
+            continue
+        start, end = limits
+        actual = {n for n in canonical if start <= n <= end}
+        if not actual or start not in actual or end not in actual:
+            raise ValueError(f"Invalid primary verse range: {ref}")
+        group = groups.setdefault(key, set())
+        if group is not None:
+            group.update(actual)
+
+    refs = []
+    for (code, chapter), verses in sorted(groups.items(), key=lambda g: (index.book_order[g[0][0]], g[0][1])):
+        if verses is None or len(verses) > 10:
+            refs.append([code, chapter])
+        elif len(verses) > 3:
+            first = min(verses)
+            refs.append([code, chapter, first, first])
+        else:
+            for v in sorted(verses):
+                if refs and refs[-1][:2] == [code, chapter] and refs[-1][-1] == v - 1:
+                    refs[-1][-1] = v
+                else:
+                    refs.append([code, chapter, v, v])
+    return refs
+
+
+def apply_primary_reviews(rows, index, directory=ROOT / "tools" / "study-qa-primary"):
+    """Apply only reviewed rows; never attach an old review to a changed question or answer."""
+    applied = set()
+    for path in sorted(directory.glob("*.json")):
+        review = json.loads(path.read_text(encoding="utf-8"))
+        if review.get("schema") != 1 or not isinstance(review.get("items"), dict) or not review["items"]:
+            raise ValueError(f"{path.name}: invalid primary review file")
+        primary = review["items"]
+        selected = sorted((r for r in rows if r["id"] in primary), key=lambda r: r["id"])
+        if (applied & primary.keys() or len(selected) != len(primary) or
+                {r["id"] for r in selected} != primary.keys() or
+                any(not key.startswith(path.stem + ".") for key in primary)):
+            raise ValueError(f"{path.name}: reviewed identities are missing, duplicated, or assigned to the wrong volume")
+        payload = [[r["id"], r["q"], r["a"]] for r in selected]
+        if sha256(compact_json(payload).encode("utf-8")).hexdigest() != review.get("textSha256"):
+            raise ValueError(f"{path.name}: reviewed question/answer text changed; review and update the coordinates first")
+        for row in selected:
+            scope = primary[row["id"]]
+            try:
+                refs = primary_display(scope, index)
+            except ValueError as error:
+                raise ValueError(f"{row['id']}: {error}") from error
+            row["refs"] = refs
+            row["primary"] = scope
+        applied.update(primary)
+    return len(applied)
 
 
 def number(s):
@@ -303,6 +377,7 @@ def build(folder):
         raise ValueError(f"Unused verse overrides: {extras.keys() - seen_extra}")
     if not library:
         raise ValueError("No questions were found; expected the LLM_QT folder")
+    audit["primary_reviewed_items"] = apply_primary_reviews(library, index)
     audit.update(items=len(library), source_chapters=source_chapters, coordinates=sum(len(x["refs"]) for x in library),
                  multi_coordinate=sum(len(x["refs"]) > 1 for x in library),
                  invalid_reference_candidates=[[*r, n, index.review[r]] for r, n in index.invalid.most_common()])
@@ -311,17 +386,33 @@ def build(folder):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("source", type=Path, help="The folder named LLM_QT, not its parent or backups")
+    p.add_argument("source", type=Path, nargs="?", help="The folder named LLM_QT, not its parent or backups")
+    p.add_argument("--apply-primary", action="store_true", help="Apply reviews to the existing generated catalogue without reimporting notes")
+    p.add_argument("--check", action="store_true", help="Check generated output instead of writing it")
     p.add_argument("--output", type=Path, default=ROOT / "data/study-qa.json")
     p.add_argument("--audit", type=Path)
     args = p.parse_args()
-    rows, audit = build(args.source)
-    dump = lambda x: json.dumps(x, ensure_ascii=False, separators=(",", ":"))
-    args.output.write_text('{"schema":1,"items":[\n' + ",\n".join(map(dump, rows)) + '\n]}\n', encoding="utf-8", newline="\n")
+    if (args.source is None) != args.apply_primary or args.apply_primary and args.audit:
+        p.error("provide either an LLM_QT source (optionally with --audit) or --apply-primary")
+    if args.apply_primary:
+        library = json.loads(args.output.read_text(encoding="utf-8"))
+        if library.get("schema") != 1:
+            p.error("invalid generated catalogue schema")
+        rows = library["items"]
+        audit = {"items": len(rows), "primary_reviewed_items": apply_primary_reviews(rows, References(source_books()))}
+    else:
+        rows, audit = build(args.source)
+    output = '{"schema":1,"items":[\n' + ",\n".join(map(compact_json, rows)) + '\n]}\n'
+    if args.check:
+        if not args.output.is_file() or args.output.read_text(encoding="utf-8") != output:
+            p.exit(1, f"Stale QAP catalogue: {args.output}\n")
+    elif not args.output.is_file() or args.output.read_text(encoding="utf-8") != output:
+        args.output.write_text(output, encoding="utf-8", newline="\n")
     if args.audit:
         args.audit.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(dump({k: audit[k] for k in ("items", "source_chapters", "coordinates", "multi_coordinate", "books")}))
-    print(f"Review: {len(audit['fallback_question_heads'])} unnumbered stems; {len(audit['unpaired_question_heads'])} headings without an answer marker; {len(audit['invalid_reference_candidates'])} invalid reference candidates")
+    print(compact_json({k: audit[k] for k in ("items", "primary_reviewed_items", "source_chapters", "coordinates", "multi_coordinate", "books") if k in audit}))
+    if not args.apply_primary:
+        print(f"Review: {len(audit['fallback_question_heads'])} unnumbered stems; {len(audit['unpaired_question_heads'])} headings without an answer marker; {len(audit['invalid_reference_candidates'])} invalid reference candidates")
 
 
 if __name__ == "__main__":

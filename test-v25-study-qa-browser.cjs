@@ -231,8 +231,44 @@ async function run(browser,width){
     assert.equal(await owned.count(),5);
     await close();
     assert.equal(await owned.count(),4);
+
+    async function pilotPage(ref){
+      const pilot=new URL(takeURL);
+      pilot.searchParams.set('ref','1KI.'+ref);
+      await page.goto(pilot.href,{waitUntil:'domcontentloaded',timeout:90000});
+      await ready();
+      // Keep the deep link's readable zoom on phones so touches hit ink.
+      if(!mobile)await page.evaluate(()=>document.getElementById('fit-book').click());
+      await page.waitForTimeout(250);
+    }
+    await pilotPage('7:16');
+    await configure(true);
+    assert.equal(await $('#stage .paper text[data-ref="7:16"][data-qap-mark="verse"]').count(),0);
+    await press(body('7:16'),true);
+    await mainBar.waitFor({timeout:5000});
+    assert.ok(await studyTool.isDisabled(),'a later verse in a compressed range has no anchor');
+    await mainBar.locator('[data-exit]').click();
+
+    await pilotPage('7:15');
+    await $('#stage .paper text[data-ref="7:15"][data-qap-mark="verse"]').first().waitFor({state:'attached'});
+    await press(body('7:15'),true);
+    await open();
+    const pillars=bodyOf('1KI.7.2');
+    await pillars.getByRole('button',{name:/查看经文.*7:15-22/}).click();
+    await citation.waitFor();
+    assert.equal(await verseTag('1KI.7:22').getAttribute('data-cited'),'','inline citations still show the whole range');
+    await citation.getByRole('button',{name:'关闭经文浮窗'}).click();
+    await close();
+
+    await pilotPage('10:1');
+    assert.equal(await chapter(10).getAttribute('data-qap-mark'),'chapter');
+    await press(chapter(10),true);
+    await open();
+    assert.ok((await ids()).includes('1KI.10.6'),'chapter-only QAP is reachable from the chapter title');
+    await close();
+
     assert.deepEqual(errors,[]);
-    console.log(width,'PASS QAP pin leaves answers intact, folds/restores, mixed-five cap, citations, settings and chapter selection');
+    console.log(width,'PASS QAP windows, citations, settings, chapter selection and reviewed 1 Kings attachment points');
   }finally{await ctx.close();}
 }
 (async()=>{

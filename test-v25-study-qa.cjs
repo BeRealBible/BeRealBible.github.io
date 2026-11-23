@@ -12,11 +12,12 @@ assert.deepEqual(embedded,buildAvailability(library),'the lightweight index matc
 const availability=createAvailability(embedded);
 assert.equal(library.items.filter(row=>row.id.startsWith('2SA.')).length,176);
 assert.ok(library.items.length>=2000);
-for(const {id,q,a,refs} of library.items){
+assert.equal(library.items.filter(row=>row.id.startsWith('1KI.')&&row.primary).length,169);
+for(const {id,q,a,refs,primary} of library.items){
   const [b,c]=id.split('.');
-  assert.ok(refs.some(r=>r[0]===b&&r[1]===+c),'every QAP has a local anchor');
+  assert.ok(primary?.length||refs.some(r=>r[0]===b&&r[1]===+c),'unreviewed QAPs retain a local fallback');
   assert.doesNotMatch(q+'\n'+a,/(?:LLM_QA_|AI 研读记录|^以下是为(?:您|你)精心)/m);
-  for(const [book,ch,lo,hi] of refs){
+  for(const [book,ch,lo,hi] of [...refs,...(primary||[])]){
     const vv=verses.get(book)?.get(ch);
     assert.ok(vv&&((lo==null&&hi==null)||(vv.has(lo)&&vv.has(hi)&&lo<=hi)), id+' invalid coordinate');
   }
@@ -28,6 +29,16 @@ for(const [book,chapters] of verses)for(const [ch,vv] of chapters){
 const query=objects=>catalog.query(objects).map(x=>x.id);
 const inChapter=(code,ch)=>({code,ch});
 const one=(code,ch,lo,hi=lo)=>({code,ch,lo,hi});
+assert.ok(query([one('1KI',7,15)]).includes('1KI.7.2'),'15–22 anchors to just the starting verse');
+assert.ok(!query([one('1KI',7,16,22)]).includes('1KI.7.2'));
+assert.ok(query([inChapter('1KI',10)]).includes('1KI.10.6'),'14–29 anchors to the chapter title');
+assert.ok(!query([one('1KI',10,14,29)]).includes('1KI.10.6'));
+assert.ok(query([one('1KI',16,7)]).includes('1KI.15.8'),'a cited chapter can be the only actual subject');
+assert.ok(!query([inChapter('1KI',15)]).includes('1KI.15.8'));
+assert.ok(!query([one('1KI',14,10,11)]).includes('1KI.16.7'),'evidence for the objection is not a primary anchor');
+assert.equal(query([one('1KI',4,26),one('2CH',9,25)]).filter(id=>id==='1KI.4.5').length,1);
+assert.ok(query([one('1KI',4,26)]).includes('1KI.4.5'),'a numerical comparison belongs at both passages');
+assert.ok(query([one('2CH',9,25)]).includes('1KI.4.5'));
 assert.ok(query([one('2SA',2,23)]).includes('2SA.3.4'),'cross-chapter narrative connection');
 assert.ok(query([one('2SA',3,28)]).includes('2SA.3.4'));
 assert.equal(query([one('2SA',3,28),one('2SA',2,23)]).filter(id=>id==='2SA.3.4').length,1);
