@@ -1,7 +1,7 @@
 /* The floating reader selects canonical verses, never line breaks or SVG ink. */
 (() => {
   'use strict';
-  function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy}){
+  function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy,hasStudy}){
     const doc=panel.ownerDocument,win=doc.defaultView,tools=win.PaperTextSelection;
     const picked=new Map();
     let bar=null,form=null,contact=null,suppress=false,tapRow=null,serial=0,noticeTimer=0;
@@ -41,6 +41,7 @@
       const pen=bar.querySelector('[data-highlight]'),saved=!!picked.size&&!hasChapter&&!!reader&&[...picked.values()].every(reader);
       pen.disabled=!reader||hasChapter;pen.setAttribute('aria-pressed',String(saved));
       for(const action of ['copy','search','float'])bar.querySelector('[data-'+action+']').disabled=hasChapter;
+      if(onStudy)tools.setStudyAvailable(bar.querySelector('[data-study]'),hasStudy(locs(),chapterObjects()));
       tools.actionLabel(pen,saved?'取消高亮':'高亮');
       bar.setAttribute('aria-label','浮窗经文选区，已选 '+picked.size+(hasChapter?' 项':' 节'));
     }

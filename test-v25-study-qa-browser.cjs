@@ -75,6 +75,20 @@ async function run(browser,width){
     assert.equal(requests.length,0,'normal reading should not download QAPs');
     assert.equal(await marked(),'none');
 
+    await press(body('4:1'),true);
+    await mainBar.waitFor({timeout:5000});
+    const studyTool=mainBar.getByRole('button',{name:'经文问答',exact:true});
+    assert.ok(await studyTool.isDisabled(),'no QAP at this verse, even though its chapter has QAPs');
+    assert.ok(await mainBar.locator('[data-copy]').isEnabled());
+    await studyTool.evaluate(b=>b.click()); // Native disabled activation is a no-op.
+    assert.equal(await dialog.count(),0);
+    await press(body('3:1'));
+    assert.ok(await studyTool.isEnabled(),'one related object enables a mixed selection');
+    await press(body('3:1'));
+    assert.ok(await studyTool.isDisabled(),'removing the only associated object disables again');
+    await mainBar.locator('[data-exit]').click();
+    assert.equal(requests.length,0,'the button state never downloads QAP text');
+
     await press(body('3:1'),true);
     await mainBar.waitFor({timeout:5000});
     await open();
@@ -159,15 +173,26 @@ async function run(browser,width){
     const stroke=await chapter(3).evaluate(el=>{const c=getComputedStyle(el);return [c.textDecorationColor,parseFloat(c.textDecorationThickness)/parseFloat(c.fontSize)];});
     assert.match(stroke[0],/^rgba\(160, 128, 79, 0\.25/);assert.ok(stroke[1]<.035);
     assert.ok(await $('#stage .paper text[data-qap-mark="verse"]').count()>0);
+    const requestedBeforeReload=requests.length;
     await page.reload({waitUntil:'domcontentloaded'});await ready();
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
     assert.equal(await marked(),'underline','mark setting survives reload');
+    assert.equal(requests.length,requestedBeforeReload,'marking also uses the lightweight location index');
     await configure(false);
     assert.equal(await marked(),'none');
     await press(chapter(3),true);
     await open();assert.ok((await ids()).includes('2SA.3.4'));
     await close();
 
+    assert.ok(await page.evaluate(()=>V25ScriptureWindows.open({code:'OBA',ref:'1:1'})));
+    const noQA=$('.compare-slip[data-citation="OBA.1:1"]:not([hidden])');
+    await noQA.locator('.compare-slip__scroll').press('Shift+Space');
+    assert.ok(await noQA.locator('[data-study]').isDisabled(),'unassociated verse in a scripture window');
+    assert.ok(await noQA.locator('[data-copy]').isEnabled());
+    await page.keyboard.press('Escape');
+    await noQA.locator('[data-study-chapter="OBA.1"]').press('Enter');
+    assert.ok(await noQA.locator('[data-study]').isDisabled(),'unassociated chapter title in a scripture window');
+    await noQA.getByRole('button',{name:'关闭经文浮窗'}).click();
     assert.ok(await page.evaluate(()=>V25ScriptureWindows.open({code:'2SA',ref:'3:1'})));
     const win=$('.compare-slip[data-citation="2SA.3:1"]:not([hidden])');
     const heading=win.locator('[data-study-chapter="2SA.3"]');

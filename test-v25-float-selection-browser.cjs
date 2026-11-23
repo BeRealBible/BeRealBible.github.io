@@ -73,6 +73,8 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         await input(act,'7:56');assert.equal(await tools(act).count(),0,'plain taps do not enter selection');
         await input(act,'7:56',true);await tools(act).waitFor();
         assert.deepEqual(await selected(act),['7:56']);
+        assert.ok(await task(act,'study').isDisabled(),'no QAP at Acts 7:56');
+        assert.ok(await task(act,'copy').isEnabled(),'other actions stay available');
         assert.deepEqual(await tools(act).locator('button').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('aria-label'))),
           ['复制','网页搜索','高亮','另开对照','经文问答','退出']);
         assert.ok(await tools(act).locator(':scope > button').evaluateAll(nodes=>

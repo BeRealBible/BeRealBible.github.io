@@ -1,10 +1,15 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {createIndex,chapterOf,describeSelection}=require('./v25/study-qa.js');
+const {buildAvailability,createAvailability,createIndex,chapterOf,describeSelection}=require('./v25/study-qa.js');
+const fs=require('node:fs'),path=require('node:path');
 const library=require('./data/study-qa.json');
 const bible=require('./data/bible-source.js');
 const verses=new Map(bible.books.map(b=>[b.code,new Map(b.chapters.map(c=>[c.chapter,new Set(c.verses.map(v=>v[0]))]))]));
 const catalog=createIndex(library);
+const embedded=JSON.parse(fs.readFileSync(path.join(__dirname,'index.html'),'utf8')
+  .match(/id="study-qa-availability" type="application\/json">([^<]*)<\/script>/)[1]);
+assert.deepEqual(embedded,buildAvailability(library),'the lightweight index matches the published question library');
+const availability=createAvailability(embedded);
 assert.equal(library.items.filter(row=>row.id.startsWith('2SA.')).length,176);
 assert.ok(library.items.length>=2000);
 for(const {id,q,a,refs} of library.items){
@@ -15,6 +20,10 @@ for(const {id,q,a,refs} of library.items){
     const vv=verses.get(book)?.get(ch);
     assert.ok(vv&&((lo==null&&hi==null)||(vv.has(lo)&&vv.has(hi)&&lo<=hi)), id+' invalid coordinate');
   }
+}
+for(const [book,chapters] of verses)for(const [ch,vv] of chapters){
+  assert.equal(availability.has(book,ch),catalog.has(book,ch),book+'.'+ch);
+  for(const v of vv)assert.equal(availability.has(book,ch,v),catalog.has(book,ch,v),book+'.'+ch+':'+v);
 }
 const query=objects=>catalog.query(objects).map(x=>x.id);
 const inChapter=(code,ch)=>({code,ch});
@@ -28,6 +37,16 @@ assert.ok(query([inChapter('2SA',3)]).includes('2SA.3.4'));
 assert.ok(query([one('DEU',17,17)]).includes('2SA.3.2'),'cross-book lookup');
 assert.ok(query([one('2SA',14,27)]).includes('2SA.18.6'));
 assert.ok(catalog.has('2SA',3)&&catalog.has('2SA',3,28));
+const empty=one('2SA',4,1),withQuestion=one('2SA',3,1);
+assert.ok(!availability.hasAny([empty]));
+assert.ok(availability.hasAny([empty,withQuestion]));
+assert.ok(availability.hasAny([inChapter('2SA',4)]));
+assert.ok(!availability.hasAny([inChapter('OBA',1)]));
+assert.deepEqual(
+  [createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4),
+   createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4,1)],
+  [true,false],'chapter-only notes do not enable a verse selection'
+);
 assert.equal(chapterOf('heading','4:1'),4);
 assert.equal(chapterOf('chapter','4:1'),4);
 assert.equal(chapterOf('heading','4:3'),null);

@@ -311,7 +311,7 @@
     }
     return {panel,scroll,open,close,collapse,reflow,picking,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
   }
-  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy}){
+  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy,hasStudy}){
     const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
     const limitNote=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
@@ -331,7 +331,7 @@
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
         role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>closeCitation(pin.panel),
-        select:marks&&{marks,onStudy,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
+        select:marks&&{marks,onStudy,hasStudy,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));

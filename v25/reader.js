@@ -526,9 +526,11 @@
     openWindow:options=>compare.openStudy(options),
     openCitation:(ref,options)=>compare.openCitation(ref,options),
   });
-  const openStudy=study&&((locations,chapters,focus)=>study.open([...scripture.from(locations,true),...chapters],focus));
+  const studyObjects=(locations,chapters)=>[...scripture.from(locations,true),...chapters];
+  const openStudy=study&&((locations,chapters,focus)=>study.open(studyObjects(locations,chapters),focus));
+  const hasStudy=study&&((locations,chapters)=>study.hasAny(studyObjects(locations,chapters)));
   compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
-    onStudy:openStudy,
+    onStudy:openStudy,hasStudy,
     marks:()=>selection?.verseHighlights,onBegin:()=>selection?.reset({keepFocus:true}),
     onRead:loc=>history?.visitFloat(loc),onJump:({page,code,ref})=>{
       if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
@@ -537,7 +539,7 @@
     onSettings:study&&(()=>{interrupt();study.openSettings();}),
     onFloat:loc=>{selection?.reset({keepFocus:true});compare.clearSelection();compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
-  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,onStudy:openStudy,scripture,
+  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,onStudy:openStudy,hasStudy,scripture,
     onBegin:compare.clearSelection,onMarksChange:compare.refreshHighlights,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   const openingChoice=window.PaperEdgeChapters.openingPreference(storage);

@@ -10,8 +10,15 @@ for(const name of process.argv.includes('--index-only')?['index.html']:['index.h
     const hash=crypto.createHash('sha256').update(payload).digest('hex').slice(0,12);return pre+asset+'?v=index-25&h='+hash+'"';
   });
   if(name==='index.html'&&original.includes('id="study-qa"')){
-    const hash=crypto.createHash('sha256').update(fs.readFileSync(path.join(dir,'data/study-qa.json'))).digest('hex').slice(0,12);
+    const data=fs.readFileSync(path.join(dir,'data/study-qa.json'));
+    const hash=crypto.createHash('sha256').update(data).digest('hex').slice(0,12);
     stamped=stamped.replace(/(id="study-qa"[^>]*?data-revision=")[^"]+"/,(_,prefix)=>prefix+hash+'"');
+    if(original.includes('id="study-qa-availability"')){
+      const {buildAvailability}=require(path.join(dir,'v25/study-qa.js'));
+      const index=JSON.stringify(buildAvailability(JSON.parse(data)));
+      stamped=stamped.replace(/(<script id="study-qa-availability" type="application\/json">)[^<]*(<\/script>)/,
+        (_,open,close)=>open+index+close);
+    }
   }
   if(check&&stamped!==original)throw Error(name+' has stale preview assets');
   if(!check&&stamped!==original)fs.writeFileSync(file,stamped,'utf8');

@@ -17,6 +17,38 @@
     return v&&(role==='chapter'||role==='heading'&&v.lo===1)?v.ch:null;
   }
   const intersects=(a,z,c,d)=>a<=d&&c<=z;
+  function mergeRanges(ranges){
+    const merged=[];
+    for(const [lo,hi] of ranges.sort((a,b)=>a[0]-b[0]||a[1]-b[1])){
+      const last=merged.at(-1);
+      if(last&&last[1]+1>=lo)last[1]=Math.max(last[1],hi);
+      else merged.push([lo,hi]);
+    }
+    return merged;
+  }
+  // Only the union of canonical locations is needed for toolbar state and
+  // paper marks. Stamp it into the entry; do not fetch the QAP text on select.
+  function buildAvailability(data){
+    const books={};
+    for(const {refs} of data.items)for(const [code,ch,lo,hi] of refs){
+      const ranges=((books[code]??={})[ch]??=[]);
+      if(lo!=null)ranges.push([lo,hi]);
+    }
+    for(const chapters of Object.values(books))for(const ch of Object.keys(chapters)){
+      chapters[ch]=mergeRanges(chapters[ch]).flat();
+    }
+    return {schema:1,books};
+  }
+  function createAvailability(data){
+    if(data?.schema!==1||!data.books)throw Error('Unknown QAP availability version');
+    function has(code,ch,lo,hi=lo){
+      const ranges=data.books[code]?.[ch];
+      if(!ranges||lo==null)return !!ranges; // An empty array means chapter-only.
+      for(let n=0;n<ranges.length&&ranges[n]<=hi;n+=2)if(ranges[n+1]>=lo)return true;
+      return false;
+    }
+    return {has,hasAny:objects=>objects.some(({code,ch,lo,hi})=>has(code,ch,lo,hi))};
+  }
   function createIndex(data){
     if(data?.schema!==1||!Array.isArray(data.items))throw Error('Unknown QAP library version');
     const byChapter=new Map(),seen=new Set();
@@ -73,12 +105,7 @@
         else volume.parts.push({start:ch,end:ch});
         continue;
       }
-      const merged=[];
-      for(const r of ranges.sort((a,b)=>a[0]-b[0]||a[1]-b[1])){
-        const last=merged.at(-1);
-        if(last&&last[1]+1>=r[0])last[1]=Math.max(last[1],r[1]);
-        else merged.push(r);
-      }
+      const merged=mergeRanges(ranges);
       const sections=merged.map(([lo,hi])=>{
         objects.push({code,ch,lo,hi});keys.push(addr(code,ch)+':'+lo+'-'+hi);
         return lo===hi?String(lo):lo+'–'+hi;
@@ -93,10 +120,11 @@
   }
   function mount({stage,paper,citationLinks,openWindow,openCitation}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
-    const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled'),notices=$('study-settings-status');
+    const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
+    const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
     const root=doc.documentElement,marked=new WeakSet();
     let inventory=null,pending=null,observer=null,frame=null;
-    let marking=false,epoch=0;
+    let marking=false;
     function load(){
       if(inventory)return Promise.resolve(inventory);
       if(!pending){
@@ -155,7 +183,7 @@
     }
     function open(next,restore){
       const {objects,key,title,fullTitle}=describeSelection(next,paper.books);
-      if(!objects.length)return false;
+      if(!availability.hasAny(objects))return false;
       return openWindow({key,title,fullTitle,restore,render(scroll){
         const content=template.content.cloneNode(true);
         const status=content.querySelector('.study-qa__status'),list=content.querySelector('.study-qa__list');
@@ -185,8 +213,8 @@
         const {role,ref}=el.dataset,v=parse(ref);
         if(!v)continue;
         const ch=chapterOf(role,ref);
-        if(ch&&inventory.has(book.code,ch))el.dataset.qapMark='chapter';
-        if(role==='verse'&&inventory.has(book.code,v.ch,v.lo,v.hi)){
+        if(ch&&availability.has(book.code,ch))el.dataset.qapMark='chapter';
+        if(role==='verse'&&availability.has(book.code,v.ch,v.lo,v.hi)){
           el.dataset.qapMark='verse';markedVerses.add(ref);
         }
         if(role==='body'&&!ink.has(ref))ink.set(ref,[el,v]);
@@ -194,7 +222,7 @@
       // The first verse and a split verse may have no separate printed number
       // on this face. In that case underline only the first visible ink run.
       for(const [ref,[el,v]] of ink){
-        if(!markedVerses.has(ref)&&inventory.has(book.code,v.ch,v.lo,v.hi))el.dataset.qapMark='verse';
+        if(!markedVerses.has(ref)&&availability.has(book.code,v.ch,v.lo,v.hi))el.dataset.qapMark='verse';
       }
     }
     function markChunk(chunk){
@@ -203,11 +231,11 @@
       const chapter=chunk.querySelector('[data-study-chapter]');
       if(chapter){
         const [b,c]=chapter.dataset.studyChapter.split('.');
-        if(inventory.has(b,+c))chapter.dataset.qapMark='chapter';
+        if(availability.has(b,+c))chapter.dataset.qapMark='chapter';
       }
       for(const el of chunk.querySelectorAll('[data-verse-id]')){
         const b=el.dataset.verseId.split('.')[0],v=parse(el.dataset.ref);
-        if(v&&inventory.has(b,v.ch,v.lo,v.hi))el.querySelector('sup').dataset.qapMark='verse';
+        if(v&&availability.has(b,v.ch,v.lo,v.hi))el.querySelector('sup').dataset.qapMark='verse';
       }
     }
     function scheduleMarks(){
@@ -219,25 +247,19 @@
       });
     }
     function setMarking(value,{persist=false}={}){
-      const version=++epoch;
-      marking=false;root.removeAttribute('data-study-marks');observer?.disconnect();
+      marking=value;root.toggleAttribute('data-study-marks',value);observer?.disconnect();
       if(frame!==null){win.cancelAnimationFrame(frame);frame=null;}
       pref.checked=value;
       if(persist)try{win.localStorage.setItem(KEY,value?'1':'0');}catch{}
-      notices.textContent='';
       if(!value)return;
-      load().then(()=>{
-        if(epoch!==version)return;
-        marking=true;root.dataset.studyMarks='';
-        observer??=new win.MutationObserver(scheduleMarks);
-        observer.observe(stage.parentElement,{childList:true,subtree:true});
-        scheduleMarks();
-      },()=>{if(epoch===version)notices.textContent='问答标记未能载入，请稍后重试。';});
+      observer??=new win.MutationObserver(scheduleMarks);
+      observer.observe(stage.parentElement,{childList:true,subtree:true});
+      scheduleMarks();
     }
     pref.addEventListener('change',()=>setMarking(pref.checked,{persist:true}));
     win.addEventListener('storage',e=>{if(e.key===KEY)setMarking(e.newValue==='1');});
     try{setMarking(win.localStorage.getItem(KEY)==='1');}catch{}
-    return {open,openSettings(){if(!settings.open)settings.showModal();}};
+    return {open,hasAny:availability.hasAny,openSettings(){if(!settings.open)settings.showModal();}};
   }
-  return {createIndex,chapterOf,describeSelection,mount};
+  return {buildAvailability,createAvailability,createIndex,chapterOf,describeSelection,mount};
 });

@@ -217,6 +217,10 @@
     return searchProviders[provider](quote.trim()+'\n\n'+question.trim());
   }
   function actionLabel(button,text){button.setAttribute('aria-label',text);button.setAttribute('title',text);}
+  function setStudyAvailable(button,available){
+    button.disabled=!available;
+    button.title=available?'经文问答':'所选位置没有关联问答';
+  }
   function makeToolbar(doc,actions,label,floatLabel='在浮窗阅读'){
     const bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label',label);
     const items=[
@@ -334,7 +338,7 @@
       return {x,y:center-height/2,width:right-x,height};
     }),...mergeRects(unknown)];
   }
-  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy}){
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy,hasStudy}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
@@ -680,7 +684,7 @@
       for(const key of ['copy','search','float','highlight']){
         const action=bar.querySelector('[data-'+key+']');if(action)action.disabled=!verseOnly;
       }
-      if(onStudy)bar.querySelector('[data-study]').disabled=!size;
+      if(onStudy)setStudyAvailable(bar.querySelector('[data-study]'),!!size&&hasStudy(pickedLocations(),[...active.chapters.values()]));
       if(crossPage){
         bar.dataset.pages=String(active.faces.size);
         bar.setAttribute('aria-label',size?'经文选区，已选 '+size+' 项':'经文选区');
@@ -798,5 +802,5 @@
     win.addEventListener?.('storage',changed);
     return {hit,tap,hold,reset,refresh,suspend,verseHighlights,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
   }
-  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,makeToolbar,makeSearchForm,writeText,fallbackCopy,actionLabel,mergeRects,verseBands,physicalRows};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,makeToolbar,makeSearchForm,writeText,fallbackCopy,actionLabel,setStudyAvailable,mergeRects,verseBands,physicalRows};
 });
