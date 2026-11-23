@@ -521,15 +521,19 @@
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
   const paper=window.V25OriginalData,scripture=window.V25Scripture.create(window.BIBLE_SOURCE,paper);
+  const study=window.V25StudyQA?.mount({stage,paper});
+  const openStudy=study&&((locations,chapters,focus)=>study.open([...scripture.from(locations,true),...chapters],focus));
   compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
+    onStudy:openStudy,
     marks:()=>selection?.verseHighlights,onBegin:()=>selection?.reset({keepFocus:true}),
     onRead:loc=>history?.visitFloat(loc),onJump:({page,code,ref})=>{
       if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
     }});
   history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,byChapter:true,
+    onSettings:study&&(()=>{interrupt();study.openSettings();}),
     onFloat:loc=>{selection?.reset({keepFocus:true});compare.clearSelection();compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
-  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,scripture,
+  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,onStudy:openStudy,scripture,
     onBegin:compare.clearSelection,onMarksChange:compare.refreshHighlights,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
   const openingChoice=window.PaperEdgeChapters.openingPreference(storage);

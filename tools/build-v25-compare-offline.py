@@ -51,6 +51,7 @@ idx=(root/'v25-original-data.js').read_text('utf8')
 meta=json.JSONDecoder().raw_decode(idx.split('const M=',1)[1])[0]
 for k,f in meta['packs'].items():block('p'+k,path('paper-pages/'+f).read_bytes())
 block('controller',path('v25/reader.js').read_bytes())
+if 'id="study-qa"' in html:block('study-qa-data',path('data/study-qa.json').read_bytes())
 order=[k for k,n in scripts if n!='v25-original-boot.js']+[next(k for k,n in scripts if n=='v25-original-boot.js')]
 boot=r"""
 <script>

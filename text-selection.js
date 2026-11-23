@@ -224,6 +224,7 @@
       ['网页搜索','search','M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z'],
       ['高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10'],
       [floatLabel,'float','M8 8h13v12H8zM16 8V4H3v12h5m8-5v4h-4'],
+      ['经文问答','study','M4 5h16v11H9l-5 4V5Zm5 4a3 3 0 0 1 5.6 1.4c0 1.3-2.6 1.5-2.6 2.8m0 1.5h.01'],
       ['退出','exit','m6 6 12 12m0-12L6 18']
     ];
     for(const [name,key,d] of items){
@@ -333,7 +334,7 @@
       return {x,y:center-height/2,width:right-x,height};
     }),...mergeRects(unknown)];
   }
-  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture}){
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
@@ -359,7 +360,15 @@
       const list=commands(page,index,books).filter(c=>c.role!=='footer-rule');
       if(nodes.length!==list.length)return null; // Never select a stale curl face.
       const book=books[page.b],key=recordKey(page,index,book);
-      const entry={svg,index,side,nodes,list,mapping:new WeakMap(),bookName:book?.name,key,page,...indexFace(page,list)};
+      const chapters=new Map(),chapterByInk=new Map();
+      if(onStudy&&book?.code)list.forEach((c,i)=>{
+        const ch=c.physicalInk&&win.V25StudyQA.chapterOf(c.role,c.ref);
+        if(!ch)return;
+        const id='chapter:'+book.code+'.'+ch;
+        if(!chapters.has(id))chapters.set(id,{id,group:id,text:'',parts:[],object:{code:book.code,ch}});
+        const unit=chapters.get(id);unit.parts.push({i,start:0,end:c.text.length});chapterByInk.set(i,unit);
+      });
+      const entry={svg,index,side,nodes,list,mapping:new WeakMap(),bookName:book?.name,key,page,chapters,chapterByInk,...indexFace(page,list)};
       nodes.forEach((el,i)=>entry.mapping.set(el,i));cache.set(svg,entry);return entry;
     }
     function hit(x,y,target){
@@ -384,9 +393,12 @@
         n=node.getCharNumAtPosition(probe);
         if(n<0&&entry.list[i].physicalInk){
           const c=entry.list[i];
-          if(point.x>=c.x&&point.x<=c.x+c.w&&point.y>=c.y&&point.y<=c.y+c.h&&entry.lookup[i]?.length&&entry.lookup[i].every(v=>v===entry.lookup[i][0]))n=0;
+          if(point.x>=c.x&&point.x<=c.x+c.w&&point.y>=c.y&&point.y<=c.y+c.h&&
+             (entry.chapterByInk.has(i)||entry.lookup[i]?.length&&entry.lookup[i].every(v=>v===entry.lookup[i][0])))n=0;
         }
       }catch{return null;}
+      const chapter=entry.chapterByInk.get(i);
+      if(chapter&&n>=0)return {entry,unit:chapter,chapter:chapter.object,point:{x:point.x,y:point.y}};
       const unit=entry.lookup[i]?.[n];return unit?{entry,unit,point:{x:point.x,y:point.y}}:null;
     }
     function draw(token,mode){
@@ -444,6 +456,9 @@
         for(const unit of entry.units){
           const selected=scripture?active.refs.has(verseKey(index,unit)):face?.selected.has(unit.id);
           if(selected)painted.set(markKey(index,unit.id),draw({entry,unit},'selected'));
+        }
+        for(const [id,unit] of entry.chapters)if(active.chapters.has(id)){
+          painted.set(markKey(index,id),draw({entry,unit},'selected'));
         }
       });
     }
@@ -623,9 +638,9 @@
       }
       return [...result.values()];
     }
-    function allSaved(){return !!active.count&&(active.highlights??=highlightEntries()).every(({key,id})=>pageMarks(key).has(id));}
+    function allSaved(){return !!active.count&&!active.chapters.size&&(active.highlights??=highlightEntries()).every(({key,id})=>pageMarks(key).has(id));}
     function highlight(){
-      if(!active?.count)return;
+      if(!active?.count||active.chapters.size)return;
       const remove=allSaved();
       const durable=writeMarks(active.highlights,!remove);
       reset();changedMarks();feedback((remove?'已取消高亮':'已高亮')+(durable?'':'（仅本次阅读）'));
@@ -633,6 +648,12 @@
     function toggle(t){
       serial++;
       const {index,side,key,bookName,page,units,svg}=t.entry,id=t.unit.id,k=markKey(index,id);
+      if(t.chapter){
+        if(active.chapters.delete(id))active.count--;
+        else{active.chapters.set(id,t.chapter);active.count++;}
+        active.anchor={index,side,key:k,point:t.point};
+        paintSelection();syncPen();anchorBar();return;
+      }
       const ref=scripture?verseKey(index,t.unit):null;
       if(scripture&&!ref){feedback('请选择有经文节号的正文');return;}
       const picked=ref?active.refs.get(ref):null,previous=picked||{index,id};
@@ -655,16 +676,17 @@
       bar.querySelector('.paper-copy-field')?.remove();syncPen();anchorBar();
     }
     function syncPen(){
-      const size=active.count;
-      bar.querySelector('[data-copy]').disabled=!size;
-      bar.querySelector('[data-search]').disabled=!size;
-      if(onFloat)bar.querySelector('[data-float]').disabled=!size;
+      const size=active.count,chapterCount=active.chapters.size,verseOnly=!!size&&!chapterCount;
+      for(const key of ['copy','search','float','highlight']){
+        const action=bar.querySelector('[data-'+key+']');if(action)action.disabled=!verseOnly;
+      }
+      if(onStudy)bar.querySelector('[data-study]').disabled=!size;
       if(crossPage){
         bar.dataset.pages=String(active.faces.size);
         bar.setAttribute('aria-label',size?'经文选区，已选 '+size+' 项':'经文选区');
       }
       const pen=bar.querySelector('[data-highlight]'),marked=allSaved();
-      pen.disabled=!size;pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');
+      pen.setAttribute('aria-pressed',String(marked));actionLabel(pen,marked?'取消高亮':'高亮');
     }
     // Clipboard event for Ctrl/Cmd+C on the focused paper reader. Inputs
     // (including the search box and manual-copy fallback) keep normal Copy.
@@ -673,7 +695,7 @@
       return pagesClipboardQuote(active.faces.values(),win.V25OriginalData);
     }
     function keyboardCopy(e){
-      if(!active?.count||searchForm&&crossPage||suspended||!e.clipboardData||
+      if(!active?.count||active.chapters.size||searchForm&&crossPage||suspended||!e.clipboardData||
         e.target?.closest?.('textarea,input,[contenteditable]'))return;
       let text;
       try{text=selectionQuote();}catch{e.preventDefault();feedback('未能读取完整经文，请重试');return;}
@@ -683,7 +705,7 @@
     }
     stage.addEventListener('copy',keyboardCopy);
     async function copy(){
-      if(!active?.count||suspended)return;
+      if(!active?.count||active.chapters.size||suspended)return;
       const version=serial;
       let text;
       try{text=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
@@ -700,7 +722,7 @@
       search.setAttribute('aria-expanded','false');anchorBar();search.focus({preventScroll:true});
     }
     function openSearch(){
-      if(searchForm||!active?.count)return;
+      if(searchForm||!active?.count||active.chapters.size)return;
       let quote;try{quote=selectionQuote();}catch{feedback('未能读取完整经文，请重试');return;}
       if(!quote.trim())return;
       const {form,field}=makeSearchForm(doc,win,quote,{valid:form=>searchForm===form&&!!active,cancel:closeSearch,done:closeSearch});
@@ -710,9 +732,12 @@
       bar.appendChild(form);anchorBar();field.focus({preventScroll:true});
     }
     const pickedLocations=()=>[...active.faces.values()].flatMap(face=>[...face.selected.values()].map(unit=>location(face.index,unit)));
-    function floatSelection(){if(active?.count&&onFloat(pickedLocations()))reset();}
+    function floatSelection(){if(active?.count&&!active.chapters.size&&onFloat(pickedLocations()))reset();}
+    function studySelection(){
+      if(active?.count&&onStudy(pickedLocations(),[...active.chapters.values()],stage))reset();
+    }
     function initBar(){
-      bar=makeToolbar(doc,{copy,search:openSearch,highlight,float:onFloat&&floatSelection,
+      bar=makeToolbar(doc,{copy,search:openSearch,highlight,float:onFloat&&floatSelection,study:onStudy&&studySelection,
         exit:()=>{reset();stage.focus({preventScroll:true});}},crossPage?'经文选区':'本页选文');
       stage.appendChild(bar);
       if(crossPage){
@@ -746,10 +771,13 @@
     function hold(t){
       if(!isCurrent(t))return false;
       if(searchForm&&crossPage)reset();
-      const ref=scripture&&verseKey(t.entry.index,t.unit);
+      const ref=scripture&&(t.chapter?t.unit.id:verseKey(t.entry.index,t.unit));
       if(scripture&&!ref){feedback('请选择有经文节号的正文');return false;}
-      if(active){if(!searchForm&&sameFace(t)&&!(ref?active.refs.has(ref):active.faces.get(t.entry.index)?.selected.has(t.unit.id)))toggle(t);return true;}
-      onBegin?.();clearFocus();active={faces:new Map(),refs:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
+      if(active){
+        const already=t.chapter?active.chapters.has(ref):ref?active.refs.has(ref):active.faces.get(t.entry.index)?.selected.has(t.unit.id);
+        if(!searchForm&&sameFace(t)&&!already)toggle(t);return true;
+      }
+      onBegin?.();clearFocus();active={faces:new Map(),refs:new Map(),chapters:new Map(),count:0,anchor:null};stage.dataset.textSelection='active';initBar();toggle(t);stage.focus({preventScroll:true});return true;
     }
     stage.addEventListener('contextmenu',e=>{
       if(e.target?.closest?.('.paper-selection-tools'))return;

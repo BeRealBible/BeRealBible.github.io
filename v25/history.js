@@ -169,7 +169,7 @@
       current:()=>{pull();return current;},canUndo:()=>Boolean(removed)};
   }
   function label(e){return (e.bookName||e.bookCode||'书页')+(e.ref?' '+e.ref:(!e.bookName&&!e.bookCode?' '+(e.page+1):''));}
-  function create({host,storage,pageCount,onNavigate,onFloat,byChapter=false,books=[]}){
+  function create({host,storage,pageCount,onNavigate,onFloat,onSettings,byChapter=false,books=[]}){
     if(!host?.ownerDocument||typeof onNavigate!=='function')throw TypeError('History needs a shelf host and navigation callback');
     const doc=host.ownerDocument,model=createModel({storage,pageCount,byChapter,books}),win=doc.defaultView;
     const key=byChapter?COMPARE_KEY:KEY;
@@ -261,6 +261,11 @@
     }
     if(compact)listen(win,'paper-reader-chrome-hidden',()=>{clearShown();cancelHold();});
     shelf.append(caption,track,undoButton,status);
+    if(compact&&onSettings){
+      const gear=button('rh-toggle rh-settings','','阅读设置',onSettings);
+      gear.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.4 4.3 10 2.8h4l.6 1.5 1.5.9 1.6-.3 2 3.5-1 1.2v1.8l1 1.2-2 3.5-1.6-.3-1.5.9-.6 1.5h-4l-.6-1.5-1.5-.9-1.6.3-2-3.5 1-1.2V9.6l-1-1.2 2-3.5 1.6.3 1.5-.9Z" transform="translate(0 1.5)"/><circle cx="12" cy="12" r="3"/></svg>';
+      shelf.append(gear);
+    }
     host.append(shelf);shell?.classList.add('has-history-shelf');doc.documentElement.classList.add('paper-history-on');
     function navigate(id){
       const e=model.get(id);if(!e){render();return;}

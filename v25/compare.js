@@ -165,7 +165,10 @@
     function renderChunk(n){
       const {chapter,rows}=stream.chunks[n],section=node('section','compare-slip__chunk');
       section.dataset.chunk=String(n);section.dataset.chapter=String(chapter);
-      section.append(node('h2','compare-slip__chapter-title','第 '+chapter+' 章'));
+      const heading=node('h2','compare-slip__chapter-title','第 '+chapter+' 章');
+      heading.dataset.studyChapter=stream.book.code+'.'+chapter;
+      if(select?.onStudy){heading.tabIndex=0;heading.setAttribute('aria-description','长按或按回车选择整章，查看经文问答。');}
+      section.append(heading);
       let paragraph;
       for(const row of rows){
         for(const text of row.titles)section.append(node('h3','compare-slip__section-title',text));
@@ -288,7 +291,7 @@
     }
     return {panel,scroll,open,close,collapse,reflow,picking,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
   }
-  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin}){
+  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy}){
     const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
     const limitNote=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
@@ -308,7 +311,7 @@
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
         role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),
-        select:marks&&{marks,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
+        select:marks&&{marks,onStudy,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));
