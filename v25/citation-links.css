@@ -1,0 +1,12 @@
+/* Inline links are a shared prose affordance, not a QAP decoration. */
+.scripture-cite{
+  display:inline;padding:0;border:0;background:none;
+  font:inherit;line-height:inherit;color:inherit;
+  text-decoration:underline;text-decoration-color:#8b644674;
+  text-decoration-thickness:.045em;text-underline-offset:.16em;
+  text-decoration-skip-ink:auto;
+}
+.scripture-cite:hover:not(:disabled),.scripture-cite[aria-expanded=true]{
+  color:#785339;text-decoration-color:currentColor;
+}
+.scripture-cite:focus-visible{outline:1px solid #92704b;outline-offset:2px;border-radius:2px}

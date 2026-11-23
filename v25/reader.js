@@ -521,7 +521,11 @@
   }
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
   const paper=window.V25OriginalData,scripture=window.V25Scripture.create(window.BIBLE_SOURCE,paper);
-  const study=window.V25StudyQA?.mount({stage,paper});
+  const citationLinks=window.V25CitationLinks.create(window.BIBLE_SOURCE);
+  const study=window.V25StudyQA?.mount({stage,paper,citationLinks,
+    openCitation:(ref,options)=>compare.openCitation(ref,options),
+    closeCitation:(portal,restore)=>compare.closeCitation(portal,restore),
+  });
   const openStudy=study&&((locations,chapters,focus)=>study.open([...scripture.from(locations,true),...chapters],focus));
   compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
     onStudy:openStudy,

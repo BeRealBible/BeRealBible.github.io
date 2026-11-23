@@ -16,7 +16,7 @@ for(const {id,q,a,refs} of library.items){
     assert.ok(vv&&((lo==null&&hi==null)||(vv.has(lo)&&vv.has(hi)&&lo<=hi)), id+' invalid coordinate');
   }
 }
-const query=(objects,scope)=>catalog.query(objects,scope).map(x=>x.id);
+const query=objects=>catalog.query(objects).map(x=>x.id);
 const inChapter=(code,ch)=>({code,ch});
 const one=(code,ch,lo,hi=lo)=>({code,ch,lo,hi});
 assert.ok(query([one('2SA',2,23)]).includes('2SA.3.4'),'cross-chapter narrative connection');
@@ -24,7 +24,7 @@ assert.ok(query([one('2SA',3,28)]).includes('2SA.3.4'));
 assert.equal(query([one('2SA',3,28),one('2SA',2,23)]).filter(id=>id==='2SA.3.4').length,1);
 assert.ok(query([inChapter('2SA',3),inChapter('2SA',4)]).some(id=>id.startsWith('2SA.4.')));
 assert.ok(!query([one('2SA',3,1)]).includes('2SA.3.4'),'do not fill unselected verses');
-assert.ok(query([one('2SA',3,1)],'chapters').includes('2SA.3.4'));
+assert.ok(query([inChapter('2SA',3)]).includes('2SA.3.4'));
 assert.ok(query([one('DEU',17,17)]).includes('2SA.3.2'),'cross-book lookup');
 assert.ok(query([one('2SA',14,27)]).includes('2SA.18.6'));
 assert.ok(catalog.has('2SA',3)&&catalog.has('2SA',3,28));

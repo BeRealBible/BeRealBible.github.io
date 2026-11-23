@@ -6,3 +6,4 @@
 - 更新用 `python tools/import-study-qa.py <LLM_QT目录> --audit <本机审计输出路径>`。提取题干和答文中的明示引用；模糊、缺失或版本差异不能可靠定节时回退到章。在 `tools/study-qa-anchors.json` 中维护已核对、但没有完整明示引用的关联。审计文件仅本地使用，并用它检查孤立标题、无效引用、锚点和编号。
 - 更改数据后运行 `node tools/stamp-preview.cjs . --index-only`，并验证 `python tools/test-import-study-qa.py`、`node test-v25-study-qa.cjs` 和问答浏览器测试。
 - 纸本章号、章首小标题和固定窗章标题支持长按。提示线只受本机设置控制，不影响选择和查看。首次打开问答或主动开启提示线才载入问答库；离线 HTML 把同一份数据压缩内嵌。
+- QAP 正文按问答条目的来源卷章调用独立的 `V25CitationLinks`（识别／渲染）与 `V25ScriptureWindows.openCitation`（显示经文）。将来的笔记或其他浮窗可以同样传入正文和卷章上下文，无需提供问答条目或加载问答库。

@@ -45,6 +45,9 @@ async function run(browser,width){
     const open=async(bar=mainBar)=>{await bar.locator('[data-study]').click();await dialog.waitFor();await rendered();};
     const close=async()=>{await dialog.getByRole('button',{name:'关闭经文问答'}).click();await dialog.waitFor({state:'hidden'});};
     const settings=$('#study-settings');
+    const citation=dialog.locator('#v25-scripture-preview:not([hidden])');
+    const bodyOf=(id)=>dialog.locator('[data-qap="'+id+'"]');
+    const verseTag=(id)=>citation.locator('[data-verse-id="'+id+'"]');
     async function configure(enabled){
       await page.evaluate(()=>PaperImmersion.showChrome());
       await page.getByRole('button',{name:'阅读设置',exact:true}).click();
@@ -64,34 +67,58 @@ async function run(browser,width){
     await press(body('3:1'),true);
     await mainBar.waitFor({timeout:5000});
     await open();
-    assert.match(await $('#study-qa-position').textContent(),/3:1/);
     assert.ok((await ids()).includes('2SA.3.1'));
-    const verseCount=(await ids()).length;
-    await dialog.getByRole('button',{name:'整章',exact:true}).click();
-    assert.ok((await ids()).length>verseCount);
+    assert.ok(!(await ids()).includes('2SA.3.4'),'verse selection cannot broaden into a chapter');
+    assert.equal(await dialog.locator('header,h2,.study-qa__refs,#study-qa-scopes').count(),0,'no decorative labels or address lists');
+    assert.equal(await $('#study-qa-status').textContent(),'');
     assert.equal(await dialog.locator('details[open]').count(),0);
-    for(let i=0;i<2;i++)await dialog.locator('summary').nth(i).click();
+    // A link in a folded question opens a reader, not its <details>.
+    const first=bodyOf('2SA.3.1'),firstRef=first.getByRole('button',{name:/查看经文.*撒母耳记下3章1节/});
+    await firstRef.click();await citation.waitFor();
+    assert.equal(await first.getAttribute('open'),null);
+    assert.equal(await verseTag('2SA.3:1').getAttribute('data-cited'),'');
+    await page.keyboard.press('Escape');await citation.waitFor({state:'hidden'});
+    assert.ok(await dialog.isVisible());
+    assert.equal(await firstRef.getAttribute('aria-expanded'),'false');
+    const second=bodyOf('2SA.3.2');
+    for(const row of [first,second])await row.locator('summary').click({position:{x:13,y:19}});
     assert.equal(await dialog.locator('details[open]').count(),2);
     await dialog.locator('.study-qa__answer:visible').nth(1).waitFor();
     assert.equal(await dialog.locator('.study-qa__answer:visible').count(),2);
+    // A link found in an answer can open a different book without jumping
+    // the desk, replacing the QAP, or closing the answered question.
+    const stand=await $('#stage').getAttribute('data-spread');
+    const short=second.getByRole('button',{name:/查看经文.*申命记.*17:17/}).or(second.getByRole('button',{name:/查看经文.*申17:17/}));
+    await short.first().click();await citation.waitFor();
+    assert.equal(await verseTag('DEU.17:17').getAttribute('data-cited'),'');
+    assert.equal(await $('#stage').getAttribute('data-spread'),stand);
+    await citation.getByRole('button',{name:'关闭经文浮窗'}).click();
+    await citation.waitFor({state:'hidden'});
+    assert.notEqual(await second.getAttribute('open'),null);
     await close();
     assert.equal(requests.length,file?0:1);
 
     await press(body('3:1'),true);
     await press(body('4:1'));
     await open();
-    assert.match(await $('#study-qa-position').textContent(),/3:1.*4:1/);
     assert.ok((await ids()).includes('2SA.3.1'));
+    assert.equal(await dialog.locator('#study-qa-position').count(),0);
     await close();
 
     await press(chapter(3),true);
     assert.ok(await mainBar.locator('[data-copy]').isDisabled(),'chapter title should not copy the first verse');
     await press($('#stage .paper text[data-role="heading"][data-ref="4:1"]'));
     await open();
-    assert.match(await $('#study-qa-position').textContent(),/3章.*4章/);
     const multi=await ids();assert.equal(new Set(multi).size,multi.length);
     assert.ok(multi.some(id=>id.startsWith('2SA.3.'))&&multi.some(id=>id.startsWith('2SA.4.')));
-    assert.ok(await $('#study-qa-scopes').isHidden());
+    const fromAnswer=bodyOf('2SA.3.4');
+    await fromAnswer.locator('summary').click({position:{x:13,y:19}});
+    await fromAnswer.getByRole('button',{name:/查看经文.*申21章/}).click();
+    await citation.waitFor();
+    assert.equal(await citation.locator('[data-cited]').count(),0,'chapter-only link does not cite verse 1');
+    assert.ok(await verseTag('DEU.21:1').count());
+    await citation.getByRole('button',{name:'关闭经文浮窗'}).click();
+    await citation.waitFor({state:'hidden'});
     if(process.env.QAP_SCREENSHOTS){
       await dialog.locator('summary').first().click();
       await dialog.screenshot({path:path.join(process.env.QAP_SCREENSHOTS,'study-qa-'+width+'.png')});
@@ -101,6 +128,8 @@ async function run(browser,width){
     await configure(true);
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
     assert.equal(await marked(),'underline');
+    const stroke=await chapter(3).evaluate(el=>{const c=getComputedStyle(el);return [c.textDecorationColor,parseFloat(c.textDecorationThickness)/parseFloat(c.fontSize)];});
+    assert.match(stroke[0],/^rgba\(160, 128, 79, 0\.25/);assert.ok(stroke[1]<.035);
     assert.ok(await $('#stage .paper text[data-qap-mark="verse"]').count()>0);
     await page.reload({waitUntil:'domcontentloaded'});await ready();
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
@@ -108,7 +137,7 @@ async function run(browser,width){
     await configure(false);
     assert.equal(await marked(),'none');
     await press(chapter(3),true);
-    await open();assert.match(await $('#study-qa-position').textContent(),/3章$/);
+    await open();assert.ok((await ids()).includes('2SA.3.4'));
     await close();
 
     assert.ok(await page.evaluate(()=>V25ScriptureWindows.open({code:'2SA',ref:'3:1'})));

@@ -143,7 +143,7 @@
       const focused=panel.contains(doc.activeElement);
       if(value&&!collapsed){foldedMark=readingMark();picking?.close();}
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
-      const target=value&&dock?dock:home;
+      const target=value&&dock?dock:config?.portal||home;
       if(panel.parentNode!==target)target.append(panel);
       minimize.textContent=value?'+':'−';minimize.title=value?'展开经文浮窗':'收起经文浮窗';
       minimize.setAttribute('aria-label',minimize.title);minimize.setAttribute('aria-expanded',String(!value));
@@ -159,6 +159,7 @@
       if(!config)return;
       picking?.close();
       const closed=config;config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
+      if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
       if(restore&&(doc.activeElement===doc.body||panel.contains(doc.activeElement)))stage.focus({preventScroll:true});
     }
@@ -264,7 +265,7 @@
     function show(seed){
       const selected=config.rows,row=seed||selected[0];
       if(!row)return;
-      config.cited=new Set(selected.map(v=>v.id));
+      config.cited=new Set((config.highlightRows??selected).map(v=>v.id));
       stream=scripture.index(row.code);lo=hi=row.chunk;
       scroll.replaceChildren(renderChunk(row.chunk));gather();
       let target=rows.find(r=>r.row.id===row.id)?.el;
@@ -307,7 +308,7 @@
     const wide=win.matchMedia('(min-width:800px)'),canZoom=win.CSS?.supports?.('zoom','1');
     const getZoom=()=>slipScale(Number(stage.dataset.scale),canZoom&&wide.matches);
     const opts={stage,scripture,getZoom},preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
-    let clock=0;
+    let clock=0,citationAnchor=null;
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
         role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),
@@ -380,13 +381,44 @@
       const rows=scripture.from(locs);
       if(!rows.length||rows.some(row=>row.code!==rows[0].code))return false;
       if(preview.panel.hidden)makeRoom();
-      const pin=(selected,seed)=>display(selected,settings.keywords?.length?
-        {seed,keywords:settings.keywords,label:'对照 · 搜索命中'}:{seed},true);
+      const pin=(selected,seed)=>{
+        const ok=display(selected,settings.keywords?.length?
+          {seed,keywords:settings.keywords,label:'对照 · 搜索命中'}:{seed},true);
+        if(ok&&settings.onLeave){
+          settings.onLeave('pin');
+          const key=selected.map(row=>row.id).sort().join('|');
+          pins.find(item=>item.key===key&&!item.panel.hidden)?.focus();
+        }
+        return ok;
+      };
       return preview.open({...settings,rows,
         onPin:pin,
-        onJump:settings.onJump||((row)=>{preview.close('jump');onJump?.(row);})});
+        onJump:settings.onJump||((row)=>{preview.close('jump');settings.onLeave?.('jump');onJump?.(row);})});
     }
-    return {open,openSelection,openPreview,choices,preview,clearSelection,refreshHighlights};
+    // Portaling into the active dialog keeps the same preview interactive
+    // above its caller, without a second scripture renderer or a new slot.
+    function openCitation(reference,{anchor,portal,onLeave}={}){
+      if(!reference?.locations?.length||!anchor?.isConnected||portal&&!portal.contains(anchor))return false;
+      if(citationAnchor===anchor&&!preview.panel.hidden){preview.close('dismiss',true);return true;}
+      const highlightRows=scripture.from(reference.locations.filter(loc=>!loc.whole));
+      const ok=openPreview(reference.locations,{kind:'footnote',label:'引用经文',ariaLabel:'引用经文浮窗',
+        focus:true,anchor,portal,onLeave,highlightRows,
+        onClose(_,restore){
+          if(citationAnchor===anchor)citationAnchor=null;
+          anchor.setAttribute('aria-expanded','false');
+          if(restore&&anchor.isConnected)anchor.focus({preventScroll:true});
+        }});
+      if(ok){
+        citationAnchor=anchor;
+        anchor.setAttribute('aria-controls',preview.panel.id);anchor.setAttribute('aria-expanded','true');
+      }
+      return ok;
+    }
+    function closeCitation(portal,restore=false){
+      if(!citationAnchor||!portal?.contains(preview.panel))return false;
+      preview.close('outside',restore);return true;
+    }
+    return {open,openSelection,openPreview,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights};
   }
   return {mount,windowRange,slipScale,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });

@@ -35,11 +35,11 @@
       if(lo==null)return !!hits?.length;
       return !!hits?.some(({ref:r})=>r.length===4&&intersects(lo,hi,r[2],r[3]));
     }
-    function query(objects,scope='selection'){
+    function query(objects){
       const hits=new Map();
       for(const obj of objects){
         const {code,ch,lo,hi=lo}=obj;
-        const key=addr(code,ch),all=scope==='chapters'||lo==null;
+        const key=addr(code,ch),all=lo==null;
         for(const {item,ref,order} of byChapter.get(key)||[]){
           if(!all&&(ref.length!==4||!intersects(lo,hi,ref[2],ref[3])))continue;
           const score=(item.id.startsWith(key+'.')?2:0)+(ref.length===4?1:0);
@@ -51,13 +51,12 @@
     }
     return {has,query};
   }
-  function mount({stage,paper}){
+  function mount({stage,paper,citationLinks,openCitation,closeCitation}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
-    const dialog=$('study-qa'),settings=$('study-settings'),legend=$('study-qa-position');
-    const list=$('study-qa-list'),status=$('study-qa-status'),scopes=$('study-qa-scopes'),pref=$('study-marks-enabled');
-    const buttons=[...scopes.querySelectorAll('button')],scroll=$('study-qa-scroll'),notices=$('study-settings-status');
-    const root=doc.documentElement,marked=new WeakSet(),names=new Map(paper.books.map(b=>[b.code,b.name]));
-    let inventory=null,pending=null,objects=[],mode='selection',previousFocus=null,serial=0,observer=null,frame=null;
+    const dialog=$('study-qa'),settings=$('study-settings'),list=$('study-qa-list'),status=$('study-qa-status');
+    const pref=$('study-marks-enabled'),scroll=$('study-qa-scroll'),notices=$('study-settings-status');
+    const root=doc.documentElement,marked=new WeakSet();
+    let inventory=null,pending=null,objects=[],previousFocus=null,serial=0,observer=null,frame=null,leftToReader=false;
     let marking=false,epoch=0;
     function load(){
       if(inventory)return Promise.resolve(inventory);
@@ -72,66 +71,56 @@
       }
       return pending;
     }
-    const title=(b,ch)=>(names.get(b)||b)+' '+ch;
-    const label=(b,ch,a,z)=>title(b,ch)+(a==null?'章':':'+a+(z!==a?'–'+z:''));
-    function selectionLabel(choices,scope){
-      const chapters=new Map();
-      for(const {code,ch,lo,hi=lo} of choices){
-        const key=addr(code,ch);
-        if(!chapters.has(key))chapters.set(key,{code,ch,full:false,ranges:[]});
-        const state=chapters.get(key);
-        if(lo==null||scope==='chapters')state.full=true;
-        else state.ranges.push([lo,hi]);
-      }
-      return [...chapters.values()].map(({code,ch,full,ranges})=>{
-        if(full)return label(code,ch);
-        const merged=[];
-        for(const r of ranges.sort((a,b)=>a[0]-b[0])){
-          if(merged.length&&r[0]<=merged.at(-1)[1]+1)merged.at(-1)[1]=Math.max(r[1],merged.at(-1)[1]);
-          else merged.push(r);
-        }
-        return title(code,ch)+':'+merged.map(([a,z])=>a===z?a:a+'–'+z).join('、');
-      }).join('；');
-    }
-    function inline(host,text){
-      // Limited Markdown: render only literal text, emphasis and inline code.
-      // No imported HTML, external resources, or links are executed.
+    function inline(host,text,context){
+      // Maintain the Markdown typography without hiding a reference that
+      // crosses emphasis runs, e.g. "**撒下** 2:1".
       const pattern=/(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/g;
-      let end=0;
+      let end=0,plain='';
+      const styles=[];
       for(const m of text.matchAll(pattern)){
-        host.append(doc.createTextNode(text.slice(end,m.index)));
-        const node=doc.createElement(m[2]?'strong':m[3]?'em':'code');
-        node.textContent=m[2]||m[3]||m[4];host.append(node);end=m.index+m[0].length;
+        plain+=text.slice(end,m.index);
+        const a=plain.length;
+        plain+=m[2]||m[3]||m[4];end=m.index+m[0].length;
+        styles.push({a,z:plain.length,tag:m[2]?'strong':m[3]?'em':'code'});
       }
-      host.append(doc.createTextNode(text.slice(end)));
+      plain+=text.slice(end);
+      function write(node,a,z){
+        for(const run of styles){
+          const left=Math.max(a,run.a),right=Math.min(z,run.z);
+          if(right<=left)continue;
+          if(left>a)node.append(doc.createTextNode(plain.slice(a,left)));
+          const style=doc.createElement(run.tag);
+          style.textContent=plain.slice(left,right);node.append(style);
+          a=right;
+        }
+        if(a<z)node.append(doc.createTextNode(plain.slice(a,z)));
+      }
+      citationLinks.append(host,plain,{context,write,open:(ref,anchor)=>openCitation(ref,{
+        anchor,portal:dialog,onLeave(){leftToReader=true;dialog.close();}
+      })});
     }
-    function answerNode(item){
+    function answerNode(item,context){
       const body=doc.createElement('div');body.className='study-qa__answer';
       for(const block of item.a.split(/\n\s*\n/)){
         const p=doc.createElement('p');
-        inline(p,block.split('\n').map(line=>line.trim().replace(/^#{1,6}\s+/,'').replace(/^[-*]\s+/,'• ')).join('\n'));
+        inline(p,block.split('\n').map(line=>line.trim().replace(/^#{1,6}\s+/,'').replace(/^[-*]\s+/,'• ')).join('\n'),context);
         body.append(p);
       }
       return body;
     }
     function row(item){
-      const el=doc.createElement('details'),summary=doc.createElement('summary'),trailer=doc.createElement('span');
+      const el=doc.createElement('details'),summary=doc.createElement('summary');
+      const [code,ch]=item.id.split('.'),context={code,ch:Number(ch)};
       el.dataset.qap=item.id;
-      inline(summary,item.q);
-      trailer.className='study-qa__refs';
-      trailer.textContent=item.refs.map(r=>label(...r)).join(' · ');
-      summary.append(trailer);el.append(summary);
-      el.addEventListener('toggle',()=>{if(el.open&&el.childElementCount===1)el.append(answerNode(item));});
+      inline(summary,item.q,context);el.append(summary);
+      el.addEventListener('toggle',()=>{if(el.open&&el.childElementCount===1)el.append(answerNode(item,context));});
       return el;
     }
     function render(){
-      legend.textContent=selectionLabel(objects,mode);
-      for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.scope===mode));
       list.replaceChildren();
       if(!inventory)return;
-      const items=inventory.query(objects,mode);
-      status.textContent=items.length?'共 '+items.length+' 条问答 · 点问题展开答案':
-        mode==='selection'&&!scopes.hidden?'所选位置暂无问答，可切换到「整章」。':'所选章节暂无问答。';
+      const items=inventory.query(objects);
+      status.textContent=items.length?'':'这里暂无问答。';
       const frag=doc.createDocumentFragment();
       for(const item of items)frag.append(row(item));
       list.append(frag);scroll.scrollTop=0;
@@ -139,8 +128,8 @@
     function open(next,restore){
       if(!next.length)return false;
       const unique=new Map(next.map(o=>[addr(o.code,o.ch)+'.'+(o.lo??'chapter')+'.'+(o.hi??o.lo??''),o]));
-      objects=[...unique.values()];mode='selection';scopes.hidden=objects.every(o=>o.lo==null);
-      previousFocus=restore;
+      closeCitation(dialog);
+      objects=[...unique.values()];previousFocus=restore;leftToReader=false;
       let version=++serial;
       status.textContent='正在载入经文问答…';render();
       if(!dialog.open)dialog.showModal();
@@ -149,9 +138,19 @@
       });
       return true;
     }
-    for(const b of buttons)b.addEventListener('click',()=>{mode=b.dataset.scope;render();});
+    dialog.addEventListener('pointerdown',e=>{
+      if(e.target!==dialog&&!e.target.closest('.compare-slip,.scripture-cite'))closeCitation(dialog);
+    },true);
+    dialog.addEventListener('click',e=>{
+      if(e.target!==dialog)return;
+      const r=dialog.getBoundingClientRect();
+      if((e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)&&closeCitation(dialog,true)){
+        e.stopImmediatePropagation();e.preventDefault();
+      }
+    },true);
     dialog.addEventListener('close',()=>{
-      serial++;list.replaceChildren();
+      closeCitation(dialog);serial++;list.replaceChildren();
+      if(leftToReader)return;
       if(previousFocus?.isConnected)previousFocus.focus({preventScroll:true});
       else stage.focus({preventScroll:true});
     });

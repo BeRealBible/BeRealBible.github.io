@@ -41,7 +41,7 @@
   <script src="footnote-passages.js?v=index-25&h=bddf30be2b8f" defer></script>
   <script src="v25/parallels.js?v=index-25&h=f101052e2bcd" defer></script><script src="v25/targets.js?v=index-25&h=3f76acdd6b8c" defer></script>
   <script src="v25/paper-dock.js?v=index-25&h=20d8c9d66f77" defer></script><script src="v25/words.js?v=index-25&h=3a222a69a4c3" defer></script><script src="v25/scripture.js?v=index-25&h=9c6d4235b401" defer></script><script src="v25/footnote.js?v=index-25&h=154a292a036f" defer></script>
-  <link id="v25-desk-controller" rel="preload" as="script" href="v25/reader.js?v=index-25&h=744e9ceec946">
+  <link id="v25-desk-controller" rel="preload" as="script" href="v25/reader.js?v=index-25&h=e10fdfce70fe">
   <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=f1f8f65477ca" defer></script>
   <script src="immersion.js?v=index-25&h=9a1c1c34489a" defer></script>
 
@@ -56,8 +56,9 @@
 <link rel="stylesheet" href="v25/search.css?v=index-25&h=ddc4024becce"><script defer src="v25/search.js?v=index-25&h=5caa1d4f27ce"></script>
 <link rel="stylesheet" href="v25/guide.css?v=index-25&h=7241ec7ae273"><script defer src="v25/guide.js?v=index-25&h=713182ab467b"></script>
 <script defer src="v25/float-selection.js?v=index-25&h=26f15ad2c3e2"></script>
-<link rel="stylesheet" href="v25/compare.css?v=index-25&h=2b4ff9901308"><script defer src="v25/compare.js?v=index-25&h=dfe84b6d6895"></script>
-<link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=1a85d1acfe50"><script defer src="v25/study-qa.js?v=index-25&h=73e6f513b9e2"></script>
+<link rel="stylesheet" href="v25/compare.css?v=index-25&h=2b4ff9901308"><script defer src="v25/compare.js?v=index-25&h=591903aa883b"></script>
+<script defer src="v25/citation-links.js?v=index-25&h=e4c2409a5513"></script><link rel="stylesheet" href="v25/citation-links.css?v=index-25&h=aa3c65478250">
+<link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=8a0075e04111"><script defer src="v25/study-qa.js?v=index-25&h=d13e17228999"></script>
 </head>
 <body data-paper-scene="reading" data-minimal-reader>
 <div id="reader-rule-loading" role="status"><strong>纸页 · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./?v=index-25">加载遇到问题？重新打开</a></div>
@@ -126,22 +127,14 @@
 <dialog id="about-dialog"><button class="dialog-close" data-close aria-label="关闭">×</button><div class="eyebrow">关于这次实验</div><h2>位置不动，<br>只是换一种拿书的方式。</h2><p>手机上，放大并移动观看；平板横屏，完整展开两页。经文不会随屏幕宽度重新排版。</p><p>细窄的书口索引随阅读进度分布在书页两侧。点一个索引组，浮出纸质选章目录；合并索引可在菜单内切换书卷，再点章号跳转。半透明纸质目录的一角紧贴所选书签，切换「章号格子」与「经文摘读」时锚点保持不动；紧凑摘读显示每章开头经文，大小随章节数量调整。点目录外或按 Esc 收起目录，继续阅读。顶部书卷名仍可打开完整的书卷章节目录。</p><p class="notice">本版直接在 V25 书桌上呈现原纸本的分页、栏和断行。经文由可选择的文字构成，不是扫描图片；保留纸书的左右页、书厚索引和卷章位置。</p><p id="reader-version">体验版本 · index-25（统一经文浮窗）<br><a id="reader-reload" href="./?v=index-25">重新载入最新版</a>（保留阅读位置）</p><p>66 卷共用 39 枚书卷签，旧约为深色，新约为暗红色。正文已接入逐行复核的纸本版；目录、历史、摘录与高亮仍在原有书桌中使用。</p><div class="sources"><a href="https://www.bibleinmylanguage.com/chinese-bible-midsize-black-black-pvc-covered-chinese-union-version-the-most-popular-bible-in-mainland-china-with-thumb-index-golden-letters-on-cover-red-edges-cuv-holy-bible/" target="_blank" rel="noreferrer">内页风格参考 ↗</a><a href="https://ebible.org/cmn-cu89s/copyright.htm" target="_blank" rel="noreferrer">诗行结构来源：eBible ↗</a></div></dialog>
 <dialog id="help-dialog"><button class="dialog-close" data-close aria-label="关闭">×</button><div class="eyebrow">手势小抄</div><h2>点经文摘录，<br>拖页边翻页。</h2><dl><dt>轻点与长按经文</dt><dd>轻点的经文会浅浅亮起，片刻后淡出。长按进入摘录，再点同一页的其他经文可追加，再点一次取消。点双页图标，复制的经文末尾会附卷名、章节和译本；点笔尖可保留这一页的金色标记，再选中已标记的经文点笔尖即可移除。点小叉退出。对开中的另一页不能加入本次选段。</dd><dt>在外页边向内滑</dt><dd>从右页外边向左滑翻下一页；从左页外边向右滑翻回上一页。正文栏和行间拖动只移动视野，桌面背景不翻页。不用等长按：页角跟手掀起，手停纸也停。向前划开再松手翻过一页；往回收再松手，纸就落回原页。轻点留白不翻页。</dd><dt>放大后看细处</dt><dd>双指捏合缩放整本书。放大后拖动正文或行间都可以移动视野，双指捏合后可留一指接着移动。触控板两指横扫，整书适配时翻一页、放大时平移；纸质选章目录随书一起缩放。</dd><dt>点索引组，浮出章节菜单</dt><dd>书口里的小标签代表一卷或一组书卷。点组标签，打开纸质选章目录；合并组可切换书卷，再点章号直接跳转；也可切换「经文摘读」，通过每章开头的真实经文寻找章节。不需要切换书的角度。</dd><dt>打开完整目录</dt><dd>点顶部书卷名或阅读工具里的「书卷章节」，可从全部 66 卷中查找。</dd><dt>书下的最近跳转</dt><dd>从目录跳到一章后，继续翻页会更新同一条记录。点标签文字，视野横移到那本已摊开的书。切换最近记录不翻纸；只有选择目录才连续翻页。未置顶的标签只显示文字；鼠标移上、用键盘聚焦或在手机上长按该标签，才显示图钉和小叉。移开后小叉收起，已置顶的标签只保留实心图钉。点图钉置顶，再点取消；点小叉删除，误删可撤销。记录和高亮保存在此浏览器。</dd></dl><p class="notice">滑动翻过一张纸；跨书卷或跨章节跳转时，按距离连续翻过多张纸。纸页弯曲为轻量模拟；不同手机的触感仍需真机体验。</p></dialog>
 
-<dialog id="study-qa" class="study-qa" aria-labelledby="study-qa-heading" data-revision="c7f8bf4d1eb1">
-  <header class="study-qa__header">
-    <div class="eyebrow">纸页 · 研读</div>
-    <h2 id="study-qa-heading">经文问答</h2>
+<dialog id="study-qa" class="study-qa" aria-label="经文问答" data-revision="c7f8bf4d1eb1">
+  <div class="study-qa__controls">
     <button type="button" class="dialog-close" data-close aria-label="关闭经文问答" autofocus>×</button>
-    <p id="study-qa-position"></p>
-    <div id="study-qa-scopes" role="group" aria-label="问答范围" hidden>
-      <button type="button" data-scope="selection" aria-pressed="true">所选经文</button>
-      <button type="button" data-scope="chapters" aria-pressed="false">整章</button>
-    </div>
-  </header>
+  </div>
   <div id="study-qa-scroll" class="study-qa__scroll" tabindex="0" aria-label="问答列表">
     <p id="study-qa-status" role="status"></p>
     <div id="study-qa-list"></div>
   </div>
-  <footer class="study-qa__footer">AI 研读笔记，供查考；请以经文为准。</footer>
 </dialog>
 <dialog id="study-settings" class="study-qa study-qa--settings" aria-labelledby="study-settings-heading">
   <header class="study-qa__header">
