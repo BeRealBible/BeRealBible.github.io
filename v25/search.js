@@ -2,12 +2,12 @@
 (function(root){
   'use strict';
   const words=typeof module==='object'&&module.exports?require('./words.js'):root.V25Words,norm=words.key,limit=500;
-  const groups={
+  const groups=Object.freeze({
     '摩西五经':'GEN EXO LEV NUM DEU','历史书':'JOS JDG RUT 1SA 2SA 1KI 2KI 1CH 2CH EZR NEH EST',
     '诗歌智慧书':'JOB PSA PRO ECC SNG','大先知书':'ISA JER LAM EZK DAN','小先知书':'HOS JOL AMO OBA JON MIC NAM HAB ZEP HAG ZEC MAL',
     '四福音书':'MAT MRK LUK JHN','使徒行传':'ACT','保罗书信':'ROM 1CO 2CO GAL EPH PHP COL 1TH 2TH 1TI 2TI TIT PHM',
     '希伯来书':'HEB','普通书信':'JAS 1PE 2PE 1JN 2JN 3JN JUD','启示录':'REV'
-  };
+  });
   const category=new Map(Object.entries(groups).flatMap(([group,codes])=>codes.split(' ').map(code=>[code,group])));
   function catalogue(source,lookup,scripture){
     const rows=[],byBook=new Map();
@@ -39,6 +39,7 @@
     };
   }
   if(typeof module==='object'&&module.exports){module.exports={catalogue,groups};return;}
+  root.V25BookGroups=groups;
   root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,windows})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more');
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.

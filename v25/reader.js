@@ -5,6 +5,7 @@
   const $=id=>document.getElementById(id),D=window.BIBLE_DATA;
   const Page=window.PaperPage,Material=window.PaperBookMaterial;
   const stage=$('stage'),book=$('book'),papers=[$('left-paper'),$('right-paper')];
+  const quickDirectory=$('v25-book-directory');
   // Touch devices can drop large composited tiles when a zoomed spread is
   // also used as a snapshot, transformed leaf or cover animation. Keep the
   // V25 touch reader in the normal paint path, including large tablets.
@@ -233,6 +234,7 @@
   });
   function resize(){
     if(view.w===stage.clientWidth&&view.h===stage.clientHeight)return;
+    if(startPanKind==='directoryPan')cancelStartPan();
     opening?.finish();
     const widthChanged=view.w!==stage.clientWidth;
     const pose=capturePose(),dock=chapters?.getDock?.();
@@ -254,6 +256,7 @@
   }
   function zoomWithChapterMenu(factor){
     const dock=chapters?.getDock?.();if(!dock||!Number.isFinite(factor)||factor<=0)return;
+    if(startPanKind==='directoryPan')cancelStartPan();
     const r=stage.getBoundingClientRect(),ax=dock.x-r.left,ay=dock.y-r.top,next=clamp(scale*factor,fitScale,MAX_SCALE);
     x=ax-(ax-x)*next/scale;y=ay-(ay-y)*next/scale;scale=next;focus='custom';transform();save();
   }
@@ -266,19 +269,22 @@
   function cancelStartPan(){
     if(!startPanFrame)return;
     cancelAnimationFrame(startPanFrame);startPanFrame=0;
-    stage.dataset[startPanKind]='cancelled';startPanKind=null;save();
+    const kind=startPanKind;stage.dataset[kind]='cancelled';startPanKind=null;
+    if(kind!=='directoryPan')save();
   }
-  function panToReadingPoint(targetX,targetY,side,kind,onCommit){
+  function cameraTarget(targetX,targetY){
     const fromX=x,fromY=y;
     x=targetX;y=targetY;constrain();const toX=x,toY=y;
     x=fromX;y=fromY;
-    focus='custom';
+    return {x:toX,y:toY};
+  }
+  function slideCamera({x:toX,y:toY},kind,onCommit){
+    const fromX=x,fromY=y;
     const complete=()=>{
       startPanFrame=0;startPanKind=null;stage.dataset[kind]='committed';
-      x=toX;y=toY;readingSide=side;onCommit?.();
-      render({reusePages:true});transform();save();advanceHistory();
+      x=toX;y=toY;onCommit();
     };
-    if(reduceMotion()){complete();return;}
+    if(reduceMotion()||Math.hypot(toX-fromX,toY-fromY)<.5){complete();return;}
     const started=performance.now();
     startPanKind=kind;stage.dataset[kind]='running';
     function frame(now){
@@ -289,6 +295,12 @@
       startPanFrame=requestAnimationFrame(frame);
     }
     startPanFrame=requestAnimationFrame(frame);
+  }
+  function panToReadingPoint(targetX,targetY,side,kind,onCommit){
+    focus='custom';
+    slideCamera(cameraTarget(targetX,targetY),kind,()=>{
+      readingSide=side;onCommit?.();render({reusePages:true});transform();save();advanceHistory();
+    });
   }
   function offerStartShortcut(direction){
     const forward=direction>0,pad=18;
@@ -542,6 +554,7 @@
     }});
   history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,byChapter:true,
     onSettings:study&&(()=>{interrupt();study.openSettings();}),
+    onDirectory:quickDirectory&&window.V25BookGroups&&openBookDirectory,
     mountFullscreen:window.PaperImmersion?.bindFullscreen,
     onFloat:loc=>{selection?.reset({keepFocus:true});compare.clearSelection();compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
@@ -555,6 +568,7 @@
   const openingChoice=window.PaperEdgeChapters.openingPreference(storage);
   window.PaperEdgeChapters.mountOpeningChoice($('book-picker-opening'),openingChoice);
   function selectIndexChapter(page,requested){
+    if(startPanKind==='directoryPan')cancelStartPan();
     if(openingChoice.get()==='page'){jump(page,null,null,requested);return;}
     $('book-picker').close();
     const chunks=scripture.index(requested.bookCode)?.chunks;
@@ -565,11 +579,49 @@
   }
   chapters=window.PaperEdgeChapters.create(document.querySelector('.stage-wrap'),{books:D.books,onSelect:selectIndexChapter,opening:openingChoice,
     getBookFrame:bookFrame,onZoom:zoomWithChapterMenu,
+    onDismiss:()=>{if(startPanKind==='directoryPan')cancelStartPan();},
     getPreview:(index,chapter)=>chapterPreview(D.books[index]?.code,chapter),
     getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingLocation().ref,10)||1})});
   function openEdgeChapters(i,_book,metadata={}){
     interrupt();
     chapters.open({bookIndices:metadata.bookIndices||[i],index:i,anchor:metadata.anchor});
+  }
+  function openBookDirectory(){
+    interrupt();
+    const code=currentBook().code;
+    for(const button of quickDirectory.querySelectorAll('button[data-book]')){
+      if(button.dataset.book===code)button.setAttribute('aria-current','true');else button.removeAttribute('aria-current');
+    }
+    if(!quickDirectory.open)quickDirectory.showModal();
+  }
+  function showDirectoryCut(i){
+    quickDirectory.close();interrupt();
+    const cut=index.cutForBook?.(i);if(!cut)return;
+    window.PaperImmersion?.hideChrome();stage.focus({preventScroll:true});
+    const to=cameraTarget(view.w*(cut.side==='left'?.22:.78)-(cut.x+cut.width/2)*scale,
+      view.h*.5-(cut.y+cut.height/2)*scale),dx=to.x-x,dy=to.y-y;
+    const frame=bookFrame(),a=cut.anchor;
+    // Choose the dock at the real cut's arrival point, even if the cut
+    // initially lies offscreen, and let the existing leaf follow the camera.
+    if(!chapters.open({index:i,bookIndices:cut.bookIndices,anchor:{left:a.left+dx,right:a.right+dx,top:a.top+dy,bottom:a.bottom+dy},
+      arrivalFrame:{x:frame.x+dx,y:frame.y+dy,scale},deferFocus:true}))return;
+    if(Math.hypot(dx,dy)>=.5)focus='custom';
+    slideCamera(to,'directoryPan',()=>{transform();chapters.focus();});
+  }
+  if(quickDirectory&&window.V25BookGroups){
+    const list=$('v25-book-directory-groups'),byCode=new Map(D.books.map((b,i)=>[b.code,{book:b,i}]));
+    for(const [group,codes] of Object.entries(window.V25BookGroups)){
+      const section=document.createElement('section'),heading=document.createElement('h3'),buttons=document.createElement('div');
+      section.className='v25-book-directory__group';section.setAttribute('aria-label',group);
+      heading.textContent=group;buttons.className='v25-book-directory__books';
+      for(const code of codes.split(' ')){
+        const item=byCode.get(code);if(!item)continue;
+        const button=document.createElement('button');button.type='button';button.textContent=item.book.short;
+        button.dataset.book=code;button.title=item.book.name;button.setAttribute('aria-label',item.book.name);
+        button.onclick=()=>showDirectoryCut(item.i);buttons.append(button);
+      }
+      section.append(heading,buttons);list.append(section);
+    }
   }
   function openPicker(){
     interrupt();$('book-picker-books').hidden=false;$('book-picker-chapters').hidden=true;$('book-picker-back').hidden=true;

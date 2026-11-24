@@ -289,6 +289,18 @@ test('chapter requests carry only this side group members and a detached plain s
   f.metadata[0].bookIndices.push(65);left.click();assert.deepEqual(f.metadata.at(-1).bookIndices,[8]);
   assert.match(left.getAttribute('aria-label'),/选择章节/);assert.equal(left.getAttribute('aria-haspopup'),'dialog');
 });
+test('directory lookup resolves the same physical cut as direct selection, including a non-first member',()=>{
+  const f=setup(physical);f.index.update({spread:0});
+  const first=f.index.cutForBook(8),second=f.index.cutForBook(9);
+  assert.deepEqual(first,second);assert.deepEqual(second.bookIndices,[8,9]);
+  const button=visibleGroups(f).find(button=>+button.dataset.group===second.groupIndex&&button.dataset.side===second.side);
+  button.click();assert.deepEqual(second.anchor,f.metadata.at(-1).anchor);
+  second.bookIndices.pop();assert.deepEqual(f.index.cutForBook(9).bookIndices,[8,9]);
+  f.index.update({spread:splitBefore(physical.books,9)});
+  assert.deepEqual(f.index.cutForBook(8).bookIndices,[8]);assert.deepEqual(f.index.cutForBook(9).bookIndices,[9]);
+  assert.notEqual(f.index.cutForBook(8).side,f.index.cutForBook(9).side);
+  assert.equal(f.index.cutForBook(-1),null);
+});
 test('blank fore-edge surfaces do not advertise or expose any alternate view',()=>{
   const f=setup(),bands=classNodes(f,'edge-index__band');assert.equal(bands.length,2);
   for(const band of bands){

@@ -169,7 +169,7 @@
       current:()=>{pull();return current;},canUndo:()=>Boolean(removed)};
   }
   function label(e){return (e.bookName||e.bookCode||'书页')+(e.ref?' '+e.ref:(!e.bookName&&!e.bookCode?' '+(e.page+1):''));}
-  function create({host,storage,pageCount,onNavigate,onFloat,onSettings,mountFullscreen,byChapter=false,books=[]}){
+  function create({host,storage,pageCount,onNavigate,onFloat,onSettings,onDirectory,mountFullscreen,byChapter=false,books=[]}){
     if(!host?.ownerDocument||typeof onNavigate!=='function')throw TypeError('History needs a shelf host and navigation callback');
     const doc=host.ownerDocument,model=createModel({storage,pageCount,byChapter,books}),win=doc.defaultView;
     const key=byChapter?COMPARE_KEY:KEY;
@@ -261,6 +261,12 @@
     }
     if(compact)listen(win,'paper-reader-chrome-hidden',()=>{clearShown();cancelHold();});
     shelf.append(caption,track,undoButton,status);
+    if(compact&&onDirectory){
+      const directory=button('rh-toggle rh-directory','','目录',onDirectory);
+      directory.setAttribute('aria-haspopup','dialog');directory.setAttribute('aria-controls','v25-book-directory');
+      directory.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 9h2m3 0h4M8 15h2m3 0h4"/></svg>';
+      shelf.prepend(directory);
+    }
     if(compact&&onSettings){
       const gear=button('rh-toggle rh-settings','','阅读设置',onSettings);
       gear.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.4 4.3 10 2.8h4l.6 1.5 1.5.9 1.6-.3 2 3.5-1 1.2v1.8l1 1.2-2 3.5-1.6-.3-1.5.9-.6 1.5h-4l-.6-1.5-1.5-.9-1.6.3-2-3.5 1-1.2V9.6l-1-1.2 2-3.5 1.6.3 1.5-.9Z" transform="translate(0 1.5)"/><circle cx="12" cy="12" r="3"/></svg>';

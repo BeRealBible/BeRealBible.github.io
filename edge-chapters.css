@@ -74,6 +74,19 @@
 .edge-chapters__panel>*{zoom:var(--book-scale,1)}
 .edge-chapters__sheet,.edge-chapters__grid{overflow-anchor:none}
 .edge-chapters,.edge-chapters__outside,.edge-chapters__grid{touch-action:pan-y}
+.v25-book-directory{width:min(610px,calc(100% - 20px));max-height:84dvh;padding:0;overflow:hidden;background:#fbf6e8;color:#493c2c;border:1px solid #aa937361;border-radius:11px}
+.v25-book-directory[open]{display:flex;flex-direction:column}
+.v25-book-directory::backdrop{background:#29221940;backdrop-filter:none}
+.v25-book-directory__header{position:relative;flex:none;border-bottom:1px solid #baa38160;padding:10px 44px 9px 14px}
+.v25-book-directory__header h2{margin:0;font-size:17px;color:#553c2d}
+.v25-book-directory__header .dialog-close{min-width:36px;min-height:36px;top:2px;right:5px;color:#72583f}
+.v25-book-directory__groups{min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:8px;overflow:auto;overscroll-behavior:contain;padding:10px}
+.v25-book-directory__group{min-width:0;border:1px solid #cdbb9d73;border-radius:6px;background:#f8efdd;padding:6px}
+.v25-book-directory__group h3{margin:0 0 4px;color:#705845;font:600 12px/1.35 var(--serif,serif)}
+.v25-book-directory__books{display:flex;flex-wrap:wrap;gap:3px}
+.v25-book-directory__books button{min-width:33px;min-height:34px;padding:2px 5px;border:1px solid #b8a28260;border-radius:4px;background:#fffaf0;color:#543c2d;font:inherit;font-size:14px}
+.v25-book-directory__books button:hover,.v25-book-directory__books button[aria-current=true]{background:#eadbc4;border-color:#a17b5e91}
+@media(min-width:640px){.v25-book-directory__groups{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .edge-chapters__panel[data-narrow="true"] .edge-chapters__sheet{padding:30px 8px 5px 10px}
 .edge-chapters__panel[data-narrow="true"] .edge-chapters__sheet:after{left:4px}
 .edge-chapters__panel[data-narrow="true"] .edge-chapters__modes{right:3px}

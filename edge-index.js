@@ -172,6 +172,13 @@
       if(destroyed)return {...geometry.bounds};state={...state,...next};
       return paint();
     }
+    function cutForBook(index){
+      if(destroyed)return null;
+      const item=geometry.groups.find(item=>item.bookIndices.includes(index));
+      if(!item)return null;
+      const button=groupButtons.get(item.groupIndex+':'+item.side);
+      return {...item,anchor:anchorRect(button),bookIndices:item.bookIndices.slice()};
+    }
     function destroy(){
       if(destroyed)return;destroyed=true;
       for(const [el,type,fn,capture] of listeners)el.removeEventListener(type,fn,capture);
@@ -179,7 +186,7 @@
     }
     paint();
     return {update,getBounds:()=>({...geometry.bounds}),getNormalBounds:()=>({leftExtent:geometry.bounds.normalLeftExtent,rightExtent:geometry.bounds.normalRightExtent}),
-      destroy,element:root};
+      cutForBook,destroy,element:root};
   }
   return {constants,GROUPS,carrierSheet,sideOf,rectanglesOverlap,layout,create};
 });

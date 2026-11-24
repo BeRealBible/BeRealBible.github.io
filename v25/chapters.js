@@ -253,9 +253,9 @@
       const requested=Array.isArray(options.bookIndices)?options.bookIndices:[options.index];
       const valid=[...new Set(requested)].filter(index=>Number.isInteger(index)&&index>=0&&index<books.length);
       if(!valid.length)return false;
-      if(!opened){previousFocus=doc.activeElement;hinge=chooseDock(options.anchor,getViewport());openedFrame=bookFrame();}
+      if(!opened){previousFocus=doc.activeElement;hinge=chooseDock(options.anchor,getViewport());openedFrame=options.arrivalFrame||bookFrame();}
       members=valid;selected=members.includes(options.index)?options.index:members[0];
-      opened=true;root.hidden=false;render();position();focusChapter();return true;
+      opened=true;root.hidden=false;render();position();if(!options.deferFocus)focusChapter();return true;
     }
     function close(reason='dismiss'){
       if(!opened)return false;opened=false;root.hidden=true;contacts.clear();pinchDistance=0;ignorePinchClick=false;
@@ -319,7 +319,8 @@
       sizeObserver?.disconnect();openChoice?.destroy();
       for(const [node,type,fn,capture] of staticListeners)node.removeEventListener(type,fn,capture);root.remove();
     }
-    return {open,close,isOpen:()=>opened,getMode:()=>mode,setMode,reposition:position,getDock:()=>opened?{...dock}:null,destroy,element:root};
+    return {open,close,isOpen:()=>opened,getMode:()=>mode,setMode,reposition:position,focus:()=>{if(opened)focusChapter();},
+      getDock:()=>opened?{...dock}:null,destroy,element:root};
   }
   return {constants,chapterEntries,menuSize,chooseDock,dockBounds,placeDock,place,openingPreference,mountOpeningChoice,create};
 });
