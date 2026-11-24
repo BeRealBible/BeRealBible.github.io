@@ -22,7 +22,15 @@
 .study-notes__item-head{display:flex;align-items:center;justify-content:space-between;gap:.55em}
 .study-notes__text{margin:.2em 0 0;color:#413126;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .study-notes__address,.study-notes__status,.study-notes__empty{font-size:.84em;line-height:1.5;color:#674e39;overflow-wrap:anywhere}
-.study-notes__editor>.study-notes__address{margin:.55em 0}
+.study-notes__address-head>.study-notes__address{margin:.4em 0}
+.study-notes__anchors[hidden]{display:none}
+.study-notes__anchors{margin:0 0 .55em;padding:.45em .55em;border:1px solid #cdbb9d85;border-radius:6px}
+.study-notes__chips,.study-notes__picker,.study-notes__anchor-actions{display:flex;flex-wrap:wrap;gap:.22em .45em;margin:.16em 0;align-items:center}
+.study-notes__chip{display:inline-flex;align-items:center;gap:.35em;border-radius:4px;padding-inline-start:.45em;background:#ede0ca;color:#553c2d;font-size:.84em}
+.study-notes__remove,.study-notes__add{border:0;background:transparent;color:#69412d;cursor:pointer;font:inherit;min-width:2em;min-height:2em}
+.study-notes__add{display:block;margin:.24em 0 0 auto;font-size:1.18em;line-height:1}
+.study-notes__picker select{min-height:2.25em;max-width:100%;color:#553c2d;background:#fffaf0;border:1px solid #bbab8e;border-radius:4px;font:inherit;font-size:max(.84em,16px)}
+.study-notes__link:disabled{opacity:.48;cursor:default}
 .study-notes__field{box-sizing:border-box;display:block;width:100%;height:14em;height:calc(8lh + 1.1em + 2px);min-height:5em;padding:.55em .63em;padding-bottom:calc(.55em + var(--note-keyboard-inset,0px));color:#3b2c21;background:#fffdf6;border:1px solid #af997a;border-radius:6px;resize:vertical;font:inherit;font-size:max(1em,16px);line-height:1.6;user-select:text;-webkit-user-select:text;touch-action:auto}
 .study-notes__field:focus{outline:2px solid #a17b5e;outline-offset:-1px}
 .study-notes__sync-hint{margin:.4em 0 0;font-size:.77em;color:#6a5744}
@@ -59,6 +67,9 @@
 [data-qap-paper-cues]{display:none}
 html[data-study-marks] [data-qap-paper-cues]{display:inline}
 [data-qap-paper-cues]>line{stroke:#a0804f63;stroke-width:var(--qap-cue-width,.9px);stroke-linecap:round}
+[data-chapter-counts]{user-select:none;-webkit-user-select:none;color:#97846b}
+[data-chapter-counts] text{fill:currentColor;font-family:system-ui,sans-serif;font-variant-numeric:tabular-nums}
+[data-chapter-counts] path{stroke:currentColor;fill:none;stroke-width:.75;stroke-linecap:round;stroke-linejoin:round}
 html[data-study-marks] :where(.compare-slip__chunk) [data-qap-mark]{
   text-decoration-line:underline;text-decoration-color:#a0804f63;
   text-decoration-thickness:max(1px,.045em);text-underline-offset:.14em;text-decoration-skip-ink:none;

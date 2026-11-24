@@ -20,6 +20,8 @@
 
 ## 本地自动验收
 
+同选区多笔记和章号计数可使用现有接口。启用「修改关联」前须先执行 `supabase/migrations/20261125000100_v25_note_reanchor.sql` 再置 `noteReanchorEnabled:true`。迁移只增加 v2 写入 RPC，不改表、不回填旧记录，原写入 RPC 保留给缓存旧客户端。用两测试身份验证已有笔记移动、同范围多条、重试幂等和越权失败；缓存旧客户端可能不显示新建或已移走的笔记，刷新后可读。
+
 - `node tools/preview-v25-account.cjs`：在本机访问 `http://127.0.0.1:37875/account-setup`，给当前标签页配置真实后端进行发信、登录及同步验收。只接受浏览器公开配置，不把项目地址或键写入正式发布配置，不对局域网或公网开放。
 - `node test-v25-account.cjs`：配置拒绝私钥、认证请求、游客导入范围、账号隔离、同步期间的新写入保护。
 - `node test-v25-account-db.cjs`：需要 PGlite（或设置 `PGLITE_MODULE`）。用本地 PostgreSQL 兼容运行时执行实际迁移，验证匿名拒绝、两个账号读写隔离、导入不覆盖、删除标记；本地模拟 `auth.uid()`，不替代真实 Supabase 部署验收。
@@ -33,6 +35,7 @@
 
 - 真实验收：邮箱验证码登录通过；Edge 写入的创世记 1:24 高亮在 Supabase 查到，并在登录前无高亮的 Chrome 中恢复。尚不等同于不同手机号网络或第二只邮箱的完整验收。
 - 2026-11-24：Supabase 已部署笔记迁移，两测试身份在真实数据库中验证按顺序写入、读取和跨账户隔离，测试事务回滚；匿名公网请求明确被拒绝。
+- 2026-11-25：正式 Supabase 已增加修改关联接口，只允许登录角色调用并继续使用原有行级隔离。两测试身份验证同选区多条、旧笔记原位更新关联、幂等重试、至少一处关联及跨账号拒绝；测试事务已回滚。
 - `paper-bible-demo` 与 `emmaus-paper-study-demo` 曾共用 `https://xxmm1221.github.io`，浏览器不会按仓库路径隔离 Web Storage。当前同步实现将账户缓存存入 `localStorage`；不能把键名前缀当作跨项目的安全隔离。这是发布前发现的架构边界，不代表已观察到数据被其他页面读取。先在另一个 GitHub 所有者的 Pages 上构建并验证 Demo，才停用 Demo 原仓库的 Pages；旧仓库及备份保留。Demo 自己保存在浏览器的记录不会随网站地址自动转移。参见 [浏览器同源策略](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy#cross-origin_data_storage_access)。
 - 2026-11-24：Demo 已在 `https://berealbible.github.io/emmaus-paper-study-demo/` 发布；新旧首页指纹一致，实开经文和注释正常。旧仓库已停用 Pages 并保留代码，旧 Demo 路径及主页返回 404，原纸圣经入口响应 200 且不跳转。
 - 为保留原读经网址而启用账号前，使用站点所有者已授权的 GitHub CLI 执行 `node tools/check-v25-pages-isolation.cjs`，并检查 Demo 新网址可用、旧地址不再托管内容。验收成功才可把 `notesOrigin` 设置为 `https://xxmm1221.github.io` 并设 `pagesIsolationVerified:true`。未设置时原站继续作为游客入口。账号一旦公开，访客浏览器中可能留有私人缓存；即使后来回滚账号配置，也不要在同一主机名重新启用其他项目。需要回滚 Demo 时仍在其新主机名上处理。

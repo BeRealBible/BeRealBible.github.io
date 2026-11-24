@@ -6,6 +6,7 @@
   'use strict';
   const PREFIX='paper-bible-v25-private-notes-v1:';
   const LIMIT=100000;
+  const validId=id=>typeof id==='string'&&id.length<=4096&&/^[A-Z0-9.:-]+(?:\|[A-Z0-9.:-]+)*$/.test(id);
   function enabled(location,configuredOrigin,pagesIsolationVerified){
     if(location.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(location.hostname))return true;
     if(location.protocol!=='https:'||location.origin!==configuredOrigin)return false;
@@ -26,8 +27,8 @@
       try{
         const raw=JSON.parse(value);
         if(!raw||typeof raw.text!=='string'||!raw.text.trim()||raw.text.length>LIMIT||!Array.isArray(raw.refs)||!raw.refs.every(validRef))return null;
-        const desc=describe(raw.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi}));
-        return desc.key&&keyFor(desc.key)===key?{id:desc.key,refs:refsFor(desc.objects),label:desc.fullTitle,text:raw.text}:null;
+        const desc=describe(raw.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi})),id=raw.id??desc.key;
+        return desc.key&&validId(id)&&keyFor(id)===key?{id,refs:refsFor(desc.objects),label:desc.fullTitle,text:raw.text}:null;
       }catch{return null;}
     }
     function load(){
@@ -42,19 +43,20 @@
     }
     function notify(id,source){for(const listener of listeners)listener(id,source);}
     function write(desc,text,source){
-      if(!desc.key||typeof text!=='string'||text.length>LIMIT)return false;
-      const data=load(),was=data.items.get(desc.key),key=keyFor(desc.key);
-      const item=text.trim()?{id:desc.key,refs:refsFor(desc.objects),label:desc.fullTitle,text}:null;
-      if(!item&&!was&&!drafts.has(desc.key))return true;
-      if(was?.text===text&&!drafts.has(desc.key))return true;
+      const id=desc.noteId??desc.key;
+      if(!desc.key||!validId(id)||desc.objects.length>256||typeof text!=='string'||text.length>LIMIT)return false;
+      const data=load(),was=data.items.get(id),key=keyFor(id);
+      const item=text.trim()?{id,refs:refsFor(desc.objects),label:desc.fullTitle,text}:null;
+      if(!item&&!was&&!drafts.has(id))return true;
+      if(item&&was?.text===text&&JSON.stringify(was.refs)===JSON.stringify(item.refs)&&!drafts.has(id))return true;
       let durable=false;
       try{
         if(!storage)throw Error();
-        if(item)storage.setItem(key,JSON.stringify({refs:item.refs,text:item.text}));else storage.removeItem(key);
-        drafts.delete(desc.key);durable=true;
-      }catch{drafts.set(desc.key,item);}
-      if(item)data.items.set(desc.key,item);else data.items.delete(desc.key);
-      data.index=null;notify(desc.key,source);return durable;
+        if(item)storage.setItem(key,JSON.stringify({...(id===desc.key?{}:{id}),refs:item.refs,text:item.text}));else storage.removeItem(key);
+        drafts.delete(id);durable=true;
+      }catch{drafts.set(id,item);}
+      if(item)data.items.set(id,item);else data.items.delete(id);
+      data.index=null;notify(id,source);return durable;
     }
     return {get:id=>load().items.get(id),query(objects){const data=load();return (data.index??=createIndex([...data.items.values()])).query(objects);},
       write,isDurable:id=>!drafts.has(id),

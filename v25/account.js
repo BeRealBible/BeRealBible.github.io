@@ -19,7 +19,8 @@
     if(location.hostname==='berealbible.github.io'&&!(config.pagesIsolationVerified===true&&
       config.notesOrigin===location.origin&&/^\/(?:index\.html)?$/.test(location.pathname)))return null;
     if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(config.url)||!/^sb_publishable_[\w-]+$/.test(config.publishableKey))return null;
-    return {url:config.url.replace(/\/$/,''),publishableKey:config.publishableKey};
+    return {url:config.url.replace(/\/$/,''),publishableKey:config.publishableKey,
+      ...(config.noteReanchorEnabled===true?{noteReanchorEnabled:true}:{})};
   }
   function eligible(key,edition){
     return typeof key==='string'&&key.length<=240&&/^[a-zA-Z0-9:~_@.–\-]+$/.test(key)&&key.endsWith(':'+edition)&&KIND.test(key);
@@ -104,8 +105,11 @@
       logout:access=>request('/auth/v1/logout?scope=local',{access}),
       exchange:(access,edition,patch,imports)=>request('/rest/v1/rpc/paper_v25_sync',{access,body:{edition_key:edition,changes:patch,guest_import:imports}}),
       listNotes:access=>request('/rest/v1/rpc/paper_v25_note_list',{access,body:{}}),
-      writeNote:(access,note)=>request('/rest/v1/rpc/paper_v25_note_write',{access,body:{
-        anchor_key:note.noteKey,anchors:note.refs,note_body:note.text,expected_revision:note.revision,mutation_id:note.id}}),
+      writeNote:(access,note)=>{
+        if(note.changesRefs&&!config.noteReanchorEnabled)throw Error('暂时无法同步经文关联。');
+        return request('/rest/v1/rpc/paper_v25_note_write'+(config.noteReanchorEnabled?'_v2':''),{access,body:{
+          anchor_key:note.noteKey,anchors:note.refs,note_body:note.text,expected_revision:note.revision,mutation_id:note.id}});
+      },
     };
   }
   function mount(win){
@@ -260,7 +264,7 @@
       if(noteScope()!==scope)throw Error('登录账号已切换。');
       return callback(access);
     }
-    return {readerStorage,readerReady,openDialog,get usingProfile(){return enabled&&!!profile;},get notesScope(){return noteScope();},
+    return {readerStorage,readerReady,openDialog,noteReanchorEnabled:config.noteReanchorEnabled===true,get usingProfile(){return enabled&&!!profile;},get notesScope(){return noteScope();},
       noteTransport(scope){return {list:()=>notesCall(scope,client.listNotes),write:note=>notesCall(scope,access=>client.writeNote(access,note))};}};
   }
   return {configFor,createClient,createProfile,mount,eligible};

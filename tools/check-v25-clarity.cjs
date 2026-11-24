@@ -63,6 +63,7 @@ async function capture(browser,url,label,width,dpr){
       throw Error(label+' '+JSON.stringify({state:await page.locator('html').getAttribute('data-rule-layout'),errors,miss:miss.slice(0,10)}),{cause:e});
     });
     await page.locator(opening).waitFor({state:'detached',timeout:15000});
+    if(hideStudyMarks)await page.addStyleTag({content:'[data-chapter-counts]{display:none!important}'});
     await still(page);
     const intro=await page.evaluate(()=>window.clarityOpening);
     const release=await page.evaluate(()=>({

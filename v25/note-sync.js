@@ -20,53 +20,64 @@
     let journalId;
     try{const tag='paper:v25:note-writer';journalId=sessionStorage?.getItem(tag)||id();sessionStorage?.setItem(tag,journalId);}catch{journalId=id();}
     journalId??=id();
-    const storageKey=PREFIX+encodeURIComponent(scope)+':'+journalId,states=new Map(),listeners=new Set();
+    const legacyKey=PREFIX+encodeURIComponent(scope)+':'+journalId,storageKey=legacyKey+':links',states=new Map(),listeners=new Set();
     const descriptor=refs=>describe(Array.isArray(refs)?refs.filter(Array.isArray).map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi}):[]);
     const refsOf=desc=>desc.objects.map(({code,ch,lo,hi})=>lo==null?[code,ch]:[code,ch,lo,hi]);
+    const validId=key=>typeof key==='string'&&key.length<=4096&&/^[A-Z0-9.:-]+(?:\|[A-Z0-9.:-]+)*$/.test(key);
+    const validDesc=desc=>desc.key&&desc.objects.length<=256;
+    const identified=(desc,noteId)=>({...desc,noteId});
     let durable=true,refreshing=null,loaded=false;
     function persist(){
       try{
         if(!storage)throw Error();
-        const journal=[...states.values()].filter(s=>s.pending.length).map(({desc,revision,base,pending,blocked})=>({refs:refsOf(desc),revision,base,pending,blocked}));
-        if(journal.length)storage.setItem(storageKey,JSON.stringify(journal));else storage.removeItem(storageKey);
+        const journal=[...states.values()].filter(s=>s.pending.length).map(({baseDesc,revision,base,pending,blocked})=>({noteId:baseDesc.noteId,refs:refsOf(baseDesc),revision,base,pending,blocked}));
+        if(journal.length)storage.setItem(storageKey,JSON.stringify(journal));
+        storage.removeItem(legacyKey);
+        if(!journal.length)storage.removeItem(storageKey);
         durable=true;
       }catch{durable=false;}
     }
     try{
-      const data=JSON.parse(storage?.getItem(storageKey)??'[]');
+      const data=JSON.parse(storage?.getItem(storageKey)??storage?.getItem(legacyKey)??'[]');
       for(const e of Array.isArray(data)?data:[]){
         if(typeof e.base!=='string'||e.base.length>TEXT_LIMIT||!Number.isSafeInteger(e.revision)||e.revision<0||!Array.isArray(e.pending)||!e.pending.length||!e.pending.every(validEdit))continue;
-        const desc=descriptor(e.refs);if(!desc.key)continue;
+        const initial=descriptor(e.refs),key=e.noteId??initial.key;
+        if(!validDesc(initial)||!validId(key)||e.pending.some(edit=>edit.refs!==undefined&&!validDesc(descriptor(edit.refs))))continue;
+        const baseDesc=identified(initial,key),last=e.pending.findLast(edit=>edit.refs!==undefined);
+        const desc=last?identified(descriptor(last.refs),key):baseDesc;
         const text=e.pending.reduce((body,edit)=>apply(body,edit.change),e.base);if(text.length>TEXT_LIMIT)continue;
-        states.set(desc.key,{desc,revision:e.revision,base:e.base,text,pending:e.pending,blocked:e.blocked===true,running:false,failed:false});model.write(desc,text);
+        states.set(key,{desc,baseDesc,revision:e.revision,base:e.base,text,pending:e.pending,blocked:e.blocked===true,running:false,failed:false});model.write(desc,text);
       }
     }catch{/* Damaged or locked browser storage never prevents reading or sign-in. */}
     function notify(key,source){for(const listener of listeners)listener(key,source);}
     const offModel=model.listen((key,source)=>notify(key,source));
     function process(s){
       if(s.running||s.blocked||!s.pending.length||!active()||!online())return;
-      s.running=true;s.failed=false;notify(s.desc.key);
+      const key=s.desc.noteId;
+      s.running=true;s.failed=false;notify(key);
       // The first request starts in this call on the input event; later edits
       // are queued individually while this particular note is in flight.
       (async()=>{
         try{
           while(active()&&online()&&s.pending.length&&!s.blocked){
-            const e=s.pending[0],body=apply(s.base,e.change);
-            const reply=await transport.write({noteKey:s.desc.key,refs:refsOf(s.desc),text:body,revision:s.revision,id:e.id});
+            const e=s.pending[0],body=apply(s.base,e.change),target=e.refs?identified(descriptor(e.refs),key):s.baseDesc;
+            const reply=await transport.write({noteKey:key,refs:refsOf(target),text:body,revision:s.revision,id:e.id,
+              changesRefs:!!e.refs});
             if(reply?.ok===false){
               // A refresh may not have arrived yet. Rebase only when the
               // server confirms the exact same prior text; never overwrite a
               // different edit from another reader.
-              if(reply.body===s.base&&Number.isSafeInteger(reply.revision)&&reply.revision>s.revision){
+              const sameRefs=reply.refs===undefined?!e.refs&&key===s.baseDesc.key:descriptor(reply.refs).key===s.baseDesc.key;
+              if(reply.body===s.base&&sameRefs&&Number.isSafeInteger(reply.revision)&&reply.revision>s.revision){
                 s.revision=reply.revision;persist();continue;
               }
               s.blocked=true;persist();break;
             }
             if(reply?.ok!==true||!Number.isSafeInteger(reply.revision)||reply.revision!==s.revision+1)throw Error('Invalid note acknowledgement');
-            s.base=body;s.revision=reply.revision;s.pending.shift();persist();
+            s.base=body;s.baseDesc=target;s.revision=reply.revision;s.pending.shift();persist();
           }
         }catch{s.failed=true;if(active())retrySoon();}
-        finally{s.running=false;notify(s.desc.key);}
+        finally{s.running=false;notify(key);}
       })();
     }
     function resume(){for(const s of states.values())process(s);}
@@ -74,9 +85,10 @@
       if(!Array.isArray(remote))throw Error('Invalid note collection');
       for(const r of remote){
         if(typeof r.body!=='string'||r.body.length>TEXT_LIMIT||!Number.isSafeInteger(r.revision)||r.revision<1)continue;
-        const desc=descriptor(r.refs);if(!desc.key||r.note_key!==desc.key)continue;
-        const old=states.get(desc.key);if(old?.pending.length||old&&old.revision>=r.revision)continue;
-        states.set(desc.key,{desc,revision:r.revision,base:r.body,text:r.body,pending:[],blocked:false,running:false,failed:false});
+        const desc=identified(descriptor(r.refs),r.note_key),key=desc.noteId;
+        if(!validDesc(desc)||!validId(key))continue;
+        const old=states.get(key);if(old?.pending.length||old&&old.revision>=r.revision)continue;
+        states.set(key,{desc,baseDesc:desc,revision:r.revision,base:r.body,text:r.body,pending:[],blocked:false,running:false,failed:false});
         model.write(desc,r.body,'cloud');
       }
     }
@@ -84,20 +96,34 @@
       if(!active()||!online())return Promise.resolve(false);
       if(refreshing)return refreshing;
       refreshing=(async()=>{
-        try{const data=await transport.list();if(!active())return false;merge(data);loaded=true;resume();return true;}
+        try{const data=await transport.list();if(!active())return false;merge(data);if(!loaded){loaded=true;notify();}resume();return true;}
         catch{retrySoon();return false;}finally{refreshing=null;}
       })();return refreshing;
     }
+    function init(desc,key){
+      if(states.has(key))return states.get(key);
+      const cached=model.get(key),base=cached?.text||'',start=identified(cached?descriptor(cached.refs):desc,key);
+      const s={desc:start,baseDesc:start,base,text:base,revision:0,pending:[],running:false,blocked:false,failed:false};states.set(key,s);return s;
+    }
     function write(desc,text,source,seen){
-      if(!active()||!desc.key||typeof text!=='string'||text.length>TEXT_LIMIT)return false;
-      let s=states.get(desc.key);
-      if(!s){const base=model.get(desc.key)?.text||'';s={desc,base,text:base,revision:0,pending:[],running:false,blocked:false,failed:false};states.set(desc.key,s);}
+      const key=desc.noteId??desc.key;
+      if(!active()||!validDesc(desc)||!validId(key)||typeof text!=='string'||text.length>TEXT_LIMIT)return false;
+      const s=init(desc,key);
       if(s.text!==text){
         if(seen!==undefined&&s.text!==seen)s.blocked=true;
         s.pending.push({id:id(),change:delta(s.text,text)});s.text=text;persist();
-        model.write(desc,text,source);
+        model.write(s.desc,text,source);
       }
-      process(s);notify(desc.key,source);return durable;
+      process(s);notify(key,source);return durable;
+    }
+    function reanchor(key,next,source,expected){
+      if(!active()||!validId(key)||!validDesc(next))return false;
+      const cached=model.get(key),s=states.get(key)??(cached?init(descriptor(cached.refs),key):null);
+      if(!s||s.blocked||(expected!==undefined&&s.desc.key!==expected))return false;
+      if(next.key===s.desc.key)return true;
+      s.desc=identified(next,key);
+      s.pending.push({id:id(),change:[0,0,''],refs:refsOf(next)});persist();
+      model.write(s.desc,s.text,source);process(s);notify(key,source);return true;
     }
     function status(key){
       const s=states.get(key),keep=durable?'已记在本机':'浏览器存储不足，请在关页前复制正文';
@@ -110,7 +136,8 @@
       if(model.get(key))return {text:loaded?'此处缓存尚未得到云端确认。':'正在读取云端笔记…',warn:loaded};
       return {text:'',warn:false};
     }
-    return {get:model.get,query:model.query,write,status,refresh,resume,invalidate:model.invalidate,
+    return {get:model.get,query:model.query,write,reanchor,status,refresh,resume,invalidate:model.invalidate,
+      descriptor:key=>states.get(key)?.desc,ready:()=>loaded,
       body:key=>states.get(key)?.text??model.get(key)?.text??'',
       hasPending:()=>[...states.values()].some(s=>s.pending.length),
       listen(listener){listeners.add(listener);return ()=>listeners.delete(listener);},

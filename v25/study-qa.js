@@ -31,6 +31,18 @@
     }
     return underline>=bottom+.85?{x1,x2,y:underline}:null;
   }
+  function chapterCountBox(anchor,ink){
+    if(!anchor||anchor.hideHatch||!(anchor.w>0&&anchor.h>0))return null;
+    const right=anchor.x-2.7,center=anchor.y+anchor.h*.51;
+    const other=ink.filter(o=>o!==anchor&&!o.hideHatch&&o.w>0&&o.h>0&&o.x<right+.7&&o.x+o.w>right-20&&o.y+o.h>center-32&&o.y<center+32);
+    // Fit the two rows in existing whitespace, not over printed ink.
+    for(const size of [8,7,6,5])for(const dy of [0,-4,4,-8,8,-12,12,-16,16,-20,20]){
+      const w=size*2.2,h=size*2.25,x=right-w,y=center+dy-h/2;
+      if(x<1||y<1||y+h>703||Math.abs(dy)>Math.max(12,anchor.h*.55))continue;
+      if(!other.some(o=>o.x+o.w>x-.7&&o.x<right+.7&&o.y+o.h>y-.7&&o.y<y+h+.7))return {x,y,w,h,size};
+    }
+    return null;
+  }
   const intersects=(a,z,c,d)=>a<=d&&c<=z;
   function mergeRanges(ranges){
     const merged=[];
@@ -44,15 +56,21 @@
   // Only the union of canonical locations is needed for toolbar state and
   // paper marks. Stamp it into the entry; do not fetch the QAP text on select.
   function buildAvailability(data){
-    const books={};
-    for(const {refs} of data.items)for(const [code,ch,lo,hi] of refs){
-      const ranges=((books[code]??={})[ch]??=[]);
-      if(lo!=null)ranges.push([lo,hi]);
+    const books={},chapterCounts={};
+    for(const {refs} of data.items){
+      const counted=new Set();
+      for(const [code,ch,lo,hi] of refs){
+        const ranges=((books[code]??={})[ch]??=[]),key=addr(code,ch);
+        if(lo!=null)ranges.push([lo,hi]);
+        if(!counted.has(key)){
+          counted.add(key);const counts=(chapterCounts[code]??={});counts[ch]=(counts[ch]??0)+1;
+        }
+      }
     }
     for(const chapters of Object.values(books))for(const ch of Object.keys(chapters)){
       chapters[ch]=mergeRanges(chapters[ch]).flat();
     }
-    return {schema:1,books};
+    return {schema:1,books,chapterCounts};
   }
   function createAvailability(data){
     if(data?.schema!==1||!data.books)throw Error('Unknown QAP availability version');
@@ -62,7 +80,8 @@
       for(let n=0;n<ranges.length&&ranges[n]<=hi;n+=2)if(ranges[n+1]>=lo)return true;
       return false;
     }
-    return {has,hasAny:objects=>objects.some(({code,ch,lo,hi})=>has(code,ch,lo,hi))};
+    return {has,chapterCount:(code,ch)=>data.chapterCounts?.[code]?.[ch]??0,
+      hasAny:objects=>objects.some(({code,ch,lo,hi})=>has(code,ch,lo,hi))};
   }
   // QAP and notes share both canonical location normalization and this lookup.
   // Whole-chapter anchors are distinct from verses; lookups de-duplicate by ID.
@@ -144,11 +163,11 @@
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
     const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
     const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
-    const root=doc.documentElement,marked=new WeakSet();
+    const root=doc.documentElement,marked=new WeakSet(),countedFaces=new WeakSet();
     const notesEnabled=!!win.V25Notes?.enabled(win.location,win.V25_ACCOUNT_CONFIG?.notesOrigin,
       win.V25_ACCOUNT_CONFIG?.pagesIsolationVerified),models=new Map();
     const describe=objects=>describeSelection(objects,paper.books),scope=()=>win.V25Account?.notesScope||null;
-    let pendingWrite=null;
+    let pendingWrite=null,countFrame=null;
     const notes=()=>{
       const id=scope();if(!notesEnabled||!id||!win.V25NoteSync)return null;
       if(models.has(id))return models.get(id);
@@ -157,7 +176,7 @@
       const model=win.V25NoteSync.create({model:local,describe,storage,sessionStorage,scope:id,
         active:()=>scope()===id,online:()=>win.navigator.onLine!==false,transport:win.V25Account.noteTransport(id),
         retrySoon(){if(!timer)timer=win.setTimeout(()=>{timer=0;if(scope()===id)model.refresh();},2500);}});
-      models.set(id,model);model.refresh();return model;
+      models.set(id,model);model.listen(scheduleCounts);model.refresh();return model;
     };
     if(notesEnabled){
       win.addEventListener('storage',e=>{for(const model of models.values())model.invalidate(e.key);});
@@ -165,7 +184,7 @@
       // Receive changes made in another browser without interrupting the editor.
       const pull=()=>{if(!doc.hidden)notes()?.refresh();};
       doc.addEventListener('visibilitychange',pull);
-      win.addEventListener('paper-note-scope-changed',pull);
+      win.addEventListener('paper-note-scope-changed',()=>{pull();scheduleCounts();});
       win.addEventListener('beforeunload',e=>{if(models.get(scope())?.hasPending()){e.preventDefault();e.returnValue=true;}});
       win.setInterval(pull,5000);pull();
       $('paper-account-dialog')?.addEventListener('close',()=>{
@@ -287,18 +306,85 @@
       const hint=make('p','study-notes__sync-hint','输入会自动同步到当前账号。');
       const status=make('p','study-notes__status');status.setAttribute('role','status');
       const done=make('button','study-notes__link','返回笔记列表');done.type='button';
-      compose.append(range,field,hint,status,done);parts.notes.panel.append(compose,listing);
-      let active=null,editing=null,qaRendered=false,seenText='',composing=false;
+      const button=(label,cls='study-notes__link')=>{const el=make('button',cls,label);el.type='button';return el;};
+      const address=make('div','study-notes__item-head study-notes__address-head'),change=button('修改关联');
+      change.hidden=win.V25Account?.noteReanchorEnabled!==true;
+      const anchors=make('div','study-notes__anchors'),chips=make('div','study-notes__chips'),picker=make('div','study-notes__picker');
+      const bookField=make('select'),chapterField=make('select'),startField=make('select'),endField=make('select');
+      for(const [el,label] of [[bookField,'书卷'],[chapterField,'章'],[startField,'起始节（整章可不选）'],[endField,'结束节（可选）']])el.setAttribute('aria-label',label);
+      const addAnchor=button('添加关联'),apply=button('保存关联'),cancel=button('取消'),anchorHint=make('p','study-notes__sync-hint');
+      anchorHint.setAttribute('role','status');
+      const option=(value,label)=>{const el=make('option','',label);el.value=value;return el;};
+      const books=win.BIBLE_SOURCE.books,byCode=new Map(books.map(b=>[b.code,b]));
+      bookField.append(...books.map(({code,name})=>option(code,name)));
+      function setEnd(){
+        const old=endField.value,lo=+startField.value;
+        endField.replaceChildren(option('','单节'),...[...startField.options].filter(o=>lo>0&&+o.value>lo).map(o=>option(o.value,o.textContent)));
+        if([...endField.options].some(o=>o.value===old))endField.value=old;
+        endField.disabled=!lo;
+      }
+      function setVerses(){
+        const chapter=byCode.get(bookField.value)?.chapters.find(c=>+c.chapter===+chapterField.value);
+        startField.replaceChildren(option('','整章'),...(chapter?.verses||[]).map(([n])=>option(n,n+'节')));setEnd();
+      }
+      function setChapters(ch){
+        chapterField.replaceChildren(...byCode.get(bookField.value).chapters.map(c=>option(c.chapter,c.chapter+'章')));
+        if(ch!=null)chapterField.value=String(ch);
+        setVerses();
+      }
+      bookField.addEventListener('change',()=>setChapters());chapterField.addEventListener('change',setVerses);startField.addEventListener('change',setEnd);
+      address.append(range,change);picker.append(bookField,chapterField,startField,endField,addAnchor);
+      const actions=make('div','study-notes__anchor-actions');actions.append(apply,cancel);
+      anchors.append(chips,picker,anchorHint,actions);anchors.hidden=true;
+      compose.append(address,anchors,field,hint,status,done);parts.notes.panel.append(compose,listing);
+      let active=null,editing=null,qaRendered=false,seenText='',composing=false,draftRefs=null,draftBase='',awaitingInitialList=null;
+      const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
+      const fromItem=item=>describe(item.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi}));
+      const newNote=()=>startEditing(description,true,idForNew());
+      function showAnchors(message=''){
+        chips.replaceChildren(...draftRefs.map((ref,i)=>{
+          const chip=make('span','study-notes__chip'),label=describe([ref]).fullTitle;
+          const remove=button('×','study-notes__remove');remove.setAttribute('aria-label','移除关联：'+label);
+          remove.addEventListener('click',()=>{draftRefs=draftRefs.filter((_,n)=>n!==i);showAnchors();(chips.children[i]||chips.lastElementChild)?.lastElementChild?.focus();if(!chips.childElementCount)bookField.focus();});
+          chip.append(label,remove);return chip;
+        }));
+        apply.disabled=!draftRefs.length;
+        anchorHint.textContent=message||(!draftRefs.length?'笔记至少要关联一处经文或一章。':'可添加整章、单节或连续多节。');
+      }
+      function closeAnchors(){draftRefs=null;anchors.hidden=true;change.setAttribute('aria-expanded','false');}
+      change.setAttribute('aria-expanded','false');
+      change.addEventListener('click',()=>{
+        if(draftRefs){closeAnchors();return;}
+        draftRefs=editing.objects.slice();draftBase=editing.key;
+        const first=draftRefs[0];bookField.value=first.code;setChapters(first.ch);
+        anchors.hidden=false;change.setAttribute('aria-expanded','true');showAnchors();
+      });
+      addAnchor.addEventListener('click',()=>{
+        const code=bookField.value,ch=+chapterField.value,lo=+startField.value,hi=+endField.value||lo;
+        const next=describe([...draftRefs,lo?{code,ch,lo,hi}:{code,ch}]).objects;
+        if(next.length>256){showAnchors('一条笔记最多可关联 256 处。');return;}
+        draftRefs=next;showAnchors();
+      });
+      cancel.addEventListener('click',()=>{closeAnchors();change.focus();});
+      apply.addEventListener('click',()=>{
+        if(!draftRefs?.length||profile!==scope())return;
+        const next=describe(draftRefs),id=editing.noteId;
+        if(draftBase!==editing.key||((model.descriptor(id)||model.get(id))&&!model.reanchor(id,next,compose,draftBase))){
+          showAnchors('关联无法保存；可取消后重新打开，检查是否已在其他设备修改。');return;
+        }
+        editing={...next,noteId:id};range.textContent=next.fullTitle;closeAnchors();change.focus();statusText();
+      });
       function listNotes(){
         if(editing||active!=='notes')return;
         const matches=model?.query(description.objects)||[],frag=doc.createDocumentFragment();
         if(!model){frag.append(make('p','study-notes__empty','登录后可查看自己的云端笔记。'));listing.replaceChildren(frag);return;}
+        const add=button('+','study-notes__add');add.setAttribute('aria-label','新增笔记');add.title='新增笔记';add.addEventListener('click',newNote);frag.append(add);
         if(!matches.length)frag.append(make('p','study-notes__empty','所选经文还没有笔记。'));
         for(const item of matches){
           const article=make('article','study-notes__item'),header=make('div','study-notes__item-head');
           const label=make('span','study-notes__address',item.label),edit=make('button','study-notes__link','编辑');edit.type='button';
           edit.setAttribute('aria-label','编辑笔记：'+item.label);
-          edit.addEventListener('click',()=>startEditing(describe(item.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi})),true));
+          edit.addEventListener('click',()=>startEditing(fromItem(item),true,item.id));
           header.append(label,edit);
           article.append(header,make('p','study-notes__text',item.text));frag.append(article);
         }
@@ -317,19 +403,21 @@
       }
       function statusText(){
         if(!editing)return;
-        const {text,warn}=model.status(editing.key);
+        const {text,warn}=model.status(editing.noteId);
         status.dataset.unsaved=warn?'true':'false';if(status.textContent!==text)status.textContent=text;
       }
-      function startEditing(desc,focus){
-        const keep=editing?.key===desc.key;
-        editing=desc;compose.hidden=false;listing.hidden=true;
+      function startEditing(desc,focus,id){
+        const keep=editing?.noteId===id;
+        awaitingInitialList=null;
+        editing={...desc,noteId:id};compose.hidden=false;listing.hidden=true;closeAnchors();
         range.textContent=desc.fullTitle;
-        if(!keep){field.value=seenText=model.body(desc.key);statusText();}
+        if(!keep){field.value=seenText=model.body(id);statusText();}
         show('notes');
         if(focus){field.focus({preventScroll:true});field.setSelectionRange(field.value.length,field.value.length);}
       }
       function record(e){
         if(editing&&profile===scope()&&!e.isComposing&&!composing){
+          awaitingInitialList=null;
           const text=field.value;model.write(editing,text,compose,seenText);seenText=text;statusText();
         }
       }
@@ -338,9 +426,18 @@
       field.addEventListener('input',record);
       field.addEventListener('compositionstart',()=>{composing=true;});
       field.addEventListener('compositionend',e=>{composing=false;record(e);});
-      done.addEventListener('click',()=>{editing=null;compose.hidden=true;listing.hidden=false;listNotes();parts.notes.button.focus({preventScroll:true});});
+      const returnToList=()=>{editing=null;awaitingInitialList=null;closeAnchors();compose.hidden=true;listing.hidden=false;listNotes();};
+      done.addEventListener('click',()=>{returnToList();parts.notes.button.focus({preventScroll:true});});
       const off=model?.listen((key,source)=>{
-        if(editing&&key===editing.key){
+        if(!key&&model.ready()&&awaitingInitialList===editing?.noteId&&!field.value&&!draftRefs&&editing.key===description.key){
+          awaitingInitialList=null;
+          const exact=exactNotes();
+          if(exact.length===1)startEditing(fromItem(exact[0]),field===doc.activeElement,exact[0].id);
+          else if(exact.length>1)returnToList();
+        }
+        if(editing&&key===editing.noteId){
+          const latest=model.descriptor(key);
+          if(latest){editing=latest;range.textContent=latest.fullTitle;}
           if(source==='cloud'&&!composing){
             const a=field.selectionStart,z=field.selectionEnd;
             field.value=seenText=model.body(key);field.setSelectionRange(a,z);
@@ -349,10 +446,16 @@
         }else listNotes();
       });
       compose.hidden=true;
+      const exactNotes=()=>model.query(description.objects).filter(item=>fromItem(item).key===description.key);
       const request=mode=>{
-        if(mode==='write')startEditing(description,true);
+        if(mode==='write'){
+          const exact=exactNotes();
+          if(exact.length===1)startEditing(fromItem(exact[0]),true,exact[0].id);
+          else if(exact.length>1){show('notes');returnToList();}
+          else{newNote();if(!model.ready())awaitingInitialList=editing.noteId;}
+        }
         else if(!active)show(availability.hasAny(description.objects)?'qa':'notes');
-        else if(editing){editing=null;compose.hidden=true;listing.hidden=false;listNotes();}
+        else if(editing)returnToList();
       };
       request(initial);
       return {request,dispose:()=>off?.()};
@@ -422,6 +525,52 @@
         if(v&&availability.has(b,v.ch,v.lo,v.hi))el.querySelector('sup').dataset.qapMark='verse';
       }
     }
+    function countPaper(svg,model){
+      if(!countedFaces.has(svg)){
+        countedFaces.add(svg);svg.querySelector('[data-chapter-counts]')?.remove();
+        const pageIndex=Number(svg.dataset.pdf),face=paper.pages[pageIndex],book=paper.books[face?.b];
+        const chapters=book&&[...svg.querySelectorAll('text[data-role="chapter"][data-ref]')];
+        if(!chapters?.length)return;
+        const ink=win.PaperPage.commands(face,pageIndex,paper.books);
+        const make=(tag,attrs,parent)=>{
+          const el=doc.createElementNS(SVG,tag);for(const [k,v] of Object.entries(attrs))el.setAttribute(k,v);
+          parent?.append(el);return el;
+        };
+        const layer=make('g',{'data-chapter-counts':'','pointer-events':'none'});
+        const icons=['M1 1h6v4.4H4l-1.8 1.5V5.4H1z M3.5 2.3a.55.55 0 1 1 .9.45c-.35.22-.45.37-.45.65 M3.95 4.2h.01',
+          'M1.6 .9h3.5l1.5 1.5V7h-5z M4.9 1v1.7h1.6 M2.7 4h2.8m-2.8 1.4h2.8'];
+        for(const el of chapters){
+          const ch=chapterOf('chapter',el.dataset.ref),box=chapterCountBox(ink[el.dataset.physicalIdx],ink);
+          if(!ch||!box)continue;
+          const {x,y,size}=box,group=make('g',{'data-chapter-total':addr(book.code,ch),'data-book':book.code,'data-chapter':ch},layer);
+          for(const [i,kind] of ['qa','notes'].entries()){
+            const top=y+i*size*1.15;
+            make('path',{d:icons[i],transform:`translate(${x} ${top}) scale(${size/8})`},group);
+            const label=make('text',{x:x+size*1.05,y:top+size*.81,'font-size':size,'data-chapter-count':kind},group);
+            label.textContent=kind==='qa'?availability.chapterCount(book.code,ch):'—';
+          }
+        }
+        if(layer.childElementCount)svg.append(layer);
+      }
+      for(const group of svg.querySelectorAll('[data-chapter-total]')){
+        const {book,chapter}=group.dataset;
+        const q=group.querySelector('[data-chapter-count="qa"]'),n=group.querySelector('[data-chapter-count="notes"]');
+        const total=model?.ready()?String(model.query([{code:book,ch:+chapter}]).length):'—';
+        if(n.textContent!==total){
+          n.textContent=total;
+          if(total.length>2){n.setAttribute('textLength',Number(n.getAttribute('font-size'))*1.12);n.setAttribute('lengthAdjust','spacingAndGlyphs');}
+          else{n.removeAttribute('textLength');n.removeAttribute('lengthAdjust');}
+        }
+        group.setAttribute('aria-label',`问答 ${q.textContent}，笔记 ${total==='—'?'未读取':total}`);
+      }
+    }
+    function scheduleCounts(){
+      if(countFrame!=null)return;
+      countFrame=win.requestAnimationFrame(()=>{
+        countFrame=null;const model=notes();
+        for(const svg of stage.querySelectorAll('.paper svg[data-pdf]'))countPaper(svg,model);
+      });
+    }
     function scheduleMarks(){
       if(!marking||frame!==null)return;
       frame=win.requestAnimationFrame(()=>{
@@ -431,14 +580,13 @@
       });
     }
     function setMarking(value,{persist=false}={}){
-      marking=value;root.toggleAttribute('data-study-marks',value);observer?.disconnect();
+      marking=value;root.toggleAttribute('data-study-marks',value);
       if(frame!==null){win.cancelAnimationFrame(frame);frame=null;}
       pref.checked=value;
       if(persist)try{win.localStorage.setItem(KEY,value?'1':'0');}catch{}
-      if(!value)return;
-      observer??=new win.MutationObserver(scheduleMarks);
+      observer??=new win.MutationObserver(()=>{scheduleMarks();scheduleCounts();});
       observer.observe(stage.parentElement,{childList:true,subtree:true});
-      scheduleMarks();
+      scheduleMarks();scheduleCounts();
     }
     pref.addEventListener('change',()=>setMarking(pref.checked,{persist:true}));
     win.addEventListener('storage',e=>{if(e.key===KEY||e.key===null)setMarking(e.newValue!=='0');});
@@ -447,5 +595,5 @@
     return {open,notesEnabled,hasAny:objects=>availability.hasAny(objects)||!!notes()?.query(objects).length,
       openSettings(){if(!settings.open)settings.showModal();}};
   }
-  return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,paperCueLine,describeSelection,mount};
+  return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,paperCueLine,chapterCountBox,describeSelection,mount};
 });

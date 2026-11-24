@@ -5,4 +5,5 @@ window.V25_ACCOUNT_CONFIG=Object.freeze({
   publishableKey:'sb_publishable_x_qBjviyqzEmusSjMf7hfw_qwPajyk0',
   notesOrigin:'https://berealbible.github.io',
   pagesIsolationVerified:true,
+  noteReanchorEnabled:true,
 });
