@@ -58,7 +58,7 @@ assert.deepEqual(
    createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4,1)],
   [true,false],'chapter-only notes do not enable a verse selection'
 );
-assert.equal(chapterOf('heading','4:1'),4);
+assert.equal(chapterOf('heading','4:1'),null,'a section caption next to the first verse is not a chapter control');
 assert.equal(chapterOf('chapter','4:1'),4);
 assert.equal(chapterOf('heading','4:3'),null);
 assert.equal(chapterOf('body','4:1'),null);

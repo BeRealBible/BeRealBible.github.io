@@ -392,6 +392,7 @@
       const entry=model(side,svg),point=localPoint(svg,x,y);
       if(!entry||!point)return null;
       const i=entry.mapping.get(node);if(i===undefined)return null;
+      if(scripture&&entry.list[i].physicalInk&&entry.list[i].role==='heading')return null;
       let n;
       try{
         let probe=point;

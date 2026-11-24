@@ -13,8 +13,8 @@
     return m?{ch:+m[1],lo:+m[2],hi:+(m[3]||m[2])}:null;
   };
   function chapterOf(role,ref){
-    const v=parse(ref);
-    return v&&(role==='chapter'||role==='heading'&&v.lo===1)?v.ch:null;
+    // A section caption can be printed next to verse 1 without being a chapter control.
+    return role==='chapter'?(parse(ref)?.ch??null):null;
   }
   const intersects=(a,z,c,d)=>a<=d&&c<=z;
   function mergeRanges(ranges){

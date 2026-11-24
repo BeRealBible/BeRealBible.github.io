@@ -26,6 +26,7 @@ async function run(browser,width){
     await page.addInitScript(()=>{try{localStorage.setItem('paper:v25:first-guide:1','seen');}catch{}});
     const $=sel=>page.locator(sel),mainBar=$('#stage .paper-selection-tools'),root=$('html'),dialog=$('.compare-slip[data-kind=study]:not([hidden])');
     const chapter=n=>$('#stage .paper text[data-role="chapter"][data-ref="'+n+':1"]').first();
+    const caption=ref=>$('#stage .paper text[data-role="heading"][data-ref="'+ref+'"]');
     const body=(ref)=>$('#stage .paper text[data-role="body"][data-ref="'+ref+'"]');
     const ready=()=>root.and($('html[data-rule-layout=ready]')).waitFor({state:'attached',timeout:90000});
     async function point(locator){
@@ -154,8 +155,11 @@ async function run(browser,width){
     await close();
 
     await press(chapter(3),true);
-    assert.ok(await mainBar.locator('[data-copy]').isDisabled(),'chapter title should not copy the first verse');
-    await press($('#stage .paper text[data-role="heading"][data-ref="4:1"]'));
+    assert.ok(await mainBar.locator('[data-copy]').isDisabled(),'chapter number should not copy the first verse');
+    const selectedChapterCount=await $('#stage .paper-ink-mark--selected').count();
+    await press(caption('4:1'));
+    assert.equal(await $('#stage .paper-ink-mark--selected').count(),selectedChapterCount,'tapping a section caption does not add a second chapter');
+    await press(chapter(4));
     await open();
     const multi=await ids();assert.equal(new Set(multi).size,multi.length);
     assert.match(await title.textContent(),/(思考问答|经文资料) 撒下 3–4章/);
@@ -247,16 +251,16 @@ async function run(browser,width){
     await close();
     assert.equal(await owned.count(),4);
 
-    async function pilotPage(ref){
+    async function readAt(reference){
       const pilot=new URL(takeURL);
-      pilot.searchParams.set('ref','1KI.'+ref);
+      pilot.searchParams.set('ref',reference);
       await page.goto(pilot.href,{waitUntil:'domcontentloaded',timeout:90000});
       await ready();
       // Keep the deep link's readable zoom on phones so touches hit ink.
       if(!mobile)await page.evaluate(()=>document.getElementById('fit-book').click());
       await page.waitForTimeout(250);
     }
-    await pilotPage('7:16');
+    await readAt('1KI.7:16');
     await configure(true);
     assert.equal(await $('#stage .paper text[data-ref="7:16"][data-qap-mark="verse"]').count(),0);
     await press(body('7:16'),true);
@@ -264,7 +268,7 @@ async function run(browser,width){
     assert.ok(await studyTool.isDisabled(),'a later verse in a compressed range has no anchor');
     await mainBar.locator('[data-exit]').click();
 
-    await pilotPage('7:15');
+    await readAt('1KI.7:15');
     await $('#stage .paper text[data-ref="7:15"][data-qap-mark="verse"]').first().waitFor({state:'attached'});
     await press(body('7:15'),true);
     await open();
@@ -275,15 +279,29 @@ async function run(browser,width){
     await citation.getByRole('button',{name:'关闭经文浮窗'}).click();
     await close();
 
-    await pilotPage('10:1');
+    await readAt('1KI.10:1');
     assert.equal(await chapter(10).getAttribute('data-qap-mark'),'chapter');
     await press(chapter(10),true);
     await open();
     assert.ok((await ids()).includes('1KI.10.6'),'chapter-only QAP is reachable from the chapter title');
     await close();
 
+    await readAt('GEN.4:1');
+    const cainAndAbel=caption('4:1');
+    assert.match((await cainAndAbel.allTextContents()).join(''),/该隐和亚伯/);
+    await chapter(4).and($('[data-qap-mark="chapter"]')).waitFor({state:'attached'});
+    assert.equal(await chapter(4).evaluate(n=>getComputedStyle(n).textDecorationLine),'underline');
+    const clean=()=>cainAndAbel.evaluateAll(all=>all.every(n=>!n.hasAttribute('data-qap-mark')&&getComputedStyle(n).textDecorationLine==='none'));
+    assert.ok(await clean(),'the section heading has no cue even though the chapter has QAPs');
+    await press(cainAndAbel);await press(cainAndAbel,true);
+    assert.equal(await mainBar.count(),0);assert.equal(await dialog.count(),0);
+    assert.equal(await $('#stage .paper text[data-paper-tap-ink]').count(),0,'section headings do not enter tap mode');
+    await press(chapter(4),true);await open();
+    assert.ok((await ids()).includes('GEN.4.1'),'chapter selection still returns a QAP attached to verses 4:3–5');
+    assert.ok(await clean());await close();
+
     assert.deepEqual(errors,[]);
-    console.log(width,'PASS QAP windows, citations, settings, chapter selection and reviewed 1 Kings attachment points');
+    console.log(width,'PASS QAP windows, citations, scripture-only controls, and Genesis 4 section caption without marks');
   }finally{await ctx.close();}
 }
 (async()=>{
