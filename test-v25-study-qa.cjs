@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {buildAvailability,createAvailability,createIndex,chapterOf,describeSelection}=require('./v25/study-qa.js');
+const {buildAvailability,createAvailability,createIndex,chapterOf,paperCueLine,describeSelection}=require('./v25/study-qa.js');
 const fs=require('node:fs'),path=require('node:path');
 const library=require('./data/study-qa.json');
 const bible=require('./data/bible-source.js');
@@ -62,6 +62,10 @@ assert.equal(chapterOf('heading','4:1'),null,'a section caption next to the firs
 assert.equal(chapterOf('chapter','4:1'),4);
 assert.equal(chapterOf('heading','4:3'),null);
 assert.equal(chapterOf('body','4:1'),null);
+const digit={x:20,y:40,w:12,h:23},unrelated={x:38,y:64,w:10,h:12};
+assert.deepEqual(paperCueLine(digit,[digit,unrelated]),{x1:20.8,x2:31.2,y:64.65});
+assert.equal(paperCueLine(digit,[{x:20,y:64,w:12,h:10}]),null,'do not draw a cue over the next line of ink');
+assert.equal(paperCueLine(digit,[{x:20,y:64.5,w:12,h:10}]).y,63.9,'use a closer cue when the gap is tight but safe');
 const selection=describeSelection([inChapter('2SA',4),one('2SA',3,6),one('2SA',3,1),one('2SA',3,2),one('2SA',4,7)],bible.books);
 assert.equal(selection.title,'撒下 3:1–2、6、4章');
 assert.equal(selection.fullTitle,'撒母耳记下 3:1–2、6、4章');

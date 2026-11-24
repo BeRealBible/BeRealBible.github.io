@@ -56,7 +56,10 @@
 .study-qa__settings input:checked{background:radial-gradient(circle at calc(100% - 11px) 50%,white 0 7px,transparent 8px),#86613c}
 .study-qa__settings input:focus-visible{outline:2px solid #86613c;outline-offset:3px}
 .study-qa__settings p{margin:4px 0 0;font-size:13px;color:#6d5640}
-html[data-study-marks] [data-qap-mark]{
+[data-qap-paper-cues]{display:none}
+html[data-study-marks] [data-qap-paper-cues]{display:inline}
+[data-qap-paper-cues]>line{stroke:#a0804f63;stroke-width:var(--qap-cue-width,.9px);stroke-linecap:round}
+html[data-study-marks] :where(.compare-slip__chunk) [data-qap-mark]{
   text-decoration-line:underline;text-decoration-color:#a0804f63;
   text-decoration-thickness:max(1px,.045em);text-underline-offset:.14em;text-decoration-skip-ink:none;
 }

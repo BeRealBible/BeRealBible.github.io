@@ -27,6 +27,8 @@ async function run(browser,width){
     const $=sel=>page.locator(sel),mainBar=$('#stage .paper-selection-tools'),root=$('html'),dialog=$('.compare-slip[data-kind=study]:not([hidden])');
     const chapter=n=>$('#stage .paper text[data-role="chapter"][data-ref="'+n+':1"]').first();
     const caption=ref=>$('#stage .paper text[data-role="heading"][data-ref="'+ref+'"]');
+    const paperCue=(kind,ref)=>$('#stage .paper svg line[data-qap-cue="'+kind+'"][data-qap-ref="'+ref+'"]').first();
+    const shown=cue=>cue.evaluateAll(lines=>lines.some(n=>getComputedStyle(n.parentElement).display!=='none'));
     const body=(ref)=>$('#stage .paper text[data-role="body"][data-ref="'+ref+'"]');
     const ready=()=>root.and($('html[data-rule-layout=ready]')).waitFor({state:'attached',timeout:90000});
     async function point(locator){
@@ -69,13 +71,14 @@ async function run(browser,width){
       await settings.getByRole('button',{name:'关闭阅读设置'}).click();
       await page.evaluate(()=>PaperImmersion.hideChrome());
     }
-    const marked=async()=>chapter(3).evaluate(el=>getComputedStyle(el).textDecorationLine);
+    const chapterCue=paperCue('chapter','3:1');
     await page.goto(takeURL,{waitUntil:'domcontentloaded',timeout:90000});await ready();
     await page.evaluate(()=>document.getElementById('fit-book').click());
     await page.waitForTimeout(250);
     assert.equal(requests.length,0,'normal reading should not download QAPs');
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
-    assert.equal(await marked(),'underline','a fresh browser shows QAP marks by default');
+    assert.ok(await shown(chapterCue),'a fresh browser shows QAP cues by default');
+    assert.equal(await chapter(3).evaluate(el=>getComputedStyle(el).textDecorationLine),'none','paper numbers do not use text underlining');
 
     await press(body('4:1'),true);
     await mainBar.waitFor({timeout:5000});
@@ -180,19 +183,20 @@ async function run(browser,width){
 
     await configure(true);
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
-    assert.equal(await marked(),'underline');
-    const stroke=await chapter(3).evaluate(el=>{const c=getComputedStyle(el);return [c.textDecorationColor,parseFloat(c.textDecorationThickness)/parseFloat(c.fontSize)];});
-    assert.match(stroke[0],/^rgba\(160, 128, 79, 0\.(?:388|39)/);assert.ok(stroke[1]>=.04&&stroke[1]<.16);
+    assert.ok(await shown(chapterCue));
+    const stroke=await chapterCue.evaluate(el=>[getComputedStyle(el).stroke,parseFloat(getComputedStyle(el).strokeWidth),Number(el.closest('#stage').dataset.scale)]);
+    assert.match(stroke[0],/^rgba\(160, 128, 79, 0\.(?:388|39)/);
+    assert.ok(stroke[1]<=1.201&&stroke[1]*stroke[2]<=.901,'the pale cue remains a fine stroke in paper and screen coordinates');
     assert.ok(await $('#stage .paper text[data-qap-mark="verse"]').count()>0);
     const requestedBeforeReload=requests.length;
     await page.reload({waitUntil:'domcontentloaded'});await ready();
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
-    assert.equal(await marked(),'underline','mark setting survives reload');
+    assert.ok(await shown(chapterCue),'mark setting survives reload');
     assert.equal(requests.length,requestedBeforeReload,'marking also uses the lightweight location index');
     await configure(false);
-    assert.equal(await marked(),'none');
+    assert.ok(!(await shown(chapterCue)));
     await page.reload({waitUntil:'domcontentloaded'});await ready();
-    assert.equal(await marked(),'none','an explicit opt-out survives returning to the reader');
+    assert.ok(!(await shown(chapterCue)),'an explicit opt-out survives returning to the reader');
     await page.evaluate(()=>document.getElementById('fit-book').click());
     await page.waitForTimeout(250);
     await press(chapter(3),true);
@@ -290,7 +294,19 @@ async function run(browser,width){
     const cainAndAbel=caption('4:1');
     assert.match((await cainAndAbel.allTextContents()).join(''),/该隐和亚伯/);
     await chapter(4).and($('[data-qap-mark="chapter"]')).waitFor({state:'attached'});
-    assert.equal(await chapter(4).evaluate(n=>getComputedStyle(n).textDecorationLine),'underline');
+    for(const [kind,ref] of [['chapter','4:1'],['verse','4:3']]){
+      const cue=paperCue(kind,ref);await cue.waitFor({state:'attached'});assert.ok(await shown(cue));
+      const placed=await cue.evaluate(el=>{
+        const svg=el.ownerSVGElement,index=Number(svg.dataset.pdf),paper=V25OriginalData;
+        const words=PaperPage.commands(paper.pages[index],index,paper.books),anchor=words[el.dataset.qapInk];
+        const x1=+el.getAttribute('x1'),x2=+el.getAttribute('x2'),y=+el.getAttribute('y1');
+        const text=svg.querySelector('text[data-physical-idx="'+el.dataset.qapInk+'"]');
+        return {role:text.dataset.role,decoration:getComputedStyle(text).textDecorationLine,
+          below:y-anchor.y-anchor.h,overlaps:words.some(w=>w!==anchor&&!w.hideHatch&&w.x<x2&&w.x+w.w>x1&&w.y<y&&w.y+w.h>y)};
+      });
+      assert.equal(placed.role,kind);assert.equal(placed.decoration,'none');
+      assert.ok(placed.below>=.84&&placed.below<=1.66&&!placed.overlaps,JSON.stringify(placed));
+    }
     const clean=()=>cainAndAbel.evaluateAll(all=>all.every(n=>!n.hasAttribute('data-qap-mark')&&getComputedStyle(n).textDecorationLine==='none'));
     assert.ok(await clean(),'the section heading has no cue even though the chapter has QAPs');
     await press(cainAndAbel);await press(cainAndAbel,true);

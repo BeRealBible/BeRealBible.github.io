@@ -6,6 +6,7 @@
 })(typeof window==='undefined'?globalThis:window,function(){
   'use strict';
   const KEY='paper-bible-study-marks-v1';
+  const SVG='http://www.w3.org/2000/svg';
   const asset='data/study-qa.json';
   const addr=(code,ch)=>code+'.'+ch;
   const parse=ref=>{
@@ -15,6 +16,20 @@
   function chapterOf(role,ref){
     // A section caption can be printed next to verse 1 without being a chapter control.
     return role==='chapter'?(parse(ref)?.ch??null):null;
+  }
+  // Work in actual paper coordinates, not the em of a fitted SVG glyph.
+  // The same number can be much larger than the text printed beneath it.
+  function paperCueLine(anchor,ink){
+    if(!anchor||anchor.hideHatch||!(anchor.w>0&&anchor.h>0)||![anchor.x,anchor.y,anchor.w,anchor.h].every(Number.isFinite))return null;
+    const {x,y,w,h}=anchor,inset=Math.min(.8,w*.13),x1=x+inset,x2=x+w-inset,bottom=y+h;
+    let underline=Math.min(bottom+1.65,703);
+    for(const other of ink){
+      if(other===anchor||other.hideHatch||!(other.w>0&&other.h>0))continue;
+      // Skip an occupied gap instead of drawing the cue across printed ink.
+      if(other.x<x2+.3&&other.x+other.w>x1-.3&&other.y+other.h>bottom)
+        underline=Math.min(underline,other.y-.6);
+    }
+    return underline>=bottom+.85?{x1,x2,y:underline}:null;
   }
   const intersects=(a,z,c,d)=>a<=d&&c<=z;
   function mergeRanges(ranges){
@@ -160,6 +175,18 @@
     }
     let inventory=null,pending=null,observer=null,frame=null;
     let marking=false;
+    let cueScale;
+    function syncCueStroke(){
+      const scale=Number(stage.dataset.scale);
+      if(!(scale>0)||scale===cueScale)return;
+      cueScale=scale;
+      // The entire paper is scaled by a CSS ancestor, which can also scale
+      // SVG non-scaling strokes. Invert that zoom here and cap the page-space
+      // width so even a tightly spaced mark cannot touch the next glyph.
+      stage.style.setProperty('--qap-cue-width',Math.min(1.2,.9/scale)+'px');
+    }
+    win.addEventListener('v25-camera-changed',syncCueStroke);
+    syncCueStroke();
     function load(){
       if(inventory)return Promise.resolve(inventory);
       if(!pending){
@@ -347,24 +374,40 @@
     function markPaper(svg){
       if(marked.has(svg))return;
       marked.add(svg);
-      const book=paper.books[paper.pages[Number(svg.dataset.pdf)]?.b];
+      const pageIndex=Number(svg.dataset.pdf),face=paper.pages[pageIndex],book=paper.books[face?.b];
       if(!book)return;
+      // A restored curl face can already contain a snapshot of its cue layer.
+      svg.querySelector('[data-qap-paper-cues]')?.remove();
+      const layer=doc.createElementNS(SVG,'g');
+      layer.setAttribute('data-qap-paper-cues','');layer.setAttribute('aria-hidden','true');layer.setAttribute('pointer-events','none');
+      let layout;
+      function cue(el,kind){
+        el.dataset.qapMark=kind;
+        layout??=win.PaperPage.commands(face,pageIndex,paper.books);
+        const index=el.dataset.physicalIdx,box=paperCueLine(index===undefined?null:layout[index],layout);
+        if(!box)return;
+        const line=doc.createElementNS(SVG,'line');
+        for(const [key,value] of Object.entries({x1:box.x1,x2:box.x2,y1:box.y,y2:box.y,
+          'data-qap-cue':kind,'data-qap-ref':el.dataset.ref,'data-qap-ink':index}))line.setAttribute(key,value);
+        layer.append(line);
+      }
       const markedVerses=new Set(),ink=new Map();
       for(const el of svg.querySelectorAll('text[data-ref]')){
         const {role,ref}=el.dataset,v=parse(ref);
         if(!v)continue;
         const ch=chapterOf(role,ref);
-        if(ch&&availability.has(book.code,ch))el.dataset.qapMark='chapter';
+        if(ch&&availability.has(book.code,ch))cue(el,'chapter');
         if(role==='verse'&&availability.has(book.code,v.ch,v.lo,v.hi)){
-          el.dataset.qapMark='verse';markedVerses.add(ref);
+          cue(el,'verse');markedVerses.add(ref);
         }
         if(role==='body'&&!ink.has(ref))ink.set(ref,[el,v]);
       }
       // The first verse and a split verse may have no separate printed number
       // on this face. In that case underline only the first visible ink run.
       for(const [ref,[el,v]] of ink){
-        if(!markedVerses.has(ref)&&availability.has(book.code,v.ch,v.lo,v.hi))el.dataset.qapMark='verse';
+        if(!markedVerses.has(ref)&&availability.has(book.code,v.ch,v.lo,v.hi))cue(el,'verse');
       }
+      if(layer.childElementCount)svg.append(layer);
     }
     function markChunk(chunk){
       if(marked.has(chunk))return;
@@ -404,5 +447,5 @@
     return {open,notesEnabled,hasAny:objects=>availability.hasAny(objects)||!!notes()?.query(objects).length,
       openSettings(){if(!settings.open)settings.showModal();}};
   }
-  return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,describeSelection,mount};
+  return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,paperCueLine,describeSelection,mount};
 });
