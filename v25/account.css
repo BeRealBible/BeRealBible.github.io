@@ -1,0 +1,17 @@
+#paper-account-open,.paper-account-body button{min-height:2.65rem;padding:.5rem .8rem;border:1px solid #c5b59d;border-radius:6px;background:#fcf6eb;color:#633d2d;font:inherit;cursor:pointer}
+#paper-account-open{margin-top:.7rem}
+#paper-account-dialog[open]{width:min(28rem,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto}
+.paper-account-body{padding:.75rem 1rem 1rem;line-height:1.65;overflow-wrap:anywhere}
+.paper-account-body [hidden],#paper-account-open[hidden]{display:none!important}
+.paper-account-body p{margin:.3rem 0 .75rem;color:#533e32;font-size:.94rem}
+.paper-account-body form{display:grid;gap:.45rem}
+.paper-account-body label{font-weight:600;color:#523b30}
+.paper-account-body input:not([type=checkbox]){box-sizing:border-box;min-height:2.75rem;width:100%;padding:.45rem .6rem;border:1px solid #b8a98e;border-radius:6px;background:#fffdf7;color:#2c211a;font:inherit;font-size:1rem}
+.paper-account-body input[type=checkbox]{accent-color:#774633;width:1rem;height:1rem;margin:.22rem .1rem 0 0;flex:none}
+.paper-account-body button:focus-visible,.paper-account-body input:focus-visible,#paper-account-open:focus-visible{outline:2px solid #774633;outline-offset:2px}
+.paper-account-body .paper-account-import{display:flex;gap:.45rem;margin:.55rem 0 .75rem;font-weight:400}
+.paper-account-actions{display:flex;flex-wrap:wrap;gap:.45rem}
+.paper-account-body button:disabled{opacity:.55;cursor:default}
+#paper-account-enable,#paper-account-logout{margin:.2rem 0 .4rem}
+#paper-account-logout{margin-top:.7rem}
+#paper-account-message:empty{display:none}

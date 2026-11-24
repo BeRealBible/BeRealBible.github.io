@@ -27,7 +27,7 @@
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
   let finder=null,searchAnchor=null,compare=null;
-  let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null;
+  let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null,controllerReady=false;
   const pointers=new Map();
   let suppressBandClick=null, coverZoom=null, opening=null;
   let startShortcut=null,startShortcutTimer=0,startShortcutSpread=null,startPanFrame=0,startPanKind=null;
@@ -63,6 +63,7 @@
   if(window.PAPER_INITIAL_REF&&window.PAPER_INITIAL_REF.page===readingLocation().page)preciseRef=window.PAPER_INITIAL_REF;
   const capturePose=()=>({zoom:scale/fitScale,cx:(view.w/2-x)/scale,cy:(view.h/2-y)/scale,focus});
   function save(){
+    if(!controllerReady&&window.V25Account?.usingProfile)return;
     const p=capturePose();
     try{storage?.setItem('paper-bible-position-v1',JSON.stringify({spread,page:Math.min(spread+readingSide,LAST_PAGE),zoom:p.zoom,centerX:p.cx,centerY:p.cy,focus,bookName:currentBook().name,ref:readingLocation().ref,explicitRef:!!preciseRef&&preciseRef.page===readingLocation().page,edition:D.edition}));}catch{}
   }
@@ -529,8 +530,9 @@
   const studyObjects=(locations,chapters)=>[...scripture.from(locations,true),...chapters];
   const openStudy=study&&((locations,chapters,focus)=>study.open(studyObjects(locations,chapters),focus));
   const hasStudy=study&&((locations,chapters)=>study.hasAny(studyObjects(locations,chapters)));
+  const onWriteNote=study?.notesEnabled&&((locations,chapters,focus)=>study.open(studyObjects(locations,chapters),focus,'write'));
   compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
-    onStudy:openStudy,hasStudy,
+    onStudy:openStudy,hasStudy,onWriteNote,
     marks:()=>selection?.verseHighlights,onBegin:()=>selection?.reset({keepFocus:true}),
     onRead:loc=>history?.visitFloat(loc),onJump:({page,code,ref})=>{
       if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
@@ -539,9 +541,13 @@
     onSettings:study&&(()=>{interrupt();study.openSettings();}),
     onFloat:loc=>{selection?.reset({keepFocus:true});compare.clearSelection();compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
-  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,onStudy:openStudy,hasStudy,scripture,
+  selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,onStudy:openStudy,hasStudy,onWriteNote,scripture,
     onBegin:compare.clearSelection,onMarksChange:compare.refreshHighlights,
     getPage:side=>({page:D.pages[spread+side],index:spread+side,books:D.books})});
+  if(onWriteNote)window.addEventListener('paper-note-scope-changed',()=>{
+    selection?.reset();compare.clearSelection();compare.closeMaterials();
+  });
+  if(onWriteNote)stage.addEventListener('paper-note-login-required',()=>feedback('在线笔记需要登录；这个预览尚未配置账号服务。',4500));
   const openingChoice=window.PaperEdgeChapters.openingPreference(storage);
   window.PaperEdgeChapters.mountOpeningChoice($('book-picker-opening'),openingChoice);
   function selectIndexChapter(page,requested){
@@ -838,7 +844,7 @@
   // On a phone a single page is the useful initial reading window; whole-book
   // fit remains available, and both index bands stay reachable by pan.
   else if(view.w<560)focusPage(readingSide?'right':'left',true);
-  deskKey=history?.start(readingLocation())?.id||null;
+  if(!window.V25Account?.usingProfile)deskKey=history?.start(readingLocation())?.id||null;
   coverZoom=window.PaperCoverZoom?.mount({doc:document,win:window,stage,history:$('reading-history'),
     onZoom(percent){
       const next=window.PaperCoverZoom.asScale(percent,fitScale,MAX_SCALE);
@@ -866,5 +872,6 @@
   if(!noTurnMotion)opening=window.V25Opening?.play({stage,book,pose:{x,y,scale,...view},
     layoutZoom:flatTouch&&CSS.supports('zoom','1')});
   new ResizeObserver(resize).observe(stage);window.addEventListener('resize',resize);
-  save();
+  controllerReady=true;
+  if(!window.V25Account?.usingProfile)save();
 })();

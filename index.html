@@ -33,16 +33,16 @@
   <script src="paper-jump.js?v=index-25&h=736f53e5321b" defer></script>
   <link rel="stylesheet" href="reading-history.css?v=index-25&h=f652b2f79398">
   <link rel="stylesheet" href="text-selection.css?v=index-25&h=e0a83e0b8d5c">
-  <script src="v25/history.js?v=index-25&h=c9a247b77ea0" defer></script>
-  <script src="text-selection.js?v=index-25&h=24834957daac" defer></script>
+  <script src="v25/history.js?v=index-25&h=7dca5339a140" defer></script>
+  <script src="text-selection.js?v=index-25&h=1160ceaff6fd" defer></script>
   <link rel="stylesheet" href="book-desk.css?v=index-25&h=a4f58a5689e4">
   <script src="book-desk.js?v=index-25&h=214f33efde16" defer></script>
   <link rel="stylesheet" href="v25-footnote-targets.css?v=index-25&h=1e2b818c4b1a">
   <script src="footnote-passages.js?v=index-25&h=bddf30be2b8f" defer></script>
   <script src="v25/parallels.js?v=index-25&h=f101052e2bcd" defer></script><script src="v25/targets.js?v=index-25&h=3f76acdd6b8c" defer></script>
   <script src="v25/paper-dock.js?v=index-25&h=20d8c9d66f77" defer></script><script src="v25/words.js?v=index-25&h=3a222a69a4c3" defer></script><script src="v25/scripture.js?v=index-25&h=9c6d4235b401" defer></script><script src="v25/footnote.js?v=index-25&h=154a292a036f" defer></script>
-  <link id="v25-desk-controller" rel="preload" as="script" href="v25/reader.js?v=index-25&h=25c72e29ab87">
-  <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=f1f8f65477ca" defer></script>
+  <link id="v25-desk-controller" rel="preload" as="script" href="v25/reader.js?v=index-25&h=3faf285e635e">
+  <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=0f6b2021effe" defer></script>
   <script src="immersion.js?v=index-25&h=9a1c1c34489a" defer></script>
 
   <script src="reader-release.js?v=index-25&h=4570de647195" defer></script>
@@ -55,10 +55,11 @@
 <script src="v25/opening.js?v=index-25&h=ef451aae92e9" defer></script>
 <link rel="stylesheet" href="v25/search.css?v=index-25&h=ddc4024becce"><script defer src="v25/search.js?v=index-25&h=5caa1d4f27ce"></script>
 <link rel="stylesheet" href="v25/guide.css?v=index-25&h=7241ec7ae273"><script defer src="v25/guide.js?v=index-25&h=713182ab467b"></script>
-<script defer src="v25/float-selection.js?v=index-25&h=9a0ea5b3356f"></script>
-<link rel="stylesheet" href="v25/compare.css?v=index-25&h=2b4ff9901308"><script defer src="v25/compare.js?v=index-25&h=6c8b473c8906"></script>
+<script defer src="v25/float-selection.js?v=index-25&h=2dcfe5cab58d"></script>
+<link rel="stylesheet" href="v25/compare.css?v=index-25&h=2b4ff9901308"><script defer src="v25/compare.js?v=index-25&h=3826d1f5e64c"></script>
 <script defer src="v25/citation-links.js?v=index-25&h=e4c2409a5513"></script><link rel="stylesheet" href="v25/citation-links.css?v=index-25&h=aa3c65478250">
-<link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=1a30edf48f40"><script defer src="v25/study-qa.js?v=index-25&h=98d40ca345bf"></script>
+<link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=9a5126659c89"><script defer src="v25/notes.js?v=index-25&h=6f03e9928d0d"></script><script defer src="v25/note-sync.js?v=index-25&h=2acc2fe0369e"></script><script defer src="v25/study-qa.js?v=index-25&h=567d63f48779"></script>
+<link rel="stylesheet" href="v25/account.css?v=index-25&h=4413df082824"><script defer src="v25/account-config.js?v=index-25&h=e84d95a01e15"></script><script defer src="v25/account.js?v=index-25&h=f79ff05ea48b"></script>
 </head>
 <body data-paper-scene="reading" data-minimal-reader>
 <div id="reader-rule-loading" role="status"><strong>纸页 · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./?v=index-25">加载遇到问题？重新打开</a></div>
@@ -141,6 +142,51 @@
   <div class="study-qa__settings">
     <label><span>显示问答标记</span><input type="checkbox" id="study-marks-enabled" role="switch" aria-describedby="study-marks-help"></label>
     <p id="study-marks-help">开启后，有问答的节号和章标题会出现淡下划线。关闭只隐藏标记，仍可长按经节或章标题，点「经文问答」查看。</p>
+    <button id="paper-account-open" type="button" aria-haspopup="dialog" hidden>登录与同步</button>
+  </div>
+</dialog>
+<dialog id="paper-account-dialog" class="study-qa study-qa--settings" aria-labelledby="paper-account-heading">
+  <header class="study-qa__header">
+    <div class="eyebrow">纸页 · 我的记录</div>
+    <h2 id="paper-account-heading">账号与同步</h2>
+    <button id="paper-account-close" type="button" class="dialog-close" aria-label="关闭账号与同步">×</button>
+  </header>
+  <div class="paper-account-body">
+    <section id="paper-account-auth">
+      <p>不登录也能读经、搜索、复制、看问答，并在此浏览器保存记录。登录只用于云端备份和跨设备同步。</p>
+      <form id="paper-account-send">
+        <label for="paper-account-email">邮箱地址</label>
+        <input id="paper-account-email" type="email" autocomplete="email" maxlength="254" placeholder="name@example.com" required>
+        <button type="submit" data-account-action>发送验证码</button>
+      </form>
+      <form id="paper-account-verify" hidden>
+        <p>收件邮箱：<span id="paper-account-sent"></span></p>
+        <label for="paper-account-code">邮箱验证码</label>
+        <input id="paper-account-code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6,10}" maxlength="10" required>
+        <button type="submit" data-account-action>登录</button>
+        <div class="paper-account-actions">
+          <button id="paper-account-resend" type="button" data-account-action>重发验证码</button>
+          <button id="paper-account-change" type="button" data-account-action>更换邮箱</button>
+        </div>
+      </form>
+    </section>
+    <section id="paper-account-profile" hidden>
+      <p>已登录：<span id="paper-account-address"></span></p>
+      <div id="paper-account-consent">
+        <p>开启后，此账号的阅读位置、历史与置顶书签、经文高亮会同步到云端。搜索词和界面设置不上传。</p>
+        <label class="paper-account-import"><input id="paper-account-import" type="checkbox"> 也导入此浏览器原有的游客记录（云端已有的记录优先）。</label>
+        <button id="paper-account-enable" type="button" data-account-action>开启云端同步</button>
+      </div>
+      <div id="paper-account-enabled" hidden>
+        <p>云端同步已开启。同步不会在阅读中自动跳页。</p>
+        <div class="paper-account-actions">
+          <button id="paper-account-resume" type="button" data-account-action>继续同步的进度</button>
+          <button id="paper-account-sync" type="button" data-account-action>立即同步</button>
+        </div>
+      </div>
+      <button id="paper-account-logout" type="button" data-account-action>退出登录</button>
+    </section>
+    <p id="paper-account-message" role="status" aria-live="polite"></p>
   </div>
 </dialog>
 <aside id="verse-finder" aria-label="经文检索笺" hidden>

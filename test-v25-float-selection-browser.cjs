@@ -1,9 +1,10 @@
 'use strict';
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const {pathToFileURL}=require('node:url'),path=require('node:path'),assert=require('node:assert/strict');
+const fs=require('node:fs/promises'),origin='http://127.0.0.1:37129';
+const mime={'.js':'text/javascript','.html':'text/html','.css':'text/css','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.webp':'image/webp','.png':'image/png'};
 const file=process.env.PREVIEW_FILE,source=process.argv[2];
-if(!file&&!source)throw Error('Supply PREVIEW_FILE or a V25 URL');
-const url=new URL(file?pathToFileURL(path.resolve(file)):source);
+const url=new URL(file?pathToFileURL(path.resolve(file)):source||origin);
 url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.searchParams.set('curl','off');
 (async()=>{
   const browser=await chromium.launch({executablePath:process.env.BROWSER_EXE,headless:true});
@@ -12,6 +13,13 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
       const mobile=width<550,ctx=await browser.newContext({viewport:{width,height:840},isMobile:mobile,hasTouch:mobile,
         reducedMotion:'reduce',offline:!!file});
       try{
+        if(!file&&!source)await ctx.route('**/*',async route=>{
+          const u=new URL(route.request().url());if(u.origin!==origin)return route.abort();
+          const f=path.resolve(__dirname,'.'+(u.pathname==='/'?'/index.html':decodeURIComponent(u.pathname)));
+          if(!f.startsWith(__dirname+path.sep))return route.abort();
+          try{await route.fulfill({status:200,body:await fs.readFile(f),contentType:mime[path.extname(f)]});}
+          catch{await route.fulfill({status:404,body:'Not found'});}
+        });
         const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
         await page.addInitScript(()=>{
           try{localStorage.setItem('paper:v25:first-guide:1','seen');}catch{}
@@ -75,8 +83,9 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.deepEqual(await selected(act),['7:56']);
         assert.ok(await task(act,'study').isDisabled(),'no QAP at Acts 7:56');
         assert.ok(await task(act,'copy').isEnabled(),'other actions stay available');
+        const hasNotes=await task(act,'note').count()===1;
         assert.deepEqual(await tools(act).locator('button').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('aria-label'))),
-          ['复制','网页搜索','高亮','另开对照','经文问答','退出']);
+          ['复制','网页搜索','高亮','另开对照',...(hasNotes?['写笔记','查看资料']:['经文问答']),'退出']);
         assert.ok(await tools(act).locator(':scope > button').evaluateAll(nodes=>
           nodes.every(n=>n.getBoundingClientRect().top===nodes[0].getBoundingClientRect().top)));
         assert.deepEqual(await position(),main);

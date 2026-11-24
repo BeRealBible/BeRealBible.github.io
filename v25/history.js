@@ -336,7 +336,7 @@
       if(keep)reveal(keep,how);
     }
     const sync=e=>{if(!e.key||e.key===key||e.key.startsWith(key+':'))render();};
-    win?.addEventListener('storage',sync);render();
+    win?.addEventListener('storage',sync);listen(win,'paper-account-data',e=>sync(e.detail||{}));render();
     const apply=(name,...args)=>{const result=model[name](...args);render();if(name==='jump'&&result)revealInTrack(result.id);return result;};
     return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),pickVerse:loc=>apply('pickVerse',loc),jump:(loc,id)=>apply('jump',loc,id),visitFloat:loc=>apply('visitFloat',loc),
       list:model.list,element:host,

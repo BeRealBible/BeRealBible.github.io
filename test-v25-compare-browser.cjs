@@ -44,7 +44,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
           const keys=[...el.querySelectorAll(':scope > button')].map(n=>n.getBoundingClientRect());
           return {fitted:b.left>=stage.left&&b.right<=stage.right&&b.top>=stage.top&&b.bottom<=stage.bottom,
             docked:el.hasAttribute('data-docked'),visible:ink.length,
-            singleRow:keys.length===6&&el.querySelector('[data-study]')!==null&&keys.every((k,i)=>k.top===keys[0].top&&k.width>=43&&k.height>=43&&
+            singleRow:keys.length===(el.querySelector('[data-note]')?7:6)&&el.querySelector('[data-study]')!==null&&keys.every((k,i)=>k.top===keys[0].top&&k.width>=43&&k.height>=43&&
               (!i||k.left>=keys[i-1].right-.5)),gap:ink.length?Math.max(ink[0].top-b.bottom,b.top-ink[0].bottom):null};
         });
         assert.ok(layout.fitted&&layout.singleRow,JSON.stringify(layout));

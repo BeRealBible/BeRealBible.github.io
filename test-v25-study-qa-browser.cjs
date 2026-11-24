@@ -52,7 +52,7 @@ async function run(browser,width){
     const rendered=()=>dialog.locator('.study-qa__list details').first().waitFor({timeout:15000});
     const ids=()=>dialog.locator('details').evaluateAll(nodes=>nodes.map(n=>n.dataset.qap));
     const open=async(bar=mainBar)=>{await bar.locator('[data-study]').click();await dialog.waitFor();await rendered();};
-    const close=async()=>{await dialog.getByRole('button',{name:'关闭问答浮窗'}).click();await dialog.waitFor({state:'hidden'});};
+    const close=async()=>{await dialog.getByRole('button',{name:/^关闭(?:问答|资料)浮窗$/}).click();await dialog.waitFor({state:'hidden'});};
     const settings=$('#study-settings');
     const citation=$('#v25-scripture-preview:not([hidden])'),owned=$('.compare-slip[data-role=fixed]:not([hidden])');
     const expanded=$('.compare-slip:not([hidden]):not([data-collapsed])'),dock=$('#v25-compare-tabs');
@@ -77,7 +77,7 @@ async function run(browser,width){
 
     await press(body('4:1'),true);
     await mainBar.waitFor({timeout:5000});
-    const studyTool=mainBar.getByRole('button',{name:'经文问答',exact:true});
+    const studyTool=mainBar.getByRole('button',{name:/^(经文问答|查看资料)$/});
     assert.ok(await studyTool.isDisabled(),'no QAP at this verse, even though its chapter has QAPs');
     assert.ok(await mainBar.locator('[data-copy]').isEnabled());
     await studyTool.evaluate(b=>b.click()); // Native disabled activation is a no-op.
@@ -94,7 +94,7 @@ async function run(browser,width){
     await open();
     assert.ok((await ids()).includes('2SA.3.1'));
     assert.ok(!(await ids()).includes('2SA.3.4'),'verse selection cannot broaden into a chapter');
-    assert.match(await title.textContent(),/思考问答 撒下 3:1/);
+    assert.match(await title.textContent(),/(思考问答|经文资料) 撒下 3:1/);
     assert.equal(await dialog.locator('.compare-slip__scroll h2,.study-qa__refs,#study-qa-scopes').count(),0,'no decorative labels or address lists in QAP content');
     assert.equal(await dialog.locator('.study-qa__status').textContent(),'');
     assert.equal(await dialog.locator('details[open]').count(),0);
@@ -127,7 +127,7 @@ async function run(browser,width){
     assert.notEqual(await second.getAttribute('open'),null);
     assert.equal(await qapScroll.evaluate(el=>el.scrollTop),offset,'pinning does not redraw or scroll QAP');
     assert.equal(await owned.count(),2,'QAP and pinned scripture share the same registry');
-    await dialog.getByRole('button',{name:'收起问答浮窗'}).click();
+    await dialog.getByRole('button',{name:/^收起(?:问答|资料)浮窗$/}).click();
     assert.equal(await dialog.getAttribute('data-collapsed'),'');
     assert.equal(await dock.locator('[data-kind=study]:not([hidden])').count(),1);
     assert.ok(await pinned.isVisible());
@@ -151,7 +151,7 @@ async function run(browser,width){
     await press($('#stage .paper text[data-role="heading"][data-ref="4:1"]'));
     await open();
     const multi=await ids();assert.equal(new Set(multi).size,multi.length);
-    assert.match(await title.textContent(),/思考问答 撒下 3–4章/);
+    assert.match(await title.textContent(),/(思考问答|经文资料) 撒下 3–4章/);
     assert.ok(multi.some(id=>id.startsWith('2SA.3.'))&&multi.some(id=>id.startsWith('2SA.4.')));
     const fromAnswer=bodyOf('2SA.3.4');
     await fromAnswer.locator('summary').click({position:{x:13,y:19}});

@@ -13,6 +13,22 @@
 .compare-slip[data-kind=study] .compare-slip__book{flex:none}
 .compare-slip[data-kind=study] .compare-slip__address{font-family:inherit;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis}
 .compare-slip[data-kind=study] .compare-slip__scroll{padding:0 15px 12px 17px}
+.study-material__tabs{position:sticky;top:0;z-index:2;display:flex;gap:.25em;padding:.38em 0 .1em;background:#fbf5e8;border-bottom:1px solid #cdbb9d85}
+.study-material__tab{min-height:2.5em;padding:.34em .85em;border:0;border-bottom:2px solid transparent;background:transparent;color:#705845;font:inherit;cursor:pointer}
+.study-material__tab[aria-selected=true]{border-bottom-color:#895c44;color:#4b2e21;font-weight:650}
+.study-material__tab:focus-visible,.study-notes__link:focus-visible{outline:2px solid #8e644b;outline-offset:-2px}
+.study-material__panel[hidden],.study-notes__editor[hidden],.study-notes__list[hidden]{display:none}
+.study-notes__item{padding:.8em .1em;border-bottom:1px solid #cdbb9d69}
+.study-notes__item-head{display:flex;align-items:center;justify-content:space-between;gap:.55em}
+.study-notes__text{margin:.2em 0 0;color:#413126;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+.study-notes__address,.study-notes__status,.study-notes__empty{font-size:.84em;line-height:1.5;color:#674e39;overflow-wrap:anywhere}
+.study-notes__editor>.study-notes__address{margin:.55em 0}
+.study-notes__field{box-sizing:border-box;display:block;width:100%;min-height:5em;padding:.55em .63em;color:#3b2c21;background:#fffdf6;border:1px solid #af997a;border-radius:6px;resize:vertical;font:inherit;font-size:max(1em,16px);line-height:1.6;user-select:text;-webkit-user-select:text;touch-action:auto}
+.study-notes__field:focus{outline:2px solid #a17b5e;outline-offset:-1px}
+.study-notes__sync-hint{margin:.4em 0 0;font-size:.77em;color:#6a5744}
+.study-notes__status{margin:.35em 0 0}.study-notes__status:empty{display:none}.study-notes__status[data-unsaved=true]{color:#8e2d20}
+.study-notes__link{min-height:2.5em;padding:.15em .35em;border:0;background:transparent;color:#69412d;font:inherit;font-size:.85em;cursor:pointer;flex:none}
+.study-notes__link:hover{text-decoration:underline}
 .study-qa__status{margin:10px 0 5px;color:#785e42;font-size:13px}
 .study-qa__status:empty{display:none}
 .study-qa__list details{border-bottom:1px solid #cdbb9d69}

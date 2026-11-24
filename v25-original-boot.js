@@ -25,7 +25,8 @@
   // and the original full paper stock for the desk renderer.
   if(Number.isInteger(end)&&end>0&&end<=D.count&&meta.pages.slice(end+1).every(p=>p.blank&&p.b<0))meta.readingLastPage=end;
   let raw;try{raw=localStorage}catch{}
-  const storage=window.makeV25PhysicalStorage(raw,meta,old);
+  let accountStorage;try{accountStorage=window.V25Account?.readerStorage(raw,meta.edition);}catch{/* Guest reading must not depend on the account service. */}
+  const storage=window.makeV25PhysicalStorage(accountStorage||raw,meta,old);
   window.PAPER_READER_STORAGE=storage;storage.migrateHighlights();storage.migrateNoteHighlightIds();
   const hash=q.hash.slice(1),pv=q.searchParams.get('pdf'),ref=q.searchParams.get('ref'),book=q.searchParams.get('book'),ch=q.searchParams.get('ch');
   function route(key){if(!key)return null;if(/^\d{1,4}$/.test(key)){const p=+key;return p>0&&p<=D.count?{p:Math.min(p,meta.readingLastPage??D.count)}:null}
@@ -47,5 +48,6 @@
   if(!document.querySelector('#stage[data-spread] .paper svg[data-pdf]'))throw Error('V25 书桌未就绪');
   window.PAPER_RULE_LAYOUT={edition:meta.edition,pages:meta.pages.length,durationMs:performance.now()-start};
   root.dataset.ruleLayout='ready';root.dataset.physicalEdition=D.sha;
+  try{window.V25Account?.readerReady();}catch{/* An unavailable account must not close the book. */}
  }catch(e){root.dataset.ruleLayout='unavailable';loading.setAttribute('role','alert');note.textContent='纸本经文未能载入，请检查网络后重新打开。不会改用旧版分页。';console.error('V25 原纸阅读器',e)}
 })();

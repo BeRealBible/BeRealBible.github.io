@@ -219,7 +219,8 @@
   function actionLabel(button,text){button.setAttribute('aria-label',text);button.setAttribute('title',text);}
   function setStudyAvailable(button,available){
     button.disabled=!available;
-    button.title=available?'经文问答':'所选位置没有关联问答';
+    const label=button.getAttribute?.('aria-label')||'经文问答';
+    button.title=available?label:label==='查看资料'?'所选位置没有笔记或问答':'所选位置没有关联问答';
   }
   function makeToolbar(doc,actions,label,floatLabel='在浮窗阅读'){
     const bar=doc.createElement('div');bar.className='paper-selection-tools';bar.setAttribute('role','toolbar');bar.setAttribute('aria-label',label);
@@ -228,7 +229,8 @@
       ['网页搜索','search','M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z'],
       ['高亮','highlight','m6 14 8-10a1.4 1.4 0 0 1 2-.2l3.2 2.6a1.4 1.4 0 0 1 .2 2L11 18Zm1.2 1-.8 2.8 1.4 1.1 2.5-1.4M4 21h10'],
       [floatLabel,'float','M8 8h13v12H8zM16 8V4H3v12h5m8-5v4h-4'],
-      ['经文问答','study','M4 5h16v11H9l-5 4V5Zm5 4a3 3 0 0 1 5.6 1.4c0 1.3-2.6 1.5-2.6 2.8m0 1.5h.01'],
+      ['写笔记','note','M13 4H5v16h14v-8M9 15l1-4 7.8-7.8a1.5 1.5 0 0 1 2.1 2.1L12 13l-3 2Zm-1 2h7'],
+      [actions.note?'查看资料':'经文问答','study','M4 5h16v11H9l-5 4V5Zm5 4a3 3 0 0 1 5.6 1.4c0 1.3-2.6 1.5-2.6 2.8m0 1.5h.01'],
       ['退出','exit','m6 6 12 12m0-12L6 18']
     ];
     for(const [name,key,d] of items){
@@ -338,7 +340,7 @@
       return {x,y:center-height/2,width:right-x,height};
     }),...mergeRects(unknown)];
   }
-  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy,hasStudy}){
+  function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy,hasStudy,onWriteNote}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
@@ -507,17 +509,21 @@
       const px=sheet.left-r.left+point.x*scale,py=sheet.top-r.top+point.y*scale;
       const compact=crossPage&&!searchForm&&(r.width<560||win.matchMedia?.('(pointer: coarse)')?.matches);
       if(compact)bar.dataset.compact='';else delete bar.dataset.compact;
+      // Seven 44px targets plus the toolbar's border and padding occupy
+      // 316px. Use the side gutters rather than shrinking them at 320px.
+      const inlinePad=compact&&r.width<328&&onWriteNote?2:6;
+      const availableWidth=r.width-2*inlinePad;
       const visible=[...painted].map(([key,m])=>({key,box:m.getBoundingClientRect()})).filter(({box:b})=>
         b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.right&&b.bottom>r.top&&b.top<r.bottom);
       // Keep cross-page actions available even when none of the picked ink
       // is on screen. As soon as selected ink returns, use that as the anchor.
       if(crossPage&&!searchForm&&!visible.length){
-        bar.dataset.docked='';bar.style.maxWidth=Math.max(1,r.width-12)+'px';
+        bar.dataset.docked='';bar.style.maxWidth=Math.max(1,availableWidth)+'px';
         bar.style.setProperty('--ink-hit-pad','0px');bar.style.left='50%';bar.style.top='6px';bar.style.transform='translateX(-50%)';return;
       }
       delete bar.dataset.docked;
       const displayScale=searchForm||compact?1:scale;
-      bar.style.maxWidth=Math.max(1,(r.width-12)/displayScale)+'px';bar.style.transform='scale('+displayScale+')';
+      bar.style.maxWidth=Math.max(1,availableWidth/displayScale)+'px';bar.style.transform='scale('+displayScale+')';
       bar.style.setProperty('--ink-hit-pad',compact?'0px':Math.max(0,(40/scale-29)/2)+'px');
       const bounds=bar.getBoundingClientRect(),pad=6,gap=14*displayScale;
       const within=(v,a,b)=>Math.max(a,Math.min(v,Math.max(a,b)));
@@ -535,14 +541,14 @@
       const left=rects.length?Math.min(...rects.map(b=>b.left-r.left)):px;
       const right=rects.length?Math.max(...rects.map(b=>b.right-r.left)):px;
       const anchorX=rects.length?within(atAnchor?px:(left+right)/2,Math.max(0,left),Math.min(r.width,right)):px;
-      const centered=within(anchorX-bounds.width*.5,pad,r.width-bounds.width-pad);
+      const centered=within(anchorX-bounds.width*.5,inlinePad,r.width-bounds.width-inlinePad);
       const upper=top-gap-bounds.height,lower=bottom+gap,maxY=r.height-bounds.height-pad;
       let x=centered,y=upper>=pad?upper:lower;
       // In the whole-book view, prefer the desk over covering more body text.
       if(compact&&lower<=maxY&&lower>=sheet.bottom-r.top&&upper+bounds.height>sheet.top-r.top)y=lower;
       if(upper<pad&&lower>maxY){
-        if(right+gap+bounds.width<=r.width-pad){x=right+gap;y=py-bounds.height*.5;}
-        else if(left-gap-bounds.width>=pad){x=left-gap-bounds.width;y=py-bounds.height*.5;}
+        if(right+gap+bounds.width<=r.width-inlinePad){x=right+gap;y=py-bounds.height*.5;}
+        else if(left-gap-bounds.width>=inlinePad){x=left-gap-bounds.width;y=py-bounds.height*.5;}
         else y=top>r.height-bottom?pad:maxY;
       }
       bar.style.left=x+'px';bar.style.top=within(y,pad,maxY)+'px';
@@ -685,6 +691,7 @@
         const action=bar.querySelector('[data-'+key+']');if(action)action.disabled=!verseOnly;
       }
       if(onStudy)setStudyAvailable(bar.querySelector('[data-study]'),!!size&&hasStudy(pickedLocations(),[...active.chapters.values()]));
+      if(onWriteNote)bar.querySelector('[data-note]').disabled=!size;
       if(crossPage){
         bar.dataset.pages=String(active.faces.size);
         bar.setAttribute('aria-label',size?'经文选区，已选 '+size+' 项':'经文选区');
@@ -740,8 +747,11 @@
     function studySelection(){
       if(active?.count&&onStudy(pickedLocations(),[...active.chapters.values()],stage))reset();
     }
+    function noteSelection(){
+      if(active?.count&&onWriteNote(pickedLocations(),[...active.chapters.values()],stage))reset();
+    }
     function initBar(){
-      bar=makeToolbar(doc,{copy,search:openSearch,highlight,float:onFloat&&floatSelection,study:onStudy&&studySelection,
+      bar=makeToolbar(doc,{copy,search:openSearch,highlight,float:onFloat&&floatSelection,note:onWriteNote&&noteSelection,study:onStudy&&studySelection,
         exit:()=>{reset();stage.focus({preventScroll:true});}},crossPage?'经文选区':'本页选文');
       stage.appendChild(bar);
       if(crossPage){
@@ -800,7 +810,9 @@
       if(win.requestAnimationFrame)syncFrame=win.requestAnimationFrame(sync);else sync();
     }
     win.addEventListener?.('storage',changed);
-    return {hit,tap,hold,reset,refresh,suspend,verseHighlights,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);}};
+    const accountChanged=e=>changed(e.detail||{});
+    win.addEventListener?.('paper-account-data',accountChanged);
+    return {hit,tap,hold,reset,refresh,suspend,verseHighlights,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);win.removeEventListener?.('paper-account-data',accountChanged);}};
   }
   return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,makeToolbar,makeSearchForm,writeText,fallbackCopy,actionLabel,setStudyAvailable,mergeRects,verseBands,physicalRows};
 });

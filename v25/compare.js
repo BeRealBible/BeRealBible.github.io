@@ -67,7 +67,7 @@
     }
     function readingMark(){
       if(config?.kind==='study'){
-        const top=scroll.scrollTop,el=[...scroll.querySelectorAll('[data-qap]')].find(n=>n.offsetTop+n.offsetHeight>top);
+        const top=scroll.scrollTop,el=[...scroll.querySelectorAll('[data-qap],.study-notes__item')].find(n=>n.getClientRects().length&&n.offsetTop+n.offsetHeight>top);
         return {el,offset:el?el.offsetTop-top:0,top};
       }
       const el=firstVisible()?.el;
@@ -145,8 +145,8 @@
       if(!config)return;
       const study=config.kind==='study';
       if(!study&&!activeRow)return;
-      const label=study?'思考问答 '+config.fullTitle:activeRow.name+' '+activeRow.display+(config.label?'（'+config.label+'）':'');
-      name.setAttribute('aria-label',label+(collapsed?'，展开'+(study?'问答':'经文')+'浮窗':'，用方向键移动浮窗'));
+      const label=study?(config.material?'经文资料 ':'思考问答 ')+config.fullTitle:activeRow.name+' '+activeRow.display+(config.label?'（'+config.label+'）':'');
+      name.setAttribute('aria-label',label+(collapsed?'，展开'+(study?(config.material?'资料':'问答'):'经文')+'浮窗':'，用方向键移动浮窗'));
       name.title=label+(collapsed?'；点击展开':'；拖动标题栏移动，也可使用方向键');
     }
     function collapse(value){
@@ -155,7 +155,7 @@
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
       const target=value&&dock?dock:config?.portal||home;
       if(panel.parentNode!==target)target.append(panel);
-      minimize.textContent=value?'+':'−';minimize.title=(value?'展开':'收起')+(config.kind==='study'?'问答':'经文')+'浮窗';
+      minimize.textContent=value?'+':'−';minimize.title=(value?'展开':'收起')+(config.kind==='study'?(config.material?'资料':'问答'):'经文')+'浮窗';
       minimize.setAttribute('aria-label',minimize.title);minimize.setAttribute('aria-expanded',String(!value));
       labelTitle();placed=null;
       if(!value){reflow(foldedMark);foldedMark=null;}
@@ -168,7 +168,7 @@
     function close(reason='dismiss',restore=false){
       if(!config)return;
       picking?.close();onHide?.();
-      const closed=config;config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
+      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
       if(restore&&(doc.activeElement===doc.body||panel.contains(doc.activeElement)))stage.focus({preventScroll:true});
@@ -178,7 +178,7 @@
       section.dataset.chunk=String(n);section.dataset.chapter=String(chapter);
       const heading=node('h2','compare-slip__chapter-title','第 '+chapter+' 章');
       heading.dataset.studyChapter=stream.book.code+'.'+chapter;
-      if(select?.onStudy){heading.tabIndex=0;heading.setAttribute('aria-description','长按或按回车选择整章，查看经文问答。');}
+      if(select?.onStudy){heading.tabIndex=0;heading.setAttribute('aria-description',select.onWriteNote?'长按或按回车选择整章，写笔记或查看资料。':'长按或按回车选择整章，查看经文问答。');}
       section.append(heading);
       let paragraph;
       for(const row of rows){
@@ -266,6 +266,7 @@
     panel.addEventListener('pointerdown',()=>{if(!collapsed)onUse?.();},true);
     panel.addEventListener('focusin',()=>{if(!collapsed)onUse?.();});
     panel.addEventListener('keydown',e=>{
+      if(e.isComposing||e.keyCode===229)return;
       if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close('dismiss',true);return;}
       if(e.target!==scroll)return;
       const dir=['PageDown','ArrowDown','End',' '].includes(e.key)?(e.shiftKey&&e.key===' '?-1:1):
@@ -293,14 +294,15 @@
       close('replace');
       config=settings;lastChapter=null;lastTop=0;activeRow=null;
       panel.dataset.kind=config.kind;panel.hidden=false;
+      panel.toggleAttribute('data-material',!!config.material);
       panel.setAttribute('aria-label',config.ariaLabel||'经文对照浮窗');
-      scroll.setAttribute('aria-label',study?'思考问答列表':'浮窗经文');
+      scroll.setAttribute('aria-label',study?(config.material?'经文资料列表':'思考问答列表'):'浮窗经文');
       for(const [attr,value] of pickingHints){
         if(study||value===null)scroll.removeAttribute(attr);
         else scroll.setAttribute(attr,value);
       }
-      exit.title=study?'关闭问答浮窗':'关闭经文浮窗';exit.setAttribute('aria-label',exit.title);
-      if(study){bookTitle.textContent='思考问答';refTitle.textContent=config.title;}
+      exit.title=study?(config.material?'关闭资料浮窗':'关闭问答浮窗'):'关闭经文浮窗';exit.setAttribute('aria-label',exit.title);
+      if(study){bookTitle.textContent=config.material?'经文资料':'思考问答';refTitle.textContent=config.title;}
       back.hidden=!config.onBack;jump.hidden=!config.onJump;pin.hidden=!config.onPin;minimize.hidden=role==='preview';
       manual=null;foldedMark=null;panel.removeAttribute('style');
       collapse(false);
@@ -309,9 +311,10 @@
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
     }
-    return {panel,scroll,open,close,collapse,reflow,picking,is:(kind)=>config?.kind===kind,focus:()=>scroll.focus({preventScroll:true})};
+    return {panel,scroll,open,close,collapse,reflow,picking,is:(kind)=>config?.kind===kind,
+      reopen:mode=>config?.onReopen?.(mode),focus:()=>scroll.focus({preventScroll:true})};
   }
-  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy,hasStudy}){
+  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy,hasStudy,onWriteNote}){
     const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
     const limitNote=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
@@ -331,7 +334,7 @@
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
         role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>closeCitation(pin.panel),
-        select:marks&&{marks,onStudy,hasStudy,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
+        select:marks&&{marks,onStudy,hasStudy,onWriteNote,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));
@@ -365,7 +368,7 @@
       if(!target){showLimit();return false;}
       clearTimeout(limitTimer);limitNote.textContent='';
       if(promote)preview.close('pin');
-      if(existing){activate(existing,keepOpen);return true;}
+      if(existing){activate(existing,keepOpen);existing.reopen(settings.mode);return true;}
       makeRoom(keepOpen);delete target.panel.dataset.slot;place(target);
       target.key=key;
       if(settings.kind==='study'){target.panel.dataset.studyKey=key;delete target.panel.dataset.citation;}
@@ -377,9 +380,10 @@
     function display(rows,settings={},options){
       return displaySlot(rows.map(row=>row.id).sort().join('|'),{kind:'compare',label:'经文对照',rows,onRead,onJump,...settings},options);
     }
-    function openStudy({key,title,fullTitle,render,restore}){
-      return displaySlot('study:'+key,{kind:'study',title,fullTitle,render,ariaLabel:'思考问答 '+fullTitle,
-        onClose(_,focus){if(focus&&restore?.isConnected&&restore.getClientRects().length)restore.focus({preventScroll:true});}});
+    function openStudy({key,title,fullTitle,render,restore,material=false,mode,focus=true,onReopen,onDispose}){
+      const keepOpen=pins.find(pin=>!pin.panel.hidden&&restore&&pin.panel.contains(restore));
+      return displaySlot('study:'+key,{kind:'study',title,fullTitle,render,material,mode,focus,onReopen,onDispose,ariaLabel:(material?'经文资料 ':'思考问答 ')+fullTitle,
+        onClose(_,focus){if(focus&&restore?.isConnected&&restore.getClientRects().length)restore.focus({preventScroll:true});}},{keepOpen});
     }
     function openSelection(locs,notice=feedback){
       const run=scripture.pinSelection(locs);
@@ -442,7 +446,8 @@
     doc.addEventListener('pointerdown',e=>{
       if(citationAnchor&&!preview.panel.contains(e.target)&&!e.target.closest?.('.scripture-cite,.pcz-control,.zoom-tools'))closeCitation();
     },true);
-    return {open,openStudy,openSelection,openPreview,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights};
+    function closeMaterials(){for(const pin of pins)if(!pin.panel.hidden&&pin.panel.hasAttribute('data-material'))pin.close('account-changed');}
+    return {open,openStudy,openSelection,openPreview,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights,closeMaterials};
   }
   return {mount,windowRange,slipScale,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });

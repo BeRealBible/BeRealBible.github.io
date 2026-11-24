@@ -1,7 +1,7 @@
 /* The floating reader selects canonical verses, never line breaks or SVG ink. */
 (() => {
   'use strict';
-  function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy,hasStudy}){
+  function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy,hasStudy,onWriteNote}){
     const doc=panel.ownerDocument,win=doc.defaultView,tools=win.PaperTextSelection;
     const picked=new Map();
     let bar=null,form=null,contact=null,suppress=false,tapRow=null,serial=0,noticeTimer=0;
@@ -42,6 +42,7 @@
       pen.disabled=!reader||hasChapter;pen.setAttribute('aria-pressed',String(saved));
       for(const action of ['copy','search','float'])bar.querySelector('[data-'+action+']').disabled=hasChapter;
       if(onStudy)tools.setStudyAvailable(bar.querySelector('[data-study]'),hasStudy(locs(),chapterObjects()));
+      if(onWriteNote)bar.querySelector('[data-note]').disabled=!picked.size;
       tools.actionLabel(pen,saved?'取消高亮':'高亮');
       bar.setAttribute('aria-label','浮窗经文选区，已选 '+picked.size+(hasChapter?' 项':' 节'));
     }
@@ -59,7 +60,7 @@
     function prepare(){
       if(bar)return;
       begin();
-      bar=tools.makeToolbar(doc,{copy,search,highlight,float:another,study:onStudy&&study,exit:()=>reset(true)},'浮窗经文选区','另开对照');
+      bar=tools.makeToolbar(doc,{copy,search,highlight,float:another,note:onWriteNote&&writeNote,study:onStudy&&study,exit:()=>reset(true)},'浮窗经文选区','另开对照');
       bar.dataset.floating='';
       panel.dataset.selecting='';
       panel.insertBefore(bar,scroll);
@@ -104,6 +105,7 @@
     }
     function another(){if(picked.size&&!chapterObjects().length&&onFloat(locs(),tell))reset();}
     function study(){if(picked.size&&onStudy(locs(),chapterObjects(),scroll))reset();}
+    function writeNote(){if(picked.size&&onWriteNote(locs(),chapterObjects(),scroll))reset();}
     panel.addEventListener('copy',event=>{
       if(!picked.size||chapterObjects().length||form||!event.clipboardData||event.target?.closest?.('input,textarea,[contenteditable]'))return;
       const text=quote();if(!text)return;
