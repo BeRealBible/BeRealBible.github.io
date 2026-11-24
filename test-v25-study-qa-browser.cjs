@@ -222,7 +222,8 @@ async function run(browser,width){
     await page.waitForTimeout(140);
     await press(heading,true);
     assert.equal(await heading.getAttribute('data-qap-mark'),'chapter');
-    assert.equal(await heading.evaluate(el=>getComputedStyle(el).textDecorationStyle),'dashed','selection takes precedence over the solid QAP cue');
+    const selectedChapterStyle=await heading.evaluate(el=>{const css=getComputedStyle(el);return [css.color,css.textDecorationStyle,css.textDecorationLine];});
+    assert.deepEqual(selectedChapterStyle,['rgb(131, 55, 45)','solid','underline'],'selection applies warm ink without replacing the independent QAP cue');
     await open(win.locator('.paper-selection-tools'));
     assert.ok((await ids()).includes('2SA.3.4'));
     assert.ok(await win.isVisible(),'opening a QAP does not dismiss its source scripture');
@@ -311,7 +312,7 @@ async function run(browser,width){
     assert.ok(await clean(),'the section heading has no cue even though the chapter has QAPs');
     await press(cainAndAbel);await press(cainAndAbel,true);
     assert.equal(await mainBar.count(),0);assert.equal(await dialog.count(),0);
-    assert.equal(await $('#stage .paper text[data-paper-tap-ink]').count(),0,'section headings do not enter tap mode');
+    assert.equal(await $('#stage .paper text[data-paper-emphasis]').count(),0,'section headings do not enter tap or selection mode');
     await press(chapter(4),true);await open();
     assert.ok((await ids()).includes('GEN.4.1'),'chapter selection still returns a QAP attached to verses 4:3–5');
     assert.ok(await clean());await close();

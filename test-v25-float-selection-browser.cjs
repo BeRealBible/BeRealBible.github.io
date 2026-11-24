@@ -79,14 +79,15 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         let act=await open('ACT','7:56');
         const main=await position();
         const paint=loc=>loc.evaluate(n=>{
-          const css=getComputedStyle(n);return [css.backgroundColor,css.color,parseFloat(css.webkitTextStrokeWidth),css.textDecorationStyle,css.textDecorationLine];
+          const css=getComputedStyle(n);return [css.backgroundColor,css.color,parseFloat(css.webkitTextStrokeWidth),css.textDecorationStyle,css.textDecorationLine,
+            css.webkitTextStrokeColor,css.fontSize,css.fontFamily,css.fontWeight];
         });
         const transparency='rgba(0, 0, 0, 0)',gold='rgb(245, 217, 154)',red='rgb(131, 55, 45)';
-        const natural=(await paint(verse(act,'7:56')))[1];
         await input(act,'7:56');assert.equal(await tools(act).count(),0,'plain taps do not enter selection');
         await act.locator('[data-focused-verse=""]').waitFor({timeout:3500});
         const tappedStyle=await paint(verse(act,'7:56'));
         assert.deepEqual(tappedStyle.slice(0,2),[transparency,red]);assert.ok(tappedStyle[2]>=1.3);
+        assert.equal(tappedStyle[4],'none');
         await input(act,'7:56',true);await tools(act).waitFor();
         assert.deepEqual(await selected(act),['7:56']);
         assert.ok(await task(act,'study').isDisabled(),'no QAP at Acts 7:56');
@@ -97,7 +98,7 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.ok(await tools(act).locator(':scope > button').evaluateAll(nodes=>
           nodes.every(n=>n.getBoundingClientRect().top===nodes[0].getBoundingClientRect().top)));
         assert.deepEqual(await position(),main);
-        assert.deepEqual(await paint(verse(act,'7:56')),[transparency,natural,0,'dashed','underline']);
+        assert.deepEqual(await paint(verse(act,'7:56')),tappedStyle,'the same fixed-window words keep the tap format in selection');
         assert.equal(await act.locator('[data-focused-verse]').count(),0);
         if(process.env.FLOAT_SELECTION_SHOTS)await act.screenshot({path:path.join(process.env.FLOAT_SELECTION_SHOTS,`float-selection-${width}.png`)});
         await task(act,'copy').click();await tools(act).waitFor({state:'detached'});
@@ -110,9 +111,10 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         await page.reload();await ready();act=await open('ACT','7:56');
         assert.equal(await verse(act,'7:56').getAttribute('data-saved-verse'),'');
         await input(act,'7:56');await act.locator('[data-focused-verse]').waitFor();
-        assert.deepEqual((await paint(verse(act,'7:56'))).slice(0,2),[gold,red]);
+        const savedTap=await paint(verse(act,'7:56'));
+        assert.deepEqual(savedTap,[gold,...tappedStyle.slice(1)]);
         await input(act,'7:56',true);
-        assert.deepEqual(await paint(verse(act,'7:56')),[gold,natural,0,'dashed','underline']);
+        assert.deepEqual(await paint(verse(act,'7:56')),savedTap);
         assert.equal(await act.locator('[data-focused-verse]').count(),0);
         assert.equal(await task(act,'highlight').getAttribute('aria-label'),'取消高亮');
         await task(act,'highlight').click();
@@ -169,10 +171,13 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         const preview=$('#v25-scripture-preview');
         await page.evaluate(()=>V25ScriptureWindows.openPreview([{code:'PSA',ref:'23:1'}],{kind:'footnote',focus:true}));
         assert.equal(await preview.locator('.compare-slip__scroll').getAttribute('data-verse-picking'),'');
+        await input(preview,'23:1');await preview.locator('[data-focused-verse]').waitFor();
+        assert.equal(await tools(preview).count(),0);
+        const previewTap=await paint(verse(preview,'23:1'));
+        assert.deepEqual(previewTap.slice(0,2),[transparency,red]);assert.equal(previewTap[4],'none');
         await input(preview,'23:1',true);await tools(preview).waitFor();
         assert.deepEqual(await selected(preview),['23:1']);
-        const previewPaint=await paint(verse(preview,'23:1'));
-        assert.equal(previewPaint[0],transparency);assert.deepEqual(previewPaint.slice(2),[0,'dashed','underline']);
+        assert.deepEqual(await paint(verse(preview,'23:1')),previewTap);
         await task(preview,'copy').click();await tools(preview).waitFor({state:'detached'});
         assert.ok(await preview.isVisible(),'copying does not pin or close the preview');
         assert.match(await page.evaluate(()=>copyTest.at(-1)),/诗篇 23:1/);

@@ -255,21 +255,23 @@ test('Ctrl/Cmd+C uses the same clipboard text and does not intercept editing con
   assert.ok(cancelled);assert.equal(s.ctrl.isActive(),false);
 });
 
-test('tap clips a single word; selected lines use the unchanged saved highlight footprint',()=>{
+test('tap and selection tint the same clipped word; the saved highlight footprint is unchanged',()=>{
   const storage=new Map();storage.setItem=(k,v)=>storage.set(k,v);storage.getItem=k=>storage.get(k);
   const {ctrl,marks,hit,bar,svg}=scene(storage);
-  const geometry=()=>marks()[0].children[0].attrs;
   ctrl.tap(hit(0,1));
   const [clip,overlay]=marks()[0].children;
   assert.equal(clip.tag,'clipPath');assert.equal(clip.children[0].attrs.width,'30');
   assert.equal(overlay.getAttribute('clip-path'),`url(#${clip.attrs.id})`);
-  assert.equal(overlay.getAttribute('data-paper-tap-ink'),'');
-  assert.equal(svg(0).querySelectorAll('text[data-role]')[0].getAttribute('data-paper-tap-ink'),null);
+  assert.equal(overlay.getAttribute('data-paper-emphasis'),'focus');
+  assert.equal(svg(0).querySelectorAll('text[data-role]')[0].getAttribute('data-paper-emphasis'),null);
   ctrl.hold(hit(0,1));
   assert.match(marks()[0].attrs.class,/--selected/);
-  const selected={...geometry()},line=marks()[0].children[1];
-  assert.equal(line.tag,'line');assert.ok(Number(line.attrs.y1)>12);
+  const [anchor,selectedClip,selectedOverlay]=marks()[0].children,selected={...anchor.children[0].attrs};
+  assert.equal(anchor.getAttribute('data-selection-geometry'),'');
+  assert.equal(selectedClip.tag,'clipPath');assert.deepEqual(selectedClip.children[0].attrs,clip.children[0].attrs);
+  assert.equal(selectedOverlay.getAttribute('data-paper-emphasis'),'selected');
+  assert.ok(marks()[0].children.every(n=>n.tag!=='line'));
   bar().querySelector('[data-highlight]').handlers.click[0]();
   assert.match(marks()[0].attrs.class,/--saved/);
-  assert.deepEqual(geometry(),selected);
+  assert.deepEqual(marks()[0].children[0].attrs,selected);
 });

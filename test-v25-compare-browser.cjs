@@ -39,7 +39,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       async function compactToolbar({near}={}){
         const layout=await bar.evaluate(el=>{
           const b=el.getBoundingClientRect(),stage=el.parentElement.getBoundingClientRect();
-          const ink=[...el.parentElement.querySelectorAll('.paper-ink-mark--selected')].map(m=>m.getBoundingClientRect())
+          const ink=[...el.parentElement.querySelectorAll('.paper-ink-mark--selected>[data-selection-geometry]')].map(m=>m.getBoundingClientRect())
             .filter(m=>m.width&&m.height&&m.right>stage.left&&m.left<stage.right&&m.bottom>stage.top&&m.top<stage.bottom);
           const keys=[...el.querySelectorAll(':scope > button')].map(n=>n.getBoundingClientRect());
           return {fitted:b.left>=stage.left&&b.right<=stage.right&&b.top>=stage.top&&b.bottom<=stage.bottom,
@@ -134,27 +134,33 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await page.waitForFunction(({book,ref})=>document.querySelector('.rh-chip[aria-current=page]')?.getAttribute('aria-label').endsWith(ref)&&document.getElementById('stage').dataset.book===book,{book,ref});
       };
       await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
-      const tapped=$('svg[data-pdf="9"] text[data-role=body][data-ref="1:29"][data-paper-tap-ink]');
+      const verseInk='svg[data-pdf="9"] text[data-role=body][data-ref="1:29"]';
+      const tapped=$(verseInk+'[data-paper-emphasis=focus]'),picked=$(verseInk+'[data-paper-emphasis=selected]');
       const savedInk=$('svg[data-pdf="9"] .paper-ink-mark--saved>rect');
-      const selectedInk=$('.paper-ink-mark--selected>rect'),dash=$('.paper-ink-mark--selected>line');
+      const selectedInk=$('.paper-ink-mark--selected>[data-selection-geometry]>rect'),lines=$('.paper-ink-mark--selected line');
       const fill=el=>el.evaluate(n=>getComputedStyle(n).fill);
+      const inkStyle=el=>el.evaluate(n=>{const s=getComputedStyle(n);return [s.fill,s.stroke,s.strokeWidth,s.fontFamily,s.fontSize,s.fontWeight,s.textDecorationLine];});
       await mark('1:29',9);await tapped.first().waitFor();
-      assert.equal(await fill(tapped.first()),'rgb(131, 55, 45)');
-      assert.equal(await tapped.first().evaluate(n=>getComputedStyle(n).strokeWidth),'4.8px');
+      const tapStyle=await inkStyle(tapped.first());
+      assert.deepEqual(tapStyle.slice(0,3),['rgb(131, 55, 45)','rgb(131, 55, 45)','4.8px']);
+      assert.equal(tapStyle.at(-1),'none');assert.equal(await bar.count(),0);
       assert.equal(await $('.paper-ink-mark--focus rect').count(),0,'tap never draws a background');
       await mark('1:29',9,true);await bar.waitFor();
       assert.equal(await tapped.count(),0);assert.equal(await fill(selectedInk.first()),'none');
+      assert.deepEqual(await inkStyle(picked.first()),tapStyle,'tap and selection have exactly the same paper ink');
+      assert.equal(await lines.count(),0);
       await bar.locator('[data-highlight]').click();await savedInk.first().waitFor();
+      assert.equal(await picked.count(),0,'saving a highlight exits temporary emphasis');
       assert.equal(await fill(savedInk.first()),'rgb(245, 217, 154)');
       await mark('1:29',9);await tapped.first().waitFor();
       assert.equal(await fill(savedInk.first()),'rgb(245, 217, 154)','tap leaves the original saved fill');
       await mark('1:29',9,true);await bar.waitFor();
       assert.equal(await tapped.count(),0);assert.equal(await fill(savedInk.first()),'rgb(245, 217, 154)');
-      assert.equal(await fill(selectedInk.first()),'none');assert.equal(await dash.count(),await selectedInk.count());
-      assert.match(await dash.first().evaluate(n=>getComputedStyle(n).strokeDasharray),/3\.8px, 2\.8px/);
+      assert.equal(await fill(selectedInk.first()),'none');assert.equal(await lines.count(),0);
+      assert.deepEqual(await inkStyle(picked.first()),tapStyle);
       await bar.locator('[data-highlight]').click();await bar.waitFor({state:'detached'});assert.equal(await savedInk.count(),0);
       await mark('1:31',9,true);await bar.waitFor({timeout:4000});
-      assert.equal(await fill(selectedInk.first()),'none');assert.ok(await dash.count());
+      assert.equal(await fill(selectedInk.first()),'none');assert.equal(await lines.count(),0);
       const floatIcon=await bar.locator('[data-float] svg path').getAttribute('d');
       assert.equal(await $('#book-picker-opening [data-opening=float] svg path').getAttribute('d'),floatIcon);
       assert.equal(await $('.rh-float svg path').first().getAttribute('d'),floatIcon);

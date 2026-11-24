@@ -63,7 +63,6 @@ html[data-study-marks] :where(.compare-slip__chunk) [data-qap-mark]{
   text-decoration-line:underline;text-decoration-color:#a0804f63;
   text-decoration-thickness:max(1px,.045em);text-underline-offset:.14em;text-decoration-skip-ink:none;
 }
-.compare-slip__scroll .compare-slip__chapter-title[data-selected-chapter]{text-decoration:underline dashed var(--paper-selection-dash);text-decoration-thickness:1px;text-underline-offset:.23em;text-decoration-skip-ink:none}
 .rh-toggle.rh-settings{margin-inline-start:auto;flex:none}
 @media(max-width:560px){
   .study-qa{width:calc(100% - 18px);max-height:88dvh}

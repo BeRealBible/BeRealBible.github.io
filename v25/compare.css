@@ -104,13 +104,12 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 }
 .compare-slip__ref{font:600 .66em/0 var(--ui,system-ui,sans-serif);color:#66472d;margin-right:.32em;vertical-align:super;white-space:nowrap}
 .compare-slip__verse[data-cited] .compare-slip__ref{color:inherit}
-/* Only saved ink paints the paper. Tap thickens the existing glyphs without
-   changing wrapping, while selection marks the baseline separately. */
-.compare-slip__verse{transition-property:none}
+/* Tap and selection thicken the same ink without rewrapping. Only a saved
+   highlight paints the paper; only selection mounts the tools. */
+.compare-slip__verse,.compare-slip__chapter-title{transition-property:none}
 .compare-slip__verse[data-saved-verse]{background:#f5d99a;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
-.compare-slip__verse[data-focused-verse]:not([data-selected-verse]){color:var(--paper-tap-ink);-webkit-text-stroke:.09em currentColor;paint-order:stroke fill}
-.compare-slip__verse[data-focused-verse] :is(.compare-slip__ref,mark){-webkit-text-stroke:0}
-.compare-slip__verse[data-selected-verse]{text-decoration:underline dashed var(--paper-selection-dash);text-decoration-thickness:1px;text-underline-offset:.23em;text-decoration-skip-ink:none}
+.compare-slip__verse:is([data-focused-verse],[data-selected-verse]),.compare-slip__chapter-title[data-selected-chapter]{color:var(--paper-active-ink);-webkit-text-stroke:.09em currentColor;paint-order:stroke fill}
+.compare-slip__verse:is([data-focused-verse],[data-selected-verse]) :is(.compare-slip__ref,mark){-webkit-text-stroke:0}
 .compare-slip__scroll[data-verse-picking] .compare-slip__verse{-webkit-touch-callout:none}
 .compare-slip[data-selecting]{grid-template-rows:auto auto minmax(0,1fr)}
 .compare-slip[data-selecting] .compare-slip__scroll{grid-row:3;user-select:none}
@@ -162,11 +161,9 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   .compare-slip__resize::after{background:CanvasText}
   .compare-slip__verse[data-cited]{color:LinkText;text-decoration:underline dotted}
   .compare-slip__verse mark,#vf-list mark{forced-color-adjust:none;background:transparent;color:LinkText}
-  .compare-slip__verse[data-focused-verse]:not([data-saved-verse]){color:LinkText}
+  .compare-slip__verse:is([data-focused-verse],[data-selected-verse]):not([data-saved-verse]),.compare-slip__chapter-title[data-selected-chapter]{color:LinkText}
   .compare-slip__verse[data-saved-verse]{forced-color-adjust:none;background:Highlight;color:HighlightText}
-  .compare-slip__verse[data-saved-verse][data-focused-verse]{color:HighlightText}
+  .compare-slip__verse[data-saved-verse]:is([data-focused-verse],[data-selected-verse]){color:HighlightText}
   .compare-slip__verse[data-saved-verse] mark{color:HighlightText}
-  .compare-slip__verse[data-selected-verse]{text-decoration-color:CanvasText}
-  .compare-slip__verse[data-selected-verse][data-saved-verse]{text-decoration-color:HighlightText}
 }
 @media print{.compare-slip,#v25-citation-choice{display:none!important}}

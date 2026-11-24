@@ -5,8 +5,8 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const SVG='http://www.w3.org/2000/svg';
-  const TAP_INK='data-paper-tap-ink';
-  let tapClip=0;
+  const EMPHASIS='data-paper-emphasis';
+  let inkClip=0;
   const FLOAT_ICON='M15 4H5a2 2 0 0 0-2 2v8m7-6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Zm-2 4h13m-10 4h6';
 
   // Source references, not line numbers: a verse may wrap or cross the gutter
@@ -346,7 +346,7 @@
   }
   function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy,hasStudy,onWriteNote}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
-    const tappedNodes=new Set();
+    const inkNodes={focus:new Set(),selected:new Set()};
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
     // The old format is a page-wide array. Keep it as a read-only baseline;
@@ -417,16 +417,16 @@
       for(const [k,v] of Object.entries(attributes))node.setAttribute(k,String(v));
       return node;
     }
-    function tintFragment(group,node,rects){
+    function tintFragment(group,node,rects,mode){
       if(!rects.length)return;
       // A frontmatter word may share one <text> with several other words.
       // Paint its existing glyph shape in place, clipped to just its letters.
-      const id='paper-tap-clip-'+(++tapClip),clip=setGeometry(doc.createElementNS(SVG,'clipPath'),{id});
+      const id='paper-emphasis-clip-'+(++inkClip),clip=setGeometry(doc.createElementNS(SVG,'clipPath'),{id});
       for(const {x,y,width,height} of mergeRects(rects.map(r=>({x:r.x,y:r.y,width:r.width,height:r.height}))))
         clip.appendChild(setGeometry(doc.createElementNS(SVG,'rect'),{x,y:y-height*.2,width,height:height*1.4}));
       const overlay=node.cloneNode(true);
       for(const attr of ['id','data-role','data-ref','data-qap-mark'])overlay.removeAttribute(attr);
-      overlay.setAttribute(TAP_INK,'');overlay.setAttribute('clip-path','url(#'+id+')');
+      overlay.setAttribute(EMPHASIS,mode);overlay.setAttribute('clip-path','url(#'+id+')');
       group.append(clip,overlay);
     }
     function draw(token,mode){
@@ -434,6 +434,8 @@
       const body=verse&&unit.parts.some(({i})=>entry.list[i].role==='body');
       const g=doc.createElementNS(SVG,'g');
       g.setAttribute('class','paper-ink-mark paper-ink-mark--'+mode);g.setAttribute('aria-hidden','true');g.setAttribute('pointer-events','none');
+      const geometry=mode==='selected'?doc.createElementNS(SVG,'g'):g;
+      if(geometry!==g){geometry.setAttribute('data-selection-geometry','');g.appendChild(geometry);}
       if(verse&&entry.rows===undefined)entry.rows=physicalRows(entry.list);
       for(const {i,start,end} of unit.parts){
         const node=entry.nodes[i],c=entry.list[i],line=[c.column,c.row,c.y].join('/');
@@ -442,7 +444,7 @@
         const row=c.column!==''&&c.row!==''&&c.column!=null&&c.row!=null?c.column+'/'+c.row:fallback?.key;
         const rowCenter=fallback?.center,rowHeight=fallback?.height;
         const entire=start===0&&end===c.text.length;
-        if(mode==='focus'&&entire){node.setAttribute(TAP_INK,'');tappedNodes.add(node);}
+        if(mode!=='saved'&&entire){node.setAttribute(EMPHASIS,mode);inkNodes[mode].add(node);}
         let rects=[];
         try{
           if(c.physicalInk&&entire){
@@ -452,31 +454,29 @@
           if(entire)rects=[node.getBBox()];
           else for(let j=start;j<end;j++)rects.push(node.getExtentOfChar(j));
         }catch{continue;}
-        if(mode==='focus'&&!entire)tintFragment(g,node,rects);
+        if(mode!=='saved'&&!entire)tintFragment(g,node,rects,mode);
         for(const r of rects){
           // The physical word transform is diagonal, including page adaptation.
           if(c.physicalInk)boxes.push({x:r.x*c.sx+c.tx,y:r.y*c.sy+c.ty,width:r.width*c.sx,height:r.height*c.sy,line,row,rowCenter,rowHeight});
           else boxes.push({x:r.x,y:r.y,width:r.width,height:r.height,line,row,rowCenter,rowHeight});
         }
       }
-      for(const b of verse?verseBands(boxes):mergeRects(boxes)){
+      if(mode!=='focus')for(const b of verse?verseBands(boxes):mergeRects(boxes)){
         const bounds={
           x:b.x-.7,y:b.y-.18*b.height,width:b.width+1.4,height:1.36*b.height,rx:1.3
         };
-        // Invisible in select mode, but the full line box still anchors the
-        // toolbar and keeps it usable across page turns and zoom.
-        if(mode!=='focus')g.appendChild(setGeometry(doc.createElementNS(SVG,'rect'),bounds));
-        if(mode==='selected'){
-          const inset=Math.min(1.2,bounds.width*.2),y=bounds.y+bounds.height-.48;
-          g.appendChild(setGeometry(doc.createElementNS(SVG,'line'),{x1:bounds.x+inset,x2:bounds.x+bounds.width-inset,y1:y,y2:y,
-            'vector-effect':'non-scaling-stroke'}));
-        }
+        // Selection boxes are only for toolbar measurement, not visible ink.
+        geometry.appendChild(setGeometry(doc.createElementNS(SVG,'rect'),bounds));
       }
-      if(mode==='focus')svg.appendChild(g);else svg.insertBefore(g,entry.nodes[0]);
+      if(mode==='saved')svg.insertBefore(g,entry.nodes[0]);else svg.appendChild(g);
       return g;
     }
     const markKey=(index,id)=>index+'|'+id;
-    function clearPaint(){for(const mark of painted.values())mark.remove();painted.clear();}
+    function clearEmphasis(mode){
+      for(const node of inkNodes[mode])if(node.getAttribute(EMPHASIS)===mode)node.removeAttribute(EMPHASIS);
+      inkNodes[mode].clear();
+    }
+    function clearPaint(){for(const mark of painted.values())mark.remove();painted.clear();clearEmphasis('selected');}
     const location=(page,u)=>({page,ref:verseOf(u)?u.group.slice(6):null});
     function verseKey(index,unit){
       const loc=location(index,unit);
@@ -505,9 +505,9 @@
       papers.forEach((paper,side)=>{
         const svg=paper.querySelector('svg');if(!svg)return;
         // A cancelled curl can restore a serialized SVG already containing
-        // these groups or tap attributes. Rebuild only the current cues.
+        // these groups or emphasis attributes. Rebuild only the current cues.
         for(const kind of ['saved','focus','selected'])for(const g of svg.querySelectorAll('.paper-ink-mark--'+kind))g.remove();
-        for(const el of svg.querySelectorAll('text['+TAP_INK+']'))el.removeAttribute(TAP_INK);
+        for(const el of svg.querySelectorAll('text['+EMPHASIS+']'))el.removeAttribute(EMPHASIS);
         const {page,index,books}=getPage(side),key=recordKey(page,index,books[page.b]),saved=pageMarks(key);
         const focused=focus?.key===key;
         if(!saved.possible&&!focused)return;
@@ -523,8 +523,7 @@
     }
     function clearFocusPaint(){
       focusMark?.remove();focusMark=null;
-      for(const node of tappedNodes)node.removeAttribute(TAP_INK);
-      tappedNodes.clear();
+      clearEmphasis('focus');
     }
     function clearFocus(){clearFocusPaint();focus=null;}
     function isCurrent(t){return t&&getPage(t.entry.side).index===t.entry.index&&papers[t.entry.side].querySelector('svg')===t.entry.svg;}
@@ -549,7 +548,9 @@
       if(compact)bar.dataset.compact='';else delete bar.dataset.compact;
       const inlinePad=6;
       const availableWidth=r.width-2*inlinePad;
-      const visible=[...painted].map(([key,m])=>({key,box:m.getBoundingClientRect()})).filter(({box:b})=>
+      // A clipped word can share its underlying SVG node with other words;
+      // don't let that full node participate in toolbar positioning.
+      const visible=[...painted].map(([key,m])=>({key,box:(m.firstElementChild||m).getBoundingClientRect()})).filter(({box:b})=>
         b.width&&b.height&&Number.isFinite(b.right)&&b.right>r.left&&b.left<r.right&&b.bottom>r.top&&b.top<r.bottom);
       // Keep cross-page actions available even when none of the picked ink
       // is on screen. As soon as selected ink returns, use that as the anchor.
