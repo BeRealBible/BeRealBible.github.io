@@ -41,4 +41,5 @@
 
 - 正式域由 `BeRealBible/BeRealBible.github.io` 的 `main` 分支直接托管 `https://berealbible.github.io/`。该域曾托管 `emmaus-paper-study-demo`，不能把正式站和 Demo 分别放在根目录与子目录来视为隔离。
 - 先准备正式版代码并验证根目录资源，旧读经入口保留。待 Demo 的该域发布停用，再验证 `node tools/check-v25-pages-isolation.cjs --official`。通过才置 `pagesIsolationVerified:true` 并发布账号入口。正式域公布后也不得在该域另开其他项目，即使暂时撤回账号配置。
+- 2026-11-24：经确认停用 `BeRealBible/emmaus-paper-study-demo` 的 Pages，未删除或归档仓库，部署分支仍指向原提交。正式根站构建后，已验证该组织下只有正式站启用 Pages、旧 Demo 路径返回 404、正式根网址响应 200 不跳转。
 - 使用同一 Supabase 项目和纸本版次，不迁表、不重置用户、不自动拷贝本机数据。读者在新网址以同一邮箱登录，已有云端笔记可读；需在账号面板开启阅读记录同步来恢复已同步的高亮、进度与历史。未同步的记录仍可从旧入口处理。

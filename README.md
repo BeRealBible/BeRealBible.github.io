@@ -1,6 +1,6 @@
 # BeRealBible · 纸质圣经
 
-计划使用的正式入口：<https://berealbible.github.io/>。原 V25 入口保留用于兼容旧书签和仅存在旧浏览器的游客记录。
+正式入口：<https://berealbible.github.io/>。原 V25 入口保留用于兼容旧书签和仅存在旧浏览器的游客记录。
 
 ## V25 经文对照
 
