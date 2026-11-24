@@ -5,6 +5,8 @@
 })(typeof window!=='undefined'?window:globalThis,function(){
   'use strict';
   const SVG='http://www.w3.org/2000/svg';
+  const TAP_INK='data-paper-tap-ink';
+  let tapClip=0;
   const FLOAT_ICON='M15 4H5a2 2 0 0 0-2 2v8m7-6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Zm-2 4h13m-10 4h6';
 
   // Source references, not line numbers: a verse may wrap or cross the gutter
@@ -344,6 +346,7 @@
   }
   function create({stage,papers,getPage,commands,storage,feedback=()=>{},crossPage=false,onFloat,onBegin,onMarksChange,scripture,onStudy,hasStudy,onWriteNote}){
     const doc=stage.ownerDocument,win=doc.defaultView,cache=new WeakMap(),session=new Map(),painted=new Map();
+    const tappedNodes=new Set();
     let active=null,bar=null,searchForm=null,focus=null,focusMark=null,serial=0,observer=null,refreshFrame=null,suspended=false;
     const recordKey=(page,index,book)=>['paper-bible-highlights-v1',book?.code||page.frontmatter||'cover',index,page.start||'',page.end||''].join(':');
     // The old format is a page-wide array. Keep it as a read-only baseline;
@@ -409,9 +412,27 @@
       if(chapter&&n>=0)return {entry,unit:chapter,chapter:chapter.object,point:{x:point.x,y:point.y}};
       const unit=entry.lookup[i]?.[n];return unit?{entry,unit,point:{x:point.x,y:point.y}}:null;
     }
+    function setGeometry(node,attributes){
+      for(const [k,v] of Object.entries(attributes))node.setAttribute(k,String(v));
+      return node;
+    }
+    function tintFragment(group,node,rects){
+      if(!rects.length)return;
+      // A frontmatter word may share one <text> with several other words.
+      // Paint its existing glyph shape in place, clipped to just its letters.
+      const id='paper-tap-clip-'+(++tapClip),clip=setGeometry(doc.createElementNS(SVG,'clipPath'),{id});
+      for(const {x,y,width,height} of mergeRects(rects.map(r=>({x:r.x,y:r.y,width:r.width,height:r.height}))))
+        clip.appendChild(setGeometry(doc.createElementNS(SVG,'rect'),{x,y:y-height*.2,width,height:height*1.4}));
+      const overlay=node.cloneNode(true);
+      for(const attr of ['id','data-role','data-ref','data-qap-mark'])overlay.removeAttribute(attr);
+      overlay.setAttribute(TAP_INK,'');overlay.setAttribute('clip-path','url(#'+id+')');
+      group.append(clip,overlay);
+    }
     function draw(token,mode){
       const {entry,unit}=token,svg=entry.svg,boxes=[],verse=!!verseOf(unit)&&!unit.word;
       const body=verse&&unit.parts.some(({i})=>entry.list[i].role==='body');
+      const g=doc.createElementNS(SVG,'g');
+      g.setAttribute('class','paper-ink-mark paper-ink-mark--'+mode);g.setAttribute('aria-hidden','true');g.setAttribute('pointer-events','none');
       if(verse&&entry.rows===undefined)entry.rows=physicalRows(entry.list);
       for(const {i,start,end} of unit.parts){
         const node=entry.nodes[i],c=entry.list[i],line=[c.column,c.row,c.y].join('/');
@@ -419,32 +440,39 @@
         const fallback=entry.rows?.get(i);
         const row=c.column!==''&&c.row!==''&&c.column!=null&&c.row!=null?c.column+'/'+c.row:fallback?.key;
         const rowCenter=fallback?.center,rowHeight=fallback?.height;
+        const entire=start===0&&end===c.text.length;
+        if(mode==='focus'&&entire){node.setAttribute(TAP_INK,'');tappedNodes.add(node);}
         let rects=[];
         try{
-          if(c.physicalInk&&start===0&&end===c.text.length){
+          if(c.physicalInk&&entire){
             // Use measured ink, not the much larger em-square.
             boxes.push({x:c.x,y:c.y,width:c.w,height:c.h,line,row,rowCenter,rowHeight});continue;
           }
-          if(start===0&&end===c.text.length)rects=[node.getBBox()];
+          if(entire)rects=[node.getBBox()];
           else for(let j=start;j<end;j++)rects.push(node.getExtentOfChar(j));
         }catch{continue;}
+        if(mode==='focus'&&!entire)tintFragment(g,node,rects);
         for(const r of rects){
           // The physical word transform is diagonal, including page adaptation.
           if(c.physicalInk)boxes.push({x:r.x*c.sx+c.tx,y:r.y*c.sy+c.ty,width:r.width*c.sx,height:r.height*c.sy,line,row,rowCenter,rowHeight});
           else boxes.push({x:r.x,y:r.y,width:r.width,height:r.height,line,row,rowCenter,rowHeight});
         }
       }
-      const g=doc.createElementNS(SVG,'g');
-      g.setAttribute('class','paper-ink-mark paper-ink-mark--'+mode);g.setAttribute('aria-hidden','true');g.setAttribute('pointer-events','none');
       for(const b of verse?verseBands(boxes):mergeRects(boxes)){
-        const rect=doc.createElementNS(SVG,'rect');
         const bounds={
           x:b.x-.7,y:b.y-.18*b.height,width:b.width+1.4,height:1.36*b.height,rx:1.3
         };
-        for(const [k,v] of Object.entries(bounds))rect.setAttribute(k,String(v));
-        g.appendChild(rect);
+        // Invisible in select mode, but the full line box still anchors the
+        // toolbar and keeps it usable across page turns and zoom.
+        if(mode!=='focus')g.appendChild(setGeometry(doc.createElementNS(SVG,'rect'),bounds));
+        if(mode==='selected'){
+          const inset=Math.min(1.2,bounds.width*.2),y=bounds.y+bounds.height-.48;
+          g.appendChild(setGeometry(doc.createElementNS(SVG,'line'),{x1:bounds.x+inset,x2:bounds.x+bounds.width-inset,y1:y,y2:y,
+            'vector-effect':'non-scaling-stroke'}));
+        }
       }
-      svg.insertBefore(g,entry.nodes[0]);return g;
+      if(mode==='focus')svg.appendChild(g);else svg.insertBefore(g,entry.nodes[0]);
+      return g;
     }
     const markKey=(index,id)=>index+'|'+id;
     function clearPaint(){for(const mark of painted.values())mark.remove();painted.clear();}
@@ -472,11 +500,13 @@
     }
     function refresh(){
       clearPaint();
+      clearFocusPaint();
       papers.forEach((paper,side)=>{
         const svg=paper.querySelector('svg');if(!svg)return;
         // A cancelled curl can restore a serialized SVG already containing
-        // these groups. Rebuild rather than drawing a second translucent coat.
+        // these groups or tap attributes. Rebuild only the current cues.
         for(const kind of ['saved','focus','selected'])for(const g of svg.querySelectorAll('.paper-ink-mark--'+kind))g.remove();
+        for(const el of svg.querySelectorAll('text['+TAP_INK+']'))el.removeAttribute(TAP_INK);
         const {page,index,books}=getPage(side),key=recordKey(page,index,books[page.b]),saved=pageMarks(key);
         const focused=focus?.key===key;
         if(!saved.possible&&!focused)return;
@@ -490,7 +520,12 @@
       paintSelection();
       suspended=false;if(bar){bar.hidden=false;anchorBar();}
     }
-    function clearFocus(){focusMark?.remove();focusMark=null;focus=null;}
+    function clearFocusPaint(){
+      focusMark?.remove();focusMark=null;
+      for(const node of tappedNodes)node.removeAttribute(TAP_INK);
+      tappedNodes.clear();
+    }
+    function clearFocus(){clearFocusPaint();focus=null;}
     function isCurrent(t){return t&&getPage(t.entry.side).index===t.entry.index&&papers[t.entry.side].querySelector('svg')===t.entry.svg;}
     function reset({keepFocus=false}={}){
       serial++;if(!keepFocus)clearFocus();if(refreshFrame!==null)win.cancelAnimationFrame(refreshFrame);refreshFrame=null;observer?.disconnect();observer=null;

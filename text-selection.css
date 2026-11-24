@@ -1,9 +1,11 @@
 /* Ink stays against the sheet and is not rasterized into a separate overlay. */
-:root{--paper-verse-focus:#e9bda8;--paper-verse-selected:#e7b67a}
+:root{--paper-tap-ink:#83372d;--paper-selection-dash:#a16d56}
 .paper-ink-mark{pointer-events:none}
-.paper-ink-mark--focus{fill:var(--paper-verse-focus)}
-.paper-ink-mark--selected{fill:var(--paper-verse-selected)}
-.paper-ink-mark--saved{fill:#f5d99a}
+.paper-ink-mark--saved>rect{fill:#f5d99a}
+.paper-ink-mark--selected>rect{fill:none}
+.paper-ink-mark--selected>line{stroke:var(--paper-selection-dash);stroke-width:1.05px;stroke-dasharray:3.8 2.8;stroke-linecap:round}
+.paper svg text[data-paper-tap-ink]{fill:var(--paper-tap-ink)!important;stroke:var(--paper-tap-ink);stroke-width:4.8px;
+  stroke-linejoin:round;paint-order:stroke fill;vector-effect:non-scaling-stroke;transition-property:none}
 .stage .paper svg text[data-role]{cursor:text;-webkit-touch-callout:none}
 .paper-selection-tools{
   position:absolute;z-index:40;left:0;top:0;transform-origin:0 0;
@@ -48,4 +50,8 @@
 .paper-search-actions button[type=submit]{background:#b9a48230;color:#41331e}
 @media(pointer:coarse){.paper-search-actions button{min-height:44px}}
 @media(prefers-reduced-transparency:reduce){.paper-selection-tools{background:#fbf4df;backdrop-filter:none;-webkit-backdrop-filter:none}}
-@media(forced-colors:active){.paper-ink-mark{fill:Highlight}.paper-selection-tools{background:Canvas;color:CanvasText;border-color:CanvasText}.paper-selection-tools button{color:ButtonText}.paper-selection-tools [data-pen-glow]{stroke:currentColor}}
+@media(forced-colors:active){
+  .paper-ink-mark--saved>rect{fill:Highlight}.paper-ink-mark--selected>line{stroke:CanvasText}
+  .paper svg text[data-paper-tap-ink]{fill:LinkText!important;stroke:LinkText}
+  .paper-selection-tools{background:Canvas;color:CanvasText;border-color:CanvasText}.paper-selection-tools button{color:ButtonText}.paper-selection-tools [data-pen-glow]{stroke:currentColor}
+}

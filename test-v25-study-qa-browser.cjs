@@ -204,6 +204,7 @@ async function run(browser,width){
     await noQA.locator('[data-study-chapter="OBA.1"]').press('Enter');
     assert.ok(await noQA.locator('[data-study]').isDisabled(),'unassociated chapter title in a scripture window');
     await noQA.getByRole('button',{name:'关闭经文浮窗'}).click();
+    await configure(true);
     assert.ok(await page.evaluate(()=>V25ScriptureWindows.open({code:'2SA',ref:'3:1'})));
     const win=$('.compare-slip[data-citation="2SA.3:1"]:not([hidden])');
     const heading=win.locator('[data-study-chapter="2SA.3"]');
@@ -211,7 +212,10 @@ async function run(browser,width){
     await heading.scrollIntoViewIfNeeded();
     // Chapter buffering can settle a scroll on the frame after the locator.
     await page.waitForTimeout(140);
-    await press(heading,true);await open(win.locator('.paper-selection-tools'));
+    await press(heading,true);
+    assert.equal(await heading.getAttribute('data-qap-mark'),'chapter');
+    assert.equal(await heading.evaluate(el=>getComputedStyle(el).textDecorationStyle),'dashed','selection takes precedence over the solid QAP cue');
+    await open(win.locator('.paper-selection-tools'));
     assert.ok((await ids()).includes('2SA.3.4'));
     assert.ok(await win.isVisible(),'opening a QAP does not dismiss its source scripture');
     const managerOpen=(code,ref)=>page.evaluate(({code,ref})=>V25ScriptureWindows.open({code,ref}),{code,ref});

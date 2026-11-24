@@ -55,6 +55,8 @@ class El{
   constructor(name,doc){this.tag=name;this.ownerDocument=doc;this.children=[];this.attrs={};this.dataset={};this.handlers={};this.classList={add(){}};this.style={setProperty(){}};}
   setAttribute(k,v){this.attrs[k]=v;}
   getAttribute(k){return this.attrs[k]??null;}
+  removeAttribute(k){delete this.attrs[k];}
+  cloneNode(){const clone=new El(this.tag,this.ownerDocument);clone.attrs={...this.attrs};return clone;}
   addEventListener(k,fn){(this.handlers[k]||=[]).push(fn);}
   appendChild(ch){this.append(ch);return ch;}
   append(...children){for(const ch of children){this.children.push(ch);ch.parent=this;}}
@@ -253,18 +255,21 @@ test('Ctrl/Cmd+C uses the same clipboard text and does not intercept editing con
   assert.ok(cancelled);assert.equal(s.ctrl.isActive(),false);
 });
 
-test('highlight preview and saved ink match the padded tap-focus footprint',()=>{
+test('tap clips a single word; selected lines use the unchanged saved highlight footprint',()=>{
   const storage=new Map();storage.setItem=(k,v)=>storage.set(k,v);storage.getItem=k=>storage.get(k);
-  const {ctrl,marks,hit,bar}=scene(storage);
+  const {ctrl,marks,hit,bar,svg}=scene(storage);
   const geometry=()=>marks()[0].children[0].attrs;
   ctrl.tap(hit(0,1));
-  const focus={...geometry()};
-  assert.ok(Number(focus.y)<0);
-  assert.ok(Number(focus.y)+Number(focus.height)>12);
+  const [clip,overlay]=marks()[0].children;
+  assert.equal(clip.tag,'clipPath');assert.equal(clip.children[0].attrs.width,'30');
+  assert.equal(overlay.getAttribute('clip-path'),`url(#${clip.attrs.id})`);
+  assert.equal(overlay.getAttribute('data-paper-tap-ink'),'');
+  assert.equal(svg(0).querySelectorAll('text[data-role]')[0].getAttribute('data-paper-tap-ink'),null);
   ctrl.hold(hit(0,1));
   assert.match(marks()[0].attrs.class,/--selected/);
-  assert.deepEqual(geometry(),focus);
+  const selected={...geometry()},line=marks()[0].children[1];
+  assert.equal(line.tag,'line');assert.ok(Number(line.attrs.y1)>12);
   bar().querySelector('[data-highlight]').handlers.click[0]();
   assert.match(marks()[0].attrs.class,/--saved/);
-  assert.deepEqual(geometry(),focus);
+  assert.deepEqual(geometry(),selected);
 });

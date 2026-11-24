@@ -78,10 +78,15 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
 
         let act=await open('ACT','7:56');
         const main=await position();
+        const paint=loc=>loc.evaluate(n=>{
+          const css=getComputedStyle(n);return [css.backgroundColor,css.color,parseFloat(css.webkitTextStrokeWidth),css.textDecorationStyle,css.textDecorationLine];
+        });
+        const transparency='rgba(0, 0, 0, 0)',gold='rgb(245, 217, 154)',red='rgb(131, 55, 45)';
+        const natural=(await paint(verse(act,'7:56')))[1];
         await input(act,'7:56');assert.equal(await tools(act).count(),0,'plain taps do not enter selection');
-        const color=loc=>loc.evaluate(n=>getComputedStyle(n).backgroundColor);
         await act.locator('[data-focused-verse=""]').waitFor({timeout:3500});
-        assert.equal(await color(verse(act,'7:56')),'rgb(233, 189, 168)');
+        const tappedStyle=await paint(verse(act,'7:56'));
+        assert.deepEqual(tappedStyle.slice(0,2),[transparency,red]);assert.ok(tappedStyle[2]>=1.3);
         await input(act,'7:56',true);await tools(act).waitFor();
         assert.deepEqual(await selected(act),['7:56']);
         assert.ok(await task(act,'study').isDisabled(),'no QAP at Acts 7:56');
@@ -92,18 +97,23 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.ok(await tools(act).locator(':scope > button').evaluateAll(nodes=>
           nodes.every(n=>n.getBoundingClientRect().top===nodes[0].getBoundingClientRect().top)));
         assert.deepEqual(await position(),main);
-        assert.equal(await color(verse(act,'7:56')),'rgb(231, 182, 122)');
+        assert.deepEqual(await paint(verse(act,'7:56')),[transparency,natural,0,'dashed','underline']);
+        assert.equal(await act.locator('[data-focused-verse]').count(),0);
         if(process.env.FLOAT_SELECTION_SHOTS)await act.screenshot({path:path.join(process.env.FLOAT_SELECTION_SHOTS,`float-selection-${width}.png`)});
         await task(act,'copy').click();await tools(act).waitFor({state:'detached'});
         assert.deepEqual(await page.evaluate(()=>copyTest),['就说：“我看见天开了，人子站在　神的右边。”\n( 使徒行传 7:56 和合本 )']);
         await input(act,'7:56',true);await task(act,'highlight').click();
         assert.equal(await verse(act,'7:56').getAttribute('data-saved-verse'),'');
-        assert.equal(await color(verse(act,'7:56')),'rgb(245, 217, 154)');
+        assert.equal((await paint(verse(act,'7:56')))[0],gold);
         const saved=await actMarks();assert.ok(saved.every(parts=>parts.length&&parts.every(x=>x==='1')),JSON.stringify(saved));
         assert.ok(await $('.paper-ink-mark--saved').count(),'main sheet refreshes without a navigation');
         await page.reload();await ready();act=await open('ACT','7:56');
         assert.equal(await verse(act,'7:56').getAttribute('data-saved-verse'),'');
+        await input(act,'7:56');await act.locator('[data-focused-verse]').waitFor();
+        assert.deepEqual((await paint(verse(act,'7:56'))).slice(0,2),[gold,red]);
         await input(act,'7:56',true);
+        assert.deepEqual(await paint(verse(act,'7:56')),[gold,natural,0,'dashed','underline']);
+        assert.equal(await act.locator('[data-focused-verse]').count(),0);
         assert.equal(await task(act,'highlight').getAttribute('aria-label'),'取消高亮');
         await task(act,'highlight').click();
         assert.equal(await verse(act,'7:56').getAttribute('data-saved-verse'),null);
@@ -161,6 +171,8 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.equal(await preview.locator('.compare-slip__scroll').getAttribute('data-verse-picking'),'');
         await input(preview,'23:1',true);await tools(preview).waitFor();
         assert.deepEqual(await selected(preview),['23:1']);
+        const previewPaint=await paint(verse(preview,'23:1'));
+        assert.equal(previewPaint[0],transparency);assert.deepEqual(previewPaint.slice(2),[0,'dashed','underline']);
         await task(preview,'copy').click();await tools(preview).waitFor({state:'detached'});
         assert.ok(await preview.isVisible(),'copying does not pin or close the preview');
         assert.match(await page.evaluate(()=>copyTest.at(-1)),/诗篇 23:1/);

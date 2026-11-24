@@ -31,7 +31,7 @@
       const reader=marks()?.reader();
       for(const el of verses()){
         el.toggleAttribute('data-selected-verse',picked.has(el.dataset.verseId));
-        el.toggleAttribute('data-focused-verse',focusId===el.dataset.verseId);
+        el.toggleAttribute('data-focused-verse',!picked.size&&focusId===el.dataset.verseId);
         if(reader){const row=rowOf(el);el.toggleAttribute('data-saved-verse',!!row&&reader(row));}
       }
       for(const el of scroll.querySelectorAll('[data-study-chapter]')){
