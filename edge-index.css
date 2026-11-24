@@ -1,6 +1,7 @@
 .edge-index { position:absolute;left:0;top:0;width:960px;height:704px;overflow:visible;pointer-events:none;isolation:isolate; }
 .edge-index [hidden] { display:none!important; }
 .edge-index button { appearance:none;-webkit-appearance:none;box-sizing:border-box;margin:0;min-width:0;min-height:0;max-width:none;max-height:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none; }
+html[data-reader-build="index-25"] #stage .edge-index button { touch-action:none; }
 .edge-index__band {
   position:absolute;z-index:2;padding:0;border:0;border-radius:0;cursor:default;pointer-events:auto;user-select:none;
   background:repeating-linear-gradient(90deg,#6e5a3c29 0 1px,transparent 1px 3px),linear-gradient(90deg,#d6ccb6,#f1eadb);
