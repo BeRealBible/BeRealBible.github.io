@@ -7,9 +7,9 @@
   'use strict';
   const LIMIT=3,MAX_PINNED=5,MAX_EXPANDED=3,clamp=(n,a,b)=>Math.max(a,Math.min(n,Math.max(a,b)));
   const slipScale=(scale,wide)=>wide&&Number.isFinite(scale)&&scale>0?Math.max(.88,scale):1;
-  function slipSize(kind,w,h,compact){
+  function slipSize(kind,w,h,compact,material){
     if(kind==='study')return {width:compact?Math.min(330,w*.84):clamp(w*.39,360,520),
-      height:compact?Math.min(360,h*.44):Math.min(460,h*.59)};
+      height:material?(compact?Math.min(465,h*.64):Math.min(490,h*.67)):(compact?Math.min(360,h*.44):Math.min(460,h*.59))};
     const width=compact?kind==='footnote'?Math.min(273,w*.76):Math.min(300,w*.78):
       kind==='footnote'?clamp(w*.26,255,350):clamp(w*.31,310,460);
     const height=compact?(kind==='footnote'?215:kind==='search'?264:260):(kind==='footnote'?285:kind==='search'?350:380);
@@ -20,10 +20,28 @@
     else if(direction>0&&hi<last){hi++;lo=Math.max(lo,hi-LIMIT+1);}
     return {lo,hi};
   }
+  // A textarea has no DOM range in its text. Mirror the wrapped text (including
+  // the suffix, for word wrapping), then scroll the real editor, not the page.
+  function caretLine(field,win){
+    const doc=field.ownerDocument,style=win.getComputedStyle(field),mirror=doc.createElement('div'),tail=doc.createElement('span');
+    Object.assign(mirror.style,{position:'fixed',left:'-10000px',top:'0',visibility:'hidden',pointerEvents:'none',
+      boxSizing:'border-box',width:field.clientWidth+'px',whiteSpace:'pre-wrap',overflowWrap:'break-word',margin:'0',border:'0',
+      webkitTextSizeAdjust:'none',textSizeAdjust:'none'});
+    for(const name of ['fontFamily','fontSize','fontStyle','fontWeight','lineHeight','letterSpacing','wordSpacing','tabSize',
+      'textIndent','textTransform','textAlign','direction','wordBreak','paddingTop','paddingLeft','paddingRight'])mirror.style[name]=style[name];
+    const at=field.selectionDirection==='backward'?field.selectionStart:field.selectionEnd;
+    tail.textContent=field.value.slice(at)||'\u200b';mirror.append(doc.createTextNode(field.value.slice(0,at)),tail);doc.body.append(mirror);
+    try{
+      const range=doc.createRange();range.setStart(tail.firstChild,0);range.collapse(true);
+      const line=range.getBoundingClientRect(),top=line.top-mirror.getBoundingClientRect().top;
+      return {top,bottom:top+Math.max(line.height,parseFloat(style.lineHeight)||0)};
+    }finally{mirror.remove();}
+  }
   function createWindow({stage,scripture,id,role,home=stage.parentElement,dock,onExpand,onUse,onHide,select,getZoom}){
     const doc=stage.ownerDocument,win=doc.defaultView;
     let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null,placed=null,foldedMark=null;
     let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0;
+    let editor=null,resting=null,keyboardFrame=0;
     function node(tag,cls,text){
       const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
     }
@@ -63,7 +81,8 @@
       const vv=win.visualViewport,width=vv?.width??win.innerWidth,height=vv?.height??win.innerHeight;
       const rail=doc.getElementById('reading-history'),foot=rail?.getBoundingClientRect().height||40;
       const x=vv?.offsetLeft||0,y=vv?.offsetTop||0;
-      return {left:x+8,top:y+8,right:x+width-8,bottom:y+height-Math.min(height*.35,Math.max(10,foot)+10),width,height};
+      return {left:x+8,top:y+8,right:x+width-8,bottom:y+height-Math.min(height*.35,Math.max(10,foot)+10),
+        width,height,scale:vv?.scale||1,visibleBottom:y+height-8};
     }
     function readingMark(){
       if(config?.kind==='study'){
@@ -75,8 +94,14 @@
     }
     function reflow(restore=null){
       if(!config||panel.hidden||collapsed)return;
-      const lim=limits(),z=getZoom(),compact=win.innerWidth<640,slot=panel.dataset.slot;
-      const base=slipSize(config.kind,win.innerWidth,lim.height,compact);
+      const view=limits(),z=getZoom(),compact=win.innerWidth<640,slot=panel.dataset.slot;
+      const editing=editor&&doc.activeElement===editor;
+      if(!editing||!resting||Math.abs(view.width-resting.width)>24||Math.abs(view.scale-resting.scale)>.02||view.height>resting.height)resting=view;
+      const keyboard=editing&&(compact||win.matchMedia('(pointer:coarse)').matches)&&resting.height-view.height>=90;
+      // Keep the user's full window size. The keyboard can cover its bottom;
+      // only the editor and caret need to be reachable in the visual viewport.
+      const lim=keyboard?resting:view;
+      const base=slipSize(config.kind,win.innerWidth,lim.height,compact,config.material);
       const roomW=Math.max(1,lim.right-lim.left),roomH=Math.max(1,lim.bottom-lim.top);
       const width=clamp((manual?.width??base.width)*z,Math.min(214*z,roomW),roomW);
       const height=clamp((manual?.height??base.height)*z,Math.min(152*z,roomH),roomH);
@@ -93,19 +118,65 @@
         top=below>=above?r.bottom+3:r.top-height-3;
       }
       left=clamp(left,lim.left,lim.right-width);top=clamp(top,lim.top,lim.bottom-height);
+      if(keyboard){
+        const lead=editor.getBoundingClientRect().top-panel.getBoundingClientRect().top+scroll.scrollTop*z;
+        top=Math.max(view.top,Math.min(top,view.visibleBottom-Math.max(112,lead+88)));
+      }
       const next={left,top,width,height,z};
-      if(!restore&&placed&&Object.keys(next).every(k=>Math.abs(placed[k]-next[k])<.02))return;
-      const mark=restore||(placed&&(placed.width!==width||placed.height!==height||placed.z!==z)?readingMark():null);
-      placed=next;
-      // CSS zoom re-typesets the live text, unlike stretching a compositor
-      // layer. Coordinates remain in screen pixels and are converted once.
-      Object.assign(panel.style,{zoom:String(z),left:left/z+'px',top:top/z+'px',right:'auto',bottom:'auto',
-        width:width/z+'px',height:height/z+'px'});
-      panel.dataset.slipScale=String(z);
-      if(mark?.el?.isConnected)scroll.scrollTop=mark.el.offsetTop-mark.offset;
-      else if(mark?.top!=null)scroll.scrollTop=mark.top;
-      lastTop=scroll.scrollTop;
+      if(restore||!placed||Object.keys(next).some(k=>Math.abs(placed[k]-next[k])>=.02)){
+        const mark=restore||(placed&&(placed.width!==width||placed.height!==height||placed.z!==z)?readingMark():null);
+        placed=next;
+        // CSS zoom re-typesets the live text, unlike stretching a compositor
+        // layer. Coordinates remain in screen pixels and are converted once.
+        Object.assign(panel.style,{zoom:String(z),left:left/z+'px',top:top/z+'px',right:'auto',bottom:'auto',
+          width:width/z+'px',height:height/z+'px'});
+        panel.dataset.slipScale=String(z);
+        if(mark?.el?.isConnected)scroll.scrollTop=mark.el.offsetTop-mark.offset;
+        else if(mark?.top!=null)scroll.scrollTop=mark.top;
+        lastTop=scroll.scrollTop;
+      }
+      if(keyboard)keepCaret(view,z);
+      else if(panel.hasAttribute('data-note-keyboard'))clearKeyboard();
     }
+    function clearKeyboard(){
+      panel.removeAttribute('data-note-keyboard');editor?.style.removeProperty('--note-keyboard-inset');
+    }
+    function releaseEditor(){
+      clearKeyboard();editor=null;
+      if(keyboardFrame){win.cancelAnimationFrame(keyboardFrame);keyboardFrame=0;}
+    }
+    function keepCaret(view,z){
+      panel.setAttribute('data-note-keyboard','');
+      const area=scroll.getBoundingClientRect(),bottom=Math.min(view.visibleBottom,area.bottom),
+        tabs=scroll.querySelector('.study-material__tabs'),top=Math.max(view.top,area.top,tabs?.getBoundingClientRect().bottom||0);
+      let rect=editor.getBoundingClientRect();
+      const room=Math.min(78,Math.max(0,bottom-top-5)),lift=rect.top+room-bottom;
+      if(lift>0&&rect.top>top){scroll.scrollTop+=Math.min(lift,rect.top-top)/z;rect=editor.getBoundingClientRect();}
+      const cover=clamp(Math.ceil((rect.bottom-bottom+6)/z),0,editor.clientHeight-33);
+      const padding=cover+'px';
+      if(editor.style.getPropertyValue('--note-keyboard-inset')!==padding){
+        editor.style.setProperty('--note-keyboard-inset',padding);
+        // Check again after the browser's own viewport/caret adjustments.
+        scheduleKeyboard();
+      }
+      const line=caretLine(editor,win),y=rect.top+editor.clientTop*z;
+      const upper=Math.max(0,(top+3-y)/z),lower=Math.min(editor.clientHeight,(bottom-3-y)/z);
+      if(lower<=upper)return;
+      if(line.bottom-editor.scrollTop>lower)editor.scrollTop=Math.ceil(line.bottom-lower);
+      else if(line.top-editor.scrollTop<upper)editor.scrollTop=Math.max(0,Math.floor(line.top-upper));
+    }
+    function scheduleKeyboard(){
+      if(keyboardFrame||!editor)return;
+      keyboardFrame=win.requestAnimationFrame(()=>{keyboardFrame=0;reflow();});
+    }
+    panel.addEventListener('focusin',e=>{
+      if(e.target.matches?.('.study-notes__field')){editor=e.target;scheduleKeyboard();}
+    });
+    panel.addEventListener('focusout',e=>{
+      if(editor&&e.target===editor){releaseEditor();if(!panel.hidden&&!collapsed)reflow();}
+    });
+    for(const type of ['input','click','keyup','select','selectionchange','compositionupdate','compositionend'])
+      panel.addEventListener(type,e=>{if(editor&&e.target===editor)scheduleKeyboard();},true);
     function fitRect(box,kind){
       const z=placed?.z||getZoom(),resize=kind==='size';
       manual={left:box.left,top:box.top,width:resize?box.width/z:manual?.width,height:resize?box.height/z:manual?.height};
@@ -151,7 +222,7 @@
     }
     function collapse(value){
       const focused=panel.contains(doc.activeElement);
-      if(value&&!collapsed){foldedMark=readingMark();picking?.close();onHide?.();}
+      if(value&&!collapsed){foldedMark=readingMark();releaseEditor();picking?.close();onHide?.();}
       collapsed=value;panel.toggleAttribute('data-collapsed',value);
       const target=value&&dock?dock:config?.portal||home;
       if(panel.parentNode!==target)target.append(panel);
@@ -167,7 +238,7 @@
     }
     function close(reason='dismiss',restore=false){
       if(!config)return;
-      picking?.close();onHide?.();
+      releaseEditor();picking?.close();onHide?.();
       const closed=config;closed.onDispose?.();config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
@@ -329,12 +400,16 @@
     }
     const wide=win.matchMedia('(min-width:800px)'),canZoom=win.CSS?.supports?.('zoom','1');
     const getZoom=()=>slipScale(Number(stage.dataset.scale),canZoom&&wide.matches);
-    const opts={stage,scripture,getZoom},preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview'});
     let clock=0,citationAnchor=null;
+    const opts={stage,scripture,getZoom};
+    const pickingFor=(reader,onFloat)=>marks&&{marks,onStudy,hasStudy,onWriteNote,onFloat,
+      begin(){onBegin?.();clearSelection(reader());}};
+    const preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview',
+      select:pickingFor(()=>preview,(locs,notice)=>openSelection(locs,notice,true))});
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
         role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>closeCitation(pin.panel),
-        select:marks&&{marks,onStudy,hasStudy,onWriteNote,onFloat:openSelection,begin(){onBegin?.();clearSelection(pin);}}});
+        select:pickingFor(()=>pin,openSelection)});
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));
@@ -381,20 +456,22 @@
       return displaySlot(rows.map(row=>row.id).sort().join('|'),{kind:'compare',label:'经文对照',rows,onRead,onJump,...settings},options);
     }
     function openStudy({key,title,fullTitle,render,restore,material=false,mode,focus=true,onReopen,onDispose}){
-      const keepOpen=pins.find(pin=>!pin.panel.hidden&&restore&&pin.panel.contains(restore));
+      const fromPreview=!!restore&&preview.panel.contains(restore);
+      const keepOpen=sourcePin(fromPreview?citationAnchor:restore);
       return displaySlot('study:'+key,{kind:'study',title,fullTitle,render,material,mode,focus,onReopen,onDispose,ariaLabel:(material?'经文资料 ':'思考问答 ')+fullTitle,
-        onClose(_,focus){if(focus&&restore?.isConnected&&restore.getClientRects().length)restore.focus({preventScroll:true});}},{keepOpen});
+        onClose(_,focus){if(focus&&restore?.isConnected&&restore.getClientRects().length)restore.focus({preventScroll:true});}},{keepOpen,promote:fromPreview});
     }
-    function openSelection(locs,notice=feedback){
+    function sourcePin(anchor){return pins.find(pin=>!pin.panel.hidden&&anchor&&pin.panel.contains(anchor));}
+    function openSelection(locs,notice=feedback,fromPreview=false){
       const run=scripture.pinSelection(locs);
       if(!run.length){notice('未找到可固定的经文');return false;}
       const [a]=run,b=run.at(-1);
-      return display(run,{label:'对照 · '+scripture.label(a,b)});
+      return display(run,{label:'对照 · '+scripture.label(a,b)},fromPreview?{promote:true,keepOpen:sourcePin(citationAnchor)}:undefined);
     }
     function clearSelection(except){
-      for(const pin of pins)if(pin!==except)pin.picking?.reset();
+      for(const reader of [...pins,preview])if(reader!==except)reader.picking?.reset();
     }
-    function refreshHighlights(){for(const pin of pins)if(!pin.panel.hidden)pin.picking?.render();}
+    function refreshHighlights(){for(const reader of [...pins,preview])if(!reader.panel.hidden)reader.picking?.render();}
     function open(loc){
       const resolved=scripture.resolve(loc);
       if(!resolved.length){feedback('找不到此处经文');return false;}
@@ -425,7 +502,7 @@
       if(!reference?.locations?.length||!anchor?.isConnected||portal&&!portal.contains(anchor))return false;
       if(citationAnchor===anchor&&!preview.panel.hidden){preview.close('dismiss',true);return true;}
       const highlightRows=scripture.from(reference.locations.filter(loc=>!loc.whole));
-      const keepOpen=pins.find(pin=>!pin.panel.hidden&&pin.panel.contains(anchor));
+      const keepOpen=sourcePin(anchor);
       const ok=openPreview(reference.locations,{kind:'footnote',label:'引用经文',ariaLabel:'引用经文浮窗',
         focus:true,anchor,portal,keepOpen,highlightRows,
         onClose(_,restore){

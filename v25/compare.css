@@ -104,11 +104,13 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 }
 .compare-slip__ref{font:600 .66em/0 var(--ui,system-ui,sans-serif);color:#66472d;margin-right:.32em;vertical-align:super;white-space:nowrap}
 .compare-slip__verse[data-cited] .compare-slip__ref{color:inherit}
-/* Saved/active marks retain the honey colour of the main paper. The red
-   citation stays red and never acquires a background merely by being cited. */
-.compare-slip__verse:is([data-selected-verse],[data-saved-verse]){
-  background:#f5d99a;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone
+/* These match the saved, tapped and selected states of printed ink. */
+.compare-slip__verse:is([data-selected-verse],[data-focused-verse],[data-saved-verse]){
+  border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone
 }
+.compare-slip__verse[data-saved-verse]{background:#f5d99a}
+.compare-slip__verse[data-focused-verse]{background:var(--paper-verse-focus)}
+.compare-slip__verse[data-selected-verse]{background:var(--paper-verse-selected)}
 .compare-slip__scroll[data-verse-picking] .compare-slip__verse{-webkit-touch-callout:none}
 .compare-slip[data-selecting]{grid-template-rows:auto auto minmax(0,1fr)}
 .compare-slip[data-selecting] .compare-slip__scroll{grid-row:3;user-select:none}
@@ -129,7 +131,7 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .compare-selection-status:empty{display:none}
 @media(pointer:coarse){
   .compare-slip__scroll[data-verse-picking]{user-select:none;-webkit-user-select:none}
-  .paper-selection-tools[data-floating]>button{width:34px;height:34px}
+  .paper-selection-tools[data-floating]>button{width:31px;height:34px}
 }
 .compare-slip__message{margin:6px 4px;color:#735c43}
 .compare-slip__action{display:inline-grid;place-items:center;flex:none;width:29px;height:32px;margin:0;padding:0;border:0;background:none;border-radius:3px;color:#59402c;touch-action:manipulation}
@@ -160,7 +162,7 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
   .compare-slip__resize::after{background:CanvasText}
   .compare-slip__verse[data-cited]{color:LinkText;text-decoration:underline dotted}
   .compare-slip__verse mark,#vf-list mark{forced-color-adjust:none;background:transparent;color:LinkText}
-  .compare-slip__verse:is([data-selected-verse],[data-saved-verse]){forced-color-adjust:none;background:Highlight;color:HighlightText}
-  .compare-slip__verse:is([data-selected-verse],[data-saved-verse]) mark{color:HighlightText}
+  .compare-slip__verse:is([data-selected-verse],[data-focused-verse],[data-saved-verse]){forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .compare-slip__verse:is([data-selected-verse],[data-focused-verse],[data-saved-verse]) mark{color:HighlightText}
 }
 @media print{.compare-slip,#v25-citation-choice{display:none!important}}

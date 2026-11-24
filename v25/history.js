@@ -327,7 +327,7 @@
         });
         if(float){
           item.dataset.hasFloat='';float.tabIndex=-1;
-          float.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M5.5 5.5h9v8.5h-9zM11 5.5V2H1.5v8.5h4m4-3v4m-2-2h4"/></svg>';
+          float.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="'+win.PaperTextSelection.FLOAT_ICON+'"/></svg>';
         }
         item.append(chip,pin,del,...(float?[float]:[]));track.appendChild(item);controls.set(e.id,{item,chip,pin,del,float});
       }

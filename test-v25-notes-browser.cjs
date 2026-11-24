@@ -11,7 +11,15 @@ let releaseSend,hold=new Promise(r=>{releaseSend=r;});
 async function visit(browser,width){
   const mobile=width<550;
   const ctx=await browser.newContext({viewport:{width,height:850},isMobile:mobile,hasTouch:mobile,reducedMotion:'reduce'});
-  await ctx.addInitScript(()=>{localStorage.setItem('paper:v25:first-guide:1','seen');});
+  await ctx.addInitScript(mobile=>{
+    localStorage.setItem('paper:v25:first-guide:1','seen');
+    if(!mobile)return;
+    const native=window.visualViewport,viewport=new EventTarget();let override=null;
+    for(const key of ['width','height','offsetLeft','offsetTop','scale','pageLeft','pageTop'])
+      Object.defineProperty(viewport,key,{get:()=>override?.[key]??native[key]});
+    Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport});
+    window.testKeyboard=value=>{override=value;viewport.dispatchEvent(new Event('resize'));};
+  },mobile);
   await ctx.route('**/*',async route=>{
     const r=route.request(),u=new URL(r.url());
     if(u.origin===api){
@@ -111,6 +119,36 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await phoneBar.getByRole('button',{name:'写笔记'}).tap();await phone.login('a');
     const field=phone.dialog.getByRole('textbox',{name:'笔记正文'});await field.waitFor();
     await phone.page.waitForFunction(()=>document.querySelector('.study-notes__field')?.value==='ab笔');
+    const before=await phone.dialog.boundingBox();
+    assert.ok(before.height>=400,'the initial material window has room to write');
+    assert.ok((await field.boundingBox()).height>=215,'the initial editor displays roughly eight lines');
+    assert.ok((await phone.dialog.getByRole('tablist').boundingBox()).height<=32,'tabs leave room for text');
+    await field.evaluate(el=>{
+      el.focus({preventScroll:true});el.value=Array(24).fill('测试软键盘下编辑内容').join('\n');
+      el.setSelectionRange(el.value.length,el.value.length);el.scrollTop=el.scrollHeight;
+      window.testKeyboard({height:252,offsetTop:27});
+    });
+    await phone.dialog.locator('xpath=self::*[@data-note-keyboard]').waitFor();
+    const lifted=await phone.dialog.boundingBox();
+    assert.ok(lifted.y<before.y-70&&Math.abs(lifted.height-before.height)<1,'keyboard lifts rather than shrinks the window');
+    assert.ok((await field.boundingBox()).y+(await field.boundingBox()).height>27+252,'keyboard may cover the lower part of the editor');
+    const caretView=()=>field.evaluate(el=>{
+      const css=getComputedStyle(el),r=el.getBoundingClientRect(),lines=el.value.slice(0,el.selectionEnd).split('\n').length;
+      return {bottom:r.top+el.clientTop+parseFloat(css.paddingTop)+lines*parseFloat(css.lineHeight)-el.scrollTop,
+        top:r.top,lines,height:r.height,scrollTop:el.scrollTop,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight,
+        padding:css.paddingBottom};
+    });
+    await phone.page.waitForTimeout(160);
+    const end=await caretView();assert.ok(end.bottom<27+252-4,'the last visible text line and caret clear the keyboard: '+JSON.stringify(end));
+    await field.evaluate(el=>{el.setSelectionRange(0,0);el.dispatchEvent(new Event('selectionchange',{bubbles:true}));});
+    await phone.page.waitForTimeout(160);
+    const start=await caretView();assert.ok(start.scrollTop<=10&&start.bottom<27+252-4,'moving the caret up keeps the new line visible: '+JSON.stringify(start));
+    await phone.page.evaluate(()=>window.testKeyboard(null));
+    await phone.dialog.locator('xpath=self::*[@data-note-keyboard]').waitFor({state:'detached'});
+    const returned=await phone.dialog.boundingBox();
+    assert.ok(Math.abs(returned.y-before.y)<1&&Math.abs(returned.height-before.height)<1,'dismissing the keyboard restores normal geometry');
+    assert.equal(await field.evaluate(el=>el.style.getPropertyValue('--note-keyboard-inset')),'');
+    assert.equal(writes.length,5,'viewport tracking must not write notes');
     await phone.dialog.getByRole('button',{name:'关闭资料浮窗'}).tap();
     const readBar=await phone.select('4:1');await readBar.getByRole('button',{name:'查看资料'}).tap();
     assert.equal(await phone.dialog.getByRole('tab',{name:'笔记'}).getAttribute('aria-selected'),'true');
@@ -123,6 +161,6 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await other.dialog.getByText('所选经文还没有笔记。').waitFor();
     assert.ok(!(await other.dialog.getByText('ab笔',{exact:true}).isVisible()));
     assert.deepEqual([...desk.err,...phone.err,...other.err],[]);
-    console.log('PASS desktop and mobile note editors, per-input requests, acknowledgement, Chinese composition, and separate accounts');
+    console.log('PASS note editor and simulated keyboard/caret layout, per-input requests, acknowledgements, Chinese composition, and separate accounts');
   }finally{releaseSend();await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

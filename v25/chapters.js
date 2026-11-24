@@ -79,7 +79,7 @@
     label.textContent='打开';label.setAttribute('aria-hidden','true');host.appendChild(label);
     const defs=[
       ['page','全页打开','M5 3.5h14a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1ZM8 8h8M8 12h8m-8 4h6'],
-      ['float','浮窗打开','M8 4H4v12m4-8h12v12H8zm0 4h12m-9 4h6']
+      ['float','浮窗打开',doc.defaultView.PaperTextSelection.FLOAT_ICON]
     ];
     const buttons=defs.map(([value,name,d])=>{
       const button=doc.createElement('button');

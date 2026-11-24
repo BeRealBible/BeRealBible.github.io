@@ -1,22 +1,25 @@
 /* Ink stays against the sheet and is not rasterized into a separate overlay. */
+:root{--paper-verse-focus:#e9bda8;--paper-verse-selected:#e7b67a}
 .paper-ink-mark{pointer-events:none}
-.paper-ink-mark--focus{fill:#f2d5c2}
-.paper-ink-mark--selected{fill:#f5d99a}
+.paper-ink-mark--focus{fill:var(--paper-verse-focus)}
+.paper-ink-mark--selected{fill:var(--paper-verse-selected)}
 .paper-ink-mark--saved{fill:#f5d99a}
 .stage .paper svg text[data-role]{cursor:text;-webkit-touch-callout:none}
 .paper-selection-tools{
   position:absolute;z-index:40;left:0;top:0;transform-origin:0 0;
-  display:flex;align-items:center;flex-wrap:wrap;gap:0;padding:1px 3px;
+  display:flex;align-items:center;flex-wrap:wrap;gap:0;padding:1px 2px;
   box-sizing:border-box;border:1px solid #9c907433;border-radius:12px;
   background:linear-gradient(150deg,rgba(255,254,248,.83),rgba(248,242,226,.61) 66%,rgba(255,252,242,.77));
   backdrop-filter:blur(3px) saturate(.95);-webkit-backdrop-filter:blur(3px) saturate(.95);
   box-shadow:inset 0 1px 0 #ffffffb3,0 2px 9px #493f2818;
   color:#544b3e;line-height:1;cursor:default;touch-action:manipulation;
 }
-.paper-selection-tools button{position:relative;display:grid;place-items:center;flex:1 0 auto;width:29px;height:29px;padding:0;border:0;
+.paper-selection-tools button{position:relative;display:grid;place-items:center;flex:1 0 auto;width:26px;height:28px;padding:0;border:0;
   border-radius:8px;background:transparent;color:#625747}
 .paper-selection-tools button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .paper-selection-tools button[data-exit] svg{width:13px;height:13px}
+.paper-selection-tools button[data-highlight] svg{width:19px;height:19px}
+.paper-selection-tools [data-pen-glow]{stroke:#a16c17;stroke-width:2.2}
 .paper-selection-tools button:hover:not(:disabled),.paper-selection-tools button:focus-visible{color:#372d21;background:#b9a48222}
 .paper-selection-tools button[aria-pressed=true]{color:#71571c;background:#c8a43833}
 .paper-selection-tools button:before{content:"";position:absolute;inset:calc(-1 * var(--ink-hit-pad,0px)) 0}
@@ -29,7 +32,7 @@
   flex-wrap:nowrap
 }
 .paper-selection-tools:is([data-compact],[data-docked],[data-floating])>button{flex:1 1 auto;min-width:0;transition-property:none}
-.paper-selection-tools[data-compact]>button{width:44px;height:44px}
+.paper-selection-tools[data-compact]>button{width:40px;height:44px}
 .paper-copy-field{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .paper-copy-field.manual{position:static;flex:1 1 100%;width:112px;min-width:0;height:55px;margin:3px;opacity:1;pointer-events:auto;font:11px/1.45 var(--serif,serif);user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
 /* Ask in-place, at readable screen size even when the page is zoomed out. */
@@ -45,4 +48,4 @@
 .paper-search-actions button[type=submit]{background:#b9a48230;color:#41331e}
 @media(pointer:coarse){.paper-search-actions button{min-height:44px}}
 @media(prefers-reduced-transparency:reduce){.paper-selection-tools{background:#fbf4df;backdrop-filter:none;-webkit-backdrop-filter:none}}
-@media(forced-colors:active){.paper-ink-mark{fill:Highlight}.paper-selection-tools{background:Canvas;color:CanvasText;border-color:CanvasText}.paper-selection-tools button{color:ButtonText}}
+@media(forced-colors:active){.paper-ink-mark{fill:Highlight}.paper-selection-tools{background:Canvas;color:CanvasText;border-color:CanvasText}.paper-selection-tools button{color:ButtonText}.paper-selection-tools [data-pen-glow]{stroke:currentColor}}

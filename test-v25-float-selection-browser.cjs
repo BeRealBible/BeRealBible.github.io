@@ -79,6 +79,9 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         let act=await open('ACT','7:56');
         const main=await position();
         await input(act,'7:56');assert.equal(await tools(act).count(),0,'plain taps do not enter selection');
+        const color=loc=>loc.evaluate(n=>getComputedStyle(n).backgroundColor);
+        await act.locator('[data-focused-verse=""]').waitFor({timeout:3500});
+        assert.equal(await color(verse(act,'7:56')),'rgb(233, 189, 168)');
         await input(act,'7:56',true);await tools(act).waitFor();
         assert.deepEqual(await selected(act),['7:56']);
         assert.ok(await task(act,'study').isDisabled(),'no QAP at Acts 7:56');
@@ -89,13 +92,13 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.ok(await tools(act).locator(':scope > button').evaluateAll(nodes=>
           nodes.every(n=>n.getBoundingClientRect().top===nodes[0].getBoundingClientRect().top)));
         assert.deepEqual(await position(),main);
-        const gold=await verse(act,'7:56').evaluate(n=>getComputedStyle(n).backgroundColor);
-        assert.equal(gold,'rgb(245, 217, 154)');
+        assert.equal(await color(verse(act,'7:56')),'rgb(231, 182, 122)');
         if(process.env.FLOAT_SELECTION_SHOTS)await act.screenshot({path:path.join(process.env.FLOAT_SELECTION_SHOTS,`float-selection-${width}.png`)});
         await task(act,'copy').click();await tools(act).waitFor({state:'detached'});
         assert.deepEqual(await page.evaluate(()=>copyTest),['就说：“我看见天开了，人子站在　神的右边。”\n( 使徒行传 7:56 和合本 )']);
         await input(act,'7:56',true);await task(act,'highlight').click();
         assert.equal(await verse(act,'7:56').getAttribute('data-saved-verse'),'');
+        assert.equal(await color(verse(act,'7:56')),'rgb(245, 217, 154)');
         const saved=await actMarks();assert.ok(saved.every(parts=>parts.length&&parts.every(x=>x==='1')),JSON.stringify(saved));
         assert.ok(await $('.paper-ink-mark--saved').count(),'main sheet refreshes without a navigation');
         await page.reload();await ready();act=await open('ACT','7:56');
@@ -153,8 +156,17 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         await tools(alt).waitFor({state:'detached'});
         assert.equal(await alt.getAttribute('data-collapsed'),'');
         assert.equal(await alt.locator('[data-selected-verse]').count(),0);
+        const preview=$('#v25-scripture-preview');
         await page.evaluate(()=>V25ScriptureWindows.openPreview([{code:'PSA',ref:'23:1'}],{kind:'footnote',focus:true}));
-        assert.equal(await $('#v25-scripture-preview .compare-slip__scroll').getAttribute('data-verse-picking'),null);
+        assert.equal(await preview.locator('.compare-slip__scroll').getAttribute('data-verse-picking'),'');
+        await input(preview,'23:1',true);await tools(preview).waitFor();
+        assert.deepEqual(await selected(preview),['23:1']);
+        await task(preview,'copy').click();await tools(preview).waitFor({state:'detached'});
+        assert.ok(await preview.isVisible(),'copying does not pin or close the preview');
+        assert.match(await page.evaluate(()=>copyTest.at(-1)),/诗篇 23:1/);
+        await preview.locator('.compare-slip__scroll').press('Shift+Space');await tools(preview).waitFor();
+        await preview.locator('.compare-slip__scroll').press('Escape');
+        assert.ok(await preview.isVisible());
         await page.evaluate(()=>V25ScriptureWindows.preview.close());
         await open('EXO','1:1');await open('MAT','5:1');const rom=await open('ROM','8:1');
         await input(rom,'8:2',true);await task(rom,'float').click();

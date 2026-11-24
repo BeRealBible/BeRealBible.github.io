@@ -73,7 +73,8 @@ async function run(browser,width){
     await page.evaluate(()=>document.getElementById('fit-book').click());
     await page.waitForTimeout(250);
     assert.equal(requests.length,0,'normal reading should not download QAPs');
-    assert.equal(await marked(),'none');
+    await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
+    assert.equal(await marked(),'underline','a fresh browser shows QAP marks by default');
 
     await press(body('4:1'),true);
     await mainBar.waitFor({timeout:5000});
@@ -103,6 +104,12 @@ async function run(browser,width){
     await firstRef.click();await citation.waitFor();
     assert.equal(await first.getAttribute('open'),null);
     assert.equal(await verseTag('2SA.3:1').getAttribute('data-cited'),'');
+    const previewText=citation.locator('.compare-slip__scroll');
+    await previewText.press('Shift+Space');
+    assert.equal(await verseTag('2SA.3:1').getAttribute('data-selected-verse'),'');
+    assert.ok(await citation.locator('.paper-selection-tools [data-study]').isEnabled());
+    await previewText.press('Escape');
+    assert.ok(await citation.isVisible()&&await dialog.isVisible(),'leaving the selection keeps both the preview and QAP open');
     await page.keyboard.press('Escape');await citation.waitFor({state:'hidden'});
     assert.ok(await dialog.isVisible());
     assert.equal(await firstRef.getAttribute('aria-expanded'),'false');
@@ -171,7 +178,7 @@ async function run(browser,width){
     await page.waitForSelector('html[data-study-marks] .paper [data-qap-mark="chapter"]',{state:'attached'});
     assert.equal(await marked(),'underline');
     const stroke=await chapter(3).evaluate(el=>{const c=getComputedStyle(el);return [c.textDecorationColor,parseFloat(c.textDecorationThickness)/parseFloat(c.fontSize)];});
-    assert.match(stroke[0],/^rgba\(160, 128, 79, 0\.25/);assert.ok(stroke[1]<.035);
+    assert.match(stroke[0],/^rgba\(160, 128, 79, 0\.(?:388|39)/);assert.ok(stroke[1]>=.04&&stroke[1]<.16);
     assert.ok(await $('#stage .paper text[data-qap-mark="verse"]').count()>0);
     const requestedBeforeReload=requests.length;
     await page.reload({waitUntil:'domcontentloaded'});await ready();
@@ -180,6 +187,10 @@ async function run(browser,width){
     assert.equal(requests.length,requestedBeforeReload,'marking also uses the lightweight location index');
     await configure(false);
     assert.equal(await marked(),'none');
+    await page.reload({waitUntil:'domcontentloaded'});await ready();
+    assert.equal(await marked(),'none','an explicit opt-out survives returning to the reader');
+    await page.evaluate(()=>document.getElementById('fit-book').click());
+    await page.waitForTimeout(250);
     await press(chapter(3),true);
     await open();assert.ok((await ids()).includes('2SA.3.4'));
     await close();

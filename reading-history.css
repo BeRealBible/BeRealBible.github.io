@@ -23,6 +23,7 @@
 .rh-item[data-reveal] .rh-float{left:calc(var(--rh-tools-left) + var(--rh-action-width))}
 .rh-item[data-reveal]:not([data-pinned]) .rh-float{left:calc(var(--rh-tools-left) + 2 * var(--rh-action-width))}
 .rh-action svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.rh-float svg{width:16px;height:16px;stroke-width:1.7}
 .rh-pin[aria-pressed=true]{color:#d8b783}
 .rh-pin[aria-pressed=true] .rh-pin-head{fill:currentColor}
 .rh-action:hover,.rh-action:focus-visible{background:#c1aa7d23}

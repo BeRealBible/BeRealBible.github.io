@@ -9,6 +9,7 @@ if(!before||!after||!output)throw Error('Usage: node tools/check-v25-clarity.cjs
 const urlOf=value=>/^https?:\/\//i.test(value)?value:pathToFileURL(path.resolve(value)).href;
 const location=process.env.CLARITY_REF||'MAT.21:16',[code,ref]=location.split('.');
 const cases=(process.env.CLARITY_CASES||'1280:1,390:2,390:3').split(',').map(c=>c.split(':').map(Number));
+const hideStudyMarks=process.env.CLARITY_HIDE_STUDY_MARKS==='1';
 const opening='.stage[data-v25-opening],.pcz-intro';
 const still=page=>page.evaluate(async()=>{
   await document.fonts.ready;
@@ -43,15 +44,19 @@ async function capture(browser,url,label,width,dpr){
     const page=await context.newPage(),errors=[],miss=[];
     page.on('pageerror',e=>errors.push(e.message));
     page.on('requestfailed',r=>miss.push([new URL(r.url()).pathname,r.failure()?.errorText]));
-    await page.addInitScript(()=>{
-      try{localStorage.setItem('paper:v25:first-guide:1','seen');}catch{}
+    await page.addInitScript(hideStudyMarks=>{
+      try{
+        localStorage.setItem('paper:v25:first-guide:1','seen');
+        // Compare unchanged paper separately from intentional QAP cues.
+        if(hideStudyMarks)localStorage.setItem('paper-bible-study-marks-v1','0');
+      }catch{}
       const seen=window.clarityOpening={started:false,ended:false};
       const monitor=new MutationObserver(()=>{
         if(document.querySelector('.stage[data-v25-opening],.pcz-intro'))seen.started=true;
         else if(seen.started){seen.ended=true;monitor.disconnect();}
       });
       monitor.observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['data-v25-opening']});
-    });
+    },hideStudyMarks);
     const u=new URL(url);u.searchParams.set('ref',location);u.searchParams.delete('curl');
     await page.goto(u.href,{waitUntil:'domcontentloaded',timeout:90000});
     await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000}).catch(async e=>{
@@ -169,6 +174,6 @@ async function capture(browser,url,label,width,dpr){
       evidence[`${width}:${dpr}`]={baseline:a,candidate:b,deltas};
       if(a.errors.length||b.errors.length){console.log({baseline:a.errors,candidate:b.errors});process.exitCode=1;}
     }
-    await fs.writeFile(path.join(output,'evidence.json'),JSON.stringify({reference:location,cases:evidence},null,2));
+    await fs.writeFile(path.join(output,'evidence.json'),JSON.stringify({reference:location,hideStudyMarks,cases:evidence},null,2));
   }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

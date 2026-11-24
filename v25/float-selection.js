@@ -4,7 +4,7 @@
   function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy,hasStudy,onWriteNote}){
     const doc=panel.ownerDocument,win=doc.defaultView,tools=win.PaperTextSelection;
     const picked=new Map();
-    let bar=null,form=null,contact=null,suppress=false,tapRow=null,serial=0,noticeTimer=0;
+    let bar=null,form=null,contact=null,suppress=false,tapRow=null,focusId=null,serial=0,noticeTimer=0;
     const status=doc.createElement('div');status.className='compare-selection-status';status.setAttribute('role','status');panel.append(status);
     scroll.setAttribute('aria-keyshortcuts','Shift+Space');
     scroll.setAttribute('aria-description','长按经文开始整节选择，或按 Shift 加空格选择当前经节。');
@@ -31,6 +31,7 @@
       const reader=marks()?.reader();
       for(const el of verses()){
         el.toggleAttribute('data-selected-verse',picked.has(el.dataset.verseId));
+        el.toggleAttribute('data-focused-verse',focusId===el.dataset.verseId);
         if(reader){const row=rowOf(el);el.toggleAttribute('data-saved-verse',!!row&&reader(row));}
       }
       for(const el of scroll.querySelectorAll('[data-study-chapter]')){
@@ -52,10 +53,11 @@
     }
     function reset(restore=false){
       cancelContact();serial++;picked.clear();
+      const hadFocus=focusId!==null;focusId=null;
       if(bar){
         form=null;bar.remove();bar=null;delete panel.dataset.selecting;render();
         if(restore)focus();
-      }
+      }else if(hadFocus)render();
     }
     function prepare(){
       if(bar)return;
@@ -67,7 +69,7 @@
     }
     function pick(rows,toggle=false){
       if(!rows.length||form||panel.hidden||panel.hasAttribute('data-collapsed'))return;
-      prepare();serial++;
+      prepare();focusId=null;serial++;
       bar.querySelector('.paper-copy-field')?.remove();
       for(const row of rows){
         if(toggle&&picked.has(row.id))picked.delete(row.id);
@@ -113,6 +115,7 @@
       event.preventDefault();reset(true);tell('已复制经文');
     });
     panel.addEventListener('keydown',event=>{
+      if(event.isComposing||event.keyCode===229)return;
       if(event.key==='Escape'&&bar){
         event.preventDefault();event.stopImmediatePropagation();reset(true);
       }else if(event.target?.matches?.('[data-study-chapter]')&&(event.key==='Enter'||event.key===' ')){
@@ -181,6 +184,7 @@
       const row=itemOf(targetAt(event.target));
       const pickedRow=tapRow||row;tapRow=null;
       if(bar&&pickedRow)pick([pickedRow],true);
+      else if(pickedRow&&!pickedRow.chapter){focusId=pickedRow.id;render();}
     });
     return {render,reset,close(){reset();win.clearTimeout(noticeTimer);status.textContent='';}};
   }

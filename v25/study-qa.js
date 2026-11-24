@@ -255,7 +255,7 @@
       scroll.append(tabs,parts.notes.panel,parts.qa.panel);
       const listing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
       const range=make('p','study-notes__address'),field=make('textarea','study-notes__field');
-      field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=5;
+      field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=8;
       field.spellcheck=false;field.autocomplete='off';field.maxLength=win.V25Notes.LIMIT;
       const hint=make('p','study-notes__sync-hint','输入会自动同步到当前账号。');
       const status=make('p','study-notes__status');status.setAttribute('role','status');
@@ -398,8 +398,9 @@
       scheduleMarks();
     }
     pref.addEventListener('change',()=>setMarking(pref.checked,{persist:true}));
-    win.addEventListener('storage',e=>{if(e.key===KEY)setMarking(e.newValue==='1');});
-    try{setMarking(win.localStorage.getItem(KEY)==='1');}catch{}
+    win.addEventListener('storage',e=>{if(e.key===KEY||e.key===null)setMarking(e.newValue!=='0');});
+    let markPreference=null;try{markPreference=win.localStorage.getItem(KEY);}catch{}
+    setMarking(markPreference!=='0');
     return {open,notesEnabled,hasAny:objects=>availability.hasAny(objects)||!!notes()?.query(objects).length,
       openSettings(){if(!settings.open)settings.showModal();}};
   }
