@@ -317,6 +317,17 @@ async function run(browser,width){
     assert.ok((await ids()).includes('GEN.4.1'),'chapter selection still returns a QAP attached to verses 4:3–5');
     assert.ok(await clean());await close();
 
+    await readAt('GEN.33:1');
+    const jacobCue=paperCue('chapter','33:1');await jacobCue.waitFor({state:'attached'});
+    assert.ok(await shown(jacobCue),'the chapter QAP hint is independent of source horizontal ink');
+    const sourceInk=await jacobCue.evaluate(n=>{
+      const svg=n.ownerSVGElement,i=Number(svg.dataset.pdf),raw=V25OriginalData.get(i);
+      return {exists:raw[4].some(r=>r.join(',')==='1020,1682,82,2'),
+        drawn:!!svg.querySelector('rect[x="1020"][y="1682"][width="82"][height="2"]'),
+        first:svg.querySelector('text[data-role="body"][data-ref="33:1"]')?.textContent};
+    });
+    assert.deepEqual(sourceInk,{exists:true,drawn:false,first:'雅'},'hide the raw Jacob rule without removing the source or moving verse text');
+
     assert.deepEqual(errors,[]);
     console.log(width,'PASS QAP windows, citations, scripture-only controls, and Genesis 4 section caption without marks');
   }finally{await ctx.close();}

@@ -29,6 +29,10 @@
   // Whole-frame guards deliberately fail open if another edition ever reuses the index.
   const hatchResidue=(i,j,w)=>(i===959&&j===419&&w[0]===1552&&w[1]===163&&w[2]===24&&w[3]===69&&w[4]==='彡')||
     (i===1154&&j===263&&w[0]===8&&w[1]===1296&&w[2]===7&&w[3]===9&&w[4]==='，');
+  // The source pack stores thin rules as separate physical rectangles, not
+  // as a property of a word. Suppress those rules in both drawing paths;
+  // keep the raw source and the unrelated non-horizontal ink untouched.
+  const retainedInk=p=>(p[4]||none).filter(([, ,w,h])=>!(h>0&&w>=4*h));
   // Running page numbers read directly from the reference PDF, not OCR
   // guesses. Keep the original physical rectangles and printed header.
   const proofedFolio={
@@ -102,7 +106,7 @@
       return {...word(folioWord(store,i,n,w,t),f,heading),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
     });
     typesetBody(words,p);
-    const v={version,p,tags,words,f};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
+    const v={version,p,tags,words,f,extraInk:retainedInk(p)};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
   }
   function text(c){
     const [x,y,w,h]=c.box;
@@ -115,10 +119,12 @@
     const name=page?.b>=0&&books[page.b]?books[page.b].name:'原书',v=model(i),f=v?.f||{s:1,ox:0,oy:0};
     const a=['<svg viewBox="0 0 480 704" role="img" data-pdf="'+i+'" data-scale="'+f.s+'" data-offset-x="'+f.ox+'" data-offset-y="'+f.oy+'" aria-label="'+esc(name+' · 原 PDF 第 '+i+' 页')+'">','<defs><linearGradient id="paper-'+i+'">'+stock(i).map(([o,c])=>'<stop offset="'+o+'" stop-color="'+c+'"/>').join('')+'</linearGradient></defs><rect width="480" height="704" fill="url(#paper-'+i+')"/>'];
     if(v){
-      const p=v.p;for(const c of v.words)a.push(text(c));
-      a.push('<g transform="matrix('+[f.s,0,0,f.s,f.ox,f.oy].join(' ')+')" fill="'+ink+'" aria-hidden="true" pointer-events="none">');
-      for(const [x,y,w,h] of p[4]||[])a.push('<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'"/>');
-      a.push('</g>');
+      for(const c of v.words)a.push(text(c));
+      if(v.extraInk.length){
+        a.push('<g transform="matrix('+[f.s,0,0,f.s,f.ox,f.oy].join(' ')+')" fill="'+ink+'" aria-hidden="true" pointer-events="none">');
+        for(const [x,y,w,h] of v.extraInk)a.push('<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'"/>');
+        a.push('</g>');
+      }
     }
     a.push('</svg>');return a.join('');
   }
@@ -128,10 +134,9 @@
     const grd=c.createLinearGradient(0,0,W,0);for(const [n,col] of stock(i))grd.addColorStop(n,col);
     c.fillStyle=grd;c.fillRect(0,0,W,H);c.fillStyle=ink;
     if(v){
-      const {p,f}=v;function draw(t){c.save();c.transform(t.sx,0,0,t.sy,t.tx,t.ty);c.font=t.fontSpec;c.textBaseline='alphabetic';c.textAlign='left';c.fillText(t.text,0,0);c.restore()}
-      for(const w of v.words)if(!w.hideHatch)draw(w);c.save();c.transform(f.s,0,0,f.s,f.ox,f.oy);
-      for(const r of p[4]||[])c.fillRect(...r);
-      c.restore();
+      const {f,extraInk}=v;function draw(t){c.save();c.transform(t.sx,0,0,t.sy,t.tx,t.ty);c.font=t.fontSpec;c.textBaseline='alphabetic';c.textAlign='left';c.fillText(t.text,0,0);c.restore()}
+      for(const w of v.words)if(!w.hideHatch)draw(w);
+      if(extraInk.length){c.save();c.transform(f.s,0,0,f.s,f.ox,f.oy);for(const rect of extraInk)c.fillRect(...rect);c.restore();}
     }c.restore();
   }
   async function preparePhysicalFonts(indices){

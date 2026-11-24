@@ -1,7 +1,7 @@
 const fs=require('node:fs'),a=require('node:assert/strict'),vm=require('node:vm');
-const drawn=[],measured=[];
-const c={font:'',measureText(text){measured.push([text,this.font]);return {actualBoundingBoxLeft:1,actualBoundingBoxRight:/SimHei/.test(this.font)?49:99,actualBoundingBoxAscent:70,actualBoundingBoxDescent:5}},save(){},restore(){},setTransform(){},createLinearGradient(){return {addColorStop(){}}},fillRect(){},transform(){},fillText(text){drawn.push([text,this.font])}};
-const page=[3,480,704,[[0,0,20,20,'神'],[22,0,20,20,'神'],[44,0,20,20,'章'],[66,0,20,20,'言'],[88,0,20,20,'①']],[],{label:[[450,30,20,20,'頁邊標籤']]}];
+const drawn=[],measured=[],rects=[];
+const c={font:'',measureText(text){measured.push([text,this.font]);return {actualBoundingBoxLeft:1,actualBoundingBoxRight:/SimHei/.test(this.font)?49:99,actualBoundingBoxAscent:70,actualBoundingBoxDescent:5}},save(){},restore(){},setTransform(){},createLinearGradient(){return {addColorStop(){}}},fillRect(...r){rects.push(r)},transform(){},fillText(text){drawn.push([text,this.font])}};
+const page=[3,480,704,[[0,0,20,20,'神'],[22,0,20,20,'神'],[44,0,20,20,'章'],[66,0,20,20,'言'],[88,0,20,20,'①']],[[0,22,42,2],[53,33,3,4]],{label:[[450,30,20,20,'頁邊標籤']]}];
 const tags=[{role:'heading',ref:'GEN.1.1'},{role:'body',ref:'GEN.1.1'},{role:'chapter'},{role:'other'},{role:'heading'}];
 const window={PaperPage:{svg(){return 'legacy'}},V25OriginalData:{pages:[],get:i=>i===3?page:null,tags:()=>tags}};
 vm.runInNewContext(fs.readFileSync(process.argv[2]||'v25-original-render.js','utf8'),{window,document:{createElement:()=>({getContext:()=>c})}});
@@ -13,6 +13,10 @@ a.deepEqual(measured.filter(([t])=>t==='神').map(([,f])=>f),['600 100px '+headi
 const svg=api.svg(physical,3,books);
 a.match(svg,/data-role="heading"[^>]*font-family="&quot;PaperHeading&quot;[^>]*font-weight="600"/);a.match(svg,/data-role="body"[^>]*font-family="&quot;SimSun&quot;/);a.doesNotMatch(svg,/font-weight="bold"/);
 api.paint({getContext:()=>c},physical,3,books,1);a.deepEqual(drawn.slice(0,2),[['神','600 100px '+heading.family],['神','100px '+body.family]]);
+a.doesNotMatch(svg,/x="0" y="22" width="42" height="2"/);
+a.match(svg,/x="53" y="33" width="3" height="4"/);
+a.deepEqual(rects,[[0,0,480,704],[53,33,3,4]],'static SVG and turning canvas retain non-horizontal ink, not source rules');
+a.deepEqual(page[4],[[0,22,42,2],[53,33,3,4]],'source rectangles are preserved');
 a.equal(api.svg({},99,books),'legacy');
 a.doesNotMatch(svg,/book-tab-label|頁邊標籤/);a.equal(drawn.length,5);
 // All reviewed overrides must point to a real frame in the unchanged edition.
@@ -32,6 +36,12 @@ for(let i=1;i<=store.count;i++){
   });
 }
 a.deepEqual(totals,{hei:131,song:4643+135});
+const jacobPage=store.lookup('GEN','33:1'),jacobLine=[1020,1682,82,2],containsLine=p=>p[4].some(r=>r.every((v,i)=>v===jacobLine[i]));
+a.ok(containsLine(store.get(jacobPage)));
+a.doesNotMatch(rt.window.PaperPage.svg(store.pages[jacobPage],jacobPage,store.books),/x="1020" y="1682" width="82" height="2"/);
+rects.length=0;rt.window.PaperPage.paint({getContext:()=>c},store.pages[jacobPage],jacobPage,store.books,1);
+a.deepEqual(rects,[[0,0,480,704]],'Jacob underline is also absent in the turning canvas');
+a.ok(containsLine(store.get(jacobPage)));
 for(const [p,i,lit,expected] of [[546,5,'颂',600],[953,11,'路',400],[659,19,'新',400],[1146,367,'爱',600]]){
   const cmd=rt.window.PaperPage.commands({pdfPage:p},p,[])[i],w=store.get(p)[3][i];
   a.equal(cmd.text,lit);a.equal(cmd.weight,expected);a.equal(cmd.box,w);
