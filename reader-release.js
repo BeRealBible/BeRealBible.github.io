@@ -1,4 +1,4 @@
-/* The test reader has one permanent public address. Only its assets are fingerprinted. */
+/* Fingerprint assets, not the production root address. Keep the legacy V25 preview bookmark valid. */
 (function(root,factory){
   const api=factory();
   if(typeof module==='object'&&module.exports)module.exports=api;else api.init(root.document,root.location);
@@ -6,7 +6,10 @@
   'use strict';
   const VERSION='index-25';
   function refreshURL(href){
-    const url=new URL(href);url.searchParams.set('v',VERSION);url.searchParams.delete('_refresh');return url.href;
+    const url=new URL(href);url.searchParams.delete('_refresh');
+    if(url.origin==='https://berealbible.github.io'&&/^\/(?:index\.html)?$/.test(url.pathname))url.searchParams.delete('v');
+    else url.searchParams.set('v',VERSION);
+    return url.href;
   }
   function init(document,location){
     const link=document.getElementById('reader-reload');

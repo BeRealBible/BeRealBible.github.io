@@ -16,6 +16,8 @@
     // The path guard selects the app entry; the separately verified origin is the privacy boundary.
     if(location.hostname==='xxmm1221.github.io'&&!(config.pagesIsolationVerified===true&&
       /^\/paper-bible-demo\/(?:index\.html)?$/.test(location.pathname)))return null;
+    if(location.hostname==='berealbible.github.io'&&!(config.pagesIsolationVerified===true&&
+      config.notesOrigin===location.origin&&/^\/(?:index\.html)?$/.test(location.pathname)))return null;
     if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(config.url)||!/^sb_publishable_[\w-]+$/.test(config.publishableKey))return null;
     return {url:config.url.replace(/\/$/,''),publishableKey:config.publishableKey};
   }
@@ -253,7 +255,7 @@
     win.addEventListener('storage',e=>{if(active&&e.key===profile?.cacheKey)win.dispatchEvent(new CustomEvent('paper-account-data'));});
     const noteScope=()=>session?prefix+':'+session.id:null;
     async function notesCall(scope,callback){
-      if(!session||noteScope()!==scope)throw Error('请先登录纸页账号。');
+      if(!session||noteScope()!==scope)throw Error('请先登录 BeRealBible 账号。');
       const access=await token();
       if(noteScope()!==scope)throw Error('登录账号已切换。');
       return callback(access);

@@ -20,6 +20,9 @@ assert.equal(after.searchParams.get('v'),Release.VERSION);
 assert.equal(after.searchParams.has('_refresh'),false);
 assert.equal(after.searchParams.get('paperRenderer'),'canvas');
 assert.equal(after.hash,'#reading');
+assert.equal(Release.refreshURL('https://berealbible.github.io/'),'https://berealbible.github.io/');
+assert.equal(Release.refreshURL('https://berealbible.github.io/?v=index-25&ref=GEN.1:1&_refresh=1'),
+  'https://berealbible.github.io/?ref=GEN.1%3A1');
 let click,reloads=0,replaced=null;
 const loc={href:before,replace(url){replaced=url;},reload(){reloads++;}};
 const link={addEventListener:(_,fn)=>{click=fn;}};

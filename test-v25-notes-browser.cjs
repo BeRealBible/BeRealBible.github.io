@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
-const origin='http://127.0.0.1:37136',api='https://v25-note-test.supabase.co';
+const origin=process.env.V25_NOTES_TEST_ORIGIN||'http://127.0.0.1:37136',api='https://v25-note-test.supabase.co';
 const target=origin+'/?v=index-25&curl=off&ref=2SA.3:1';
 const mime={'.js':'text/javascript','.html':'text/html','.css':'text/css','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.png':'image/png','.webp':'image/webp'};
 const cors={'access-control-allow-origin':origin,'access-control-allow-headers':'apikey,authorization,content-type','access-control-allow-methods':'POST,OPTIONS'};
@@ -37,7 +37,8 @@ async function visit(browser,width){
       return respond({},404);
     }
     if(u.origin!==origin)return route.abort();
-    if(u.pathname==='/v25/account-config.js')return route.fulfill({contentType:'text/javascript',body:`window.V25_ACCOUNT_CONFIG={url:${JSON.stringify(api)},publishableKey:'sb_publishable_demo'};`});
+    if(u.pathname==='/v25/account-config.js')return route.fulfill({contentType:'text/javascript',body:
+      `window.V25_ACCOUNT_CONFIG=${JSON.stringify({url:api,publishableKey:'sb_publishable_demo',notesOrigin:origin,pagesIsolationVerified:true})};`});
     const f=path.resolve(__dirname,'.'+(u.pathname==='/'?'/index.html':decodeURIComponent(u.pathname)));
     if(!f.startsWith(__dirname+path.sep))return route.abort();
     try{await route.fulfill({status:200,body:await fs.readFile(f),contentType:mime[path.extname(f)]});}
@@ -48,6 +49,7 @@ async function visit(browser,width){
   page.on('request',r=>{if(r.url().includes('/study-qa.json?'))qaRequests.push(r.url());});
   await page.goto(target,{waitUntil:'domcontentloaded',timeout:90000});
   await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
+  assert.equal(new URL(page.url()).origin,origin,'login and notes stay at this reading site');
   await page.evaluate(()=>document.getElementById('fit-book').click());
   await page.waitForTimeout(300); // Let transforms and the hit-test surface settle.
   const cdp=mobile?await ctx.newCDPSession(page):null;

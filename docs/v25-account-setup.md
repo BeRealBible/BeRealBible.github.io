@@ -36,3 +36,9 @@
 - `paper-bible-demo` 与 `emmaus-paper-study-demo` 曾共用 `https://xxmm1221.github.io`，浏览器不会按仓库路径隔离 Web Storage。当前同步实现将账户缓存存入 `localStorage`；不能把键名前缀当作跨项目的安全隔离。这是发布前发现的架构边界，不代表已观察到数据被其他页面读取。先在另一个 GitHub 所有者的 Pages 上构建并验证 Demo，才停用 Demo 原仓库的 Pages；旧仓库及备份保留。Demo 自己保存在浏览器的记录不会随网站地址自动转移。参见 [浏览器同源策略](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy#cross-origin_data_storage_access)。
 - 2026-11-24：Demo 已在 `https://berealbible.github.io/emmaus-paper-study-demo/` 发布；新旧首页指纹一致，实开经文和注释正常。旧仓库已停用 Pages 并保留代码，旧 Demo 路径及主页返回 404，原纸圣经入口响应 200 且不跳转。
 - 为保留原读经网址而启用账号前，使用站点所有者已授权的 GitHub CLI 执行 `node tools/check-v25-pages-isolation.cjs`，并检查 Demo 新网址可用、旧地址不再托管内容。验收成功才可把 `notesOrigin` 设置为 `https://xxmm1221.github.io` 并设 `pagesIsolationVerified:true`。未设置时原站继续作为游客入口。账号一旦公开，访客浏览器中可能留有私人缓存；即使后来回滚账号配置，也不要在同一主机名重新启用其他项目。需要回滚 Demo 时仍在其新主机名上处理。
+
+## BeRealBible 正式域迁移
+
+- 正式域由 `BeRealBible/BeRealBible.github.io` 的 `main` 分支直接托管 `https://berealbible.github.io/`。该域曾托管 `emmaus-paper-study-demo`，不能把正式站和 Demo 分别放在根目录与子目录来视为隔离。
+- 先准备正式版代码并验证根目录资源，旧读经入口保留。待 Demo 的该域发布停用，再验证 `node tools/check-v25-pages-isolation.cjs --official`。通过才置 `pagesIsolationVerified:true` 并发布账号入口。正式域公布后也不得在该域另开其他项目，即使暂时撤回账号配置。
+- 使用同一 Supabase 项目和纸本版次，不迁表、不重置用户、不自动拷贝本机数据。读者在新网址以同一邮箱登录，已有云端笔记可读；需在账号面板开启阅读记录同步来恢复已同步的高亮、进度与历史。未同步的记录仍可从旧入口处理。

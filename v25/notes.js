@@ -10,6 +10,8 @@
     if(location.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(location.hostname))return true;
     if(location.protocol!=='https:'||location.origin!==configuredOrigin)return false;
     // The publish flag attests to origin isolation; a different path is not enough.
+    if(location.hostname==='berealbible.github.io')return pagesIsolationVerified===true&&
+      /^\/(?:index\.html)?$/.test(location.pathname);
     return location.hostname!=='xxmm1221.github.io'||(pagesIsolationVerified===true&&
       /^\/paper-bible-demo\/(?:index\.html)?$/.test(location.pathname));
   }

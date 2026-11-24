@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "纸页 · 圣经阅读",
-  "short_name": "纸页",
+  "name": "BeRealBible · 纸质圣经",
+  "short_name": "BeRealBible",
   "description": "固定纸页、双栏对开与书侧索引，保留经文的空间记忆。",
   "lang": "zh-CN",
   "dir": "ltr",

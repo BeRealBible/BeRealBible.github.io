@@ -3,6 +3,6 @@
 window.V25_ACCOUNT_CONFIG=Object.freeze({
   url:'https://hynbvjhzzavlyavhymva.supabase.co',
   publishableKey:'sb_publishable_x_qBjviyqzEmusSjMf7hfw_qwPajyk0',
-  notesOrigin:'https://xxmm1221.github.io',
-  pagesIsolationVerified:true,
+  notesOrigin:'https://berealbible.github.io',
+  pagesIsolationVerified:false,
 });

@@ -29,7 +29,7 @@ def link(m):
         if 'id="v25-binding-grain"' in tag:
             return tag.replace(ref,'data:image/webp;base64,'+b64(path(ref).read_bytes()))
         assert ref.startswith('v25/reader.js?');return ''
-    if 'rel="manifest"' in tag:return ''
+    if 'rel="manifest"' in tag or 'rel="canonical"' in tag:return ''
     if 'rel="icon"' in tag or 'rel="apple-touch-icon"' in tag:
         p=path(ref);typ='image/svg+xml' if p.suffix=='.svg' else 'image/png'
         return tag.replace('href="'+ref+'"','href="data:'+typ+';base64,'+b64(p.read_bytes())+'"')
@@ -72,7 +72,7 @@ boot=r"""
  }catch(e){note.textContent=e.message;document.querySelector('#reader-rule-loading').setAttribute('role','alert');console.error(e);}
 })();
 </script>""".replace('ORDER',json.dumps(order))
-html=html.replace('<title>纸页 · V25 经文对照</title>','<title>纸质圣经 · V25 经文对照分支</title>').replace('首次打开需要载入全文和字体，请稍候。','正在从文件打开全本经文和字体，无需联网。').replace('href="./?v=index-25"', 'href=""')
+html=html.replace('<title>BeRealBible · 纸质圣经</title>','<title>BeRealBible · 纸质圣经离线版</title>').replace('首次打开需要载入全文和字体，请稍候。','正在从文件打开全本经文和字体，无需联网。').replace('href="./">加载遇到问题', 'href="">加载遇到问题')
 html=html.replace('加载遇到问题？重新打开</a>','加载遇到问题？重新打开</a><noscript>请保存完整文件，并用允许 JavaScript 的浏览器打开。</noscript>')
 assert '</body>' in html and '__paperOffline' not in html
 html=html.replace('</body>','\n'+'\n'.join(compressed)+'\n'+boot+'\n</body>')

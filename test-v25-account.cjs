@@ -10,6 +10,11 @@ function memory(){const m=new Map();return {get length(){return m.size;},key:i=>
   assert.deepEqual(configFor(new URL('https://xxmm1221.github.io/paper-bible-demo/?v=index-25'),verified),cfg);
   assert.deepEqual(configFor(new URL('https://xxmm1221.github.io/paper-bible-demo/index.html'),verified),cfg);
   assert.equal(configFor(new URL('https://xxmm1221.github.io/emmaus-paper-study-demo/'),verified),null);
+  const official='https://berealbible.github.io',formal={...verified,notesOrigin:official};
+  assert.equal(configFor(new URL(official+'/'),{...formal,pagesIsolationVerified:false}),null);
+  assert.equal(configFor(new URL(official+'/'),verified),null);
+  assert.deepEqual(configFor(new URL(official+'/'),formal),cfg);
+  assert.equal(configFor(new URL(official+'/emmaus-paper-study-demo/'),formal),null);
   assert.equal(configFor(new URL('file:///offline.html'),cfg),null);
   assert.equal(configFor(new URL('https://my.github.io'),{...cfg,publishableKey:'sb_secret_no'}),null);
   assert.equal(configFor(new URL('https://my.github.io'),{...cfg,url:'https://example.supabase.co.evil.test'}),null);

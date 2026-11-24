@@ -1,3 +1,5 @@
-# 当前测试入口（固定）
-手机、桌面和已保存书签都使用 `https://xxmm1221.github.io/paper-bible-demo/?v=index-25`。除非产品负责人明确改变发布策略，不新增面向用户的版本号，不更换入口地址，不因更新清空阅读位置、历史或高亮。
-在干净的待部署文件树中运行 `node tools/stamp-preview.cjs .`，仅为 HTML 引用的 JS/CSS 更新内容指纹，用于缓存失效；以 `node tools/stamp-preview.cjs . --check` 核验。保持现有发布分支。通过同一入口确认发布后再交付，不拿带随机参数的测试地址当新链接。
+# BeRealBible 正式入口及兼容网址
+
+- 正式入口目标为 `https://berealbible.github.io/`，无需 `?v=index-25`，正式发布前验证登录和写笔记均不离开此来源。
+- `https://xxmm1221.github.io/paper-bible-demo/?v=index-25` 是保留的旧版兼容入口。新旧使用同一个 Supabase 项目和纸本版次；已同步的数据重新登录后可恢复。旧浏览器的游客记录还留在旧入口，不自动转移。
+- 在干净的待部署文件树中运行 `node tools/stamp-preview.cjs .`，更新 HTML 引用资源的内容指纹，并以 `node tools/stamp-preview.cjs . --check` 核验。保持纸本元数据和存储键不变。面对公众只分享正式根网址，不使用带临时参数的验收 URL。
