@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {configFor,createProfile,createClient}=require('./v25/account.js');
-function memory(){const m=new Map();return {get length(){return m.size;},key:i=>[...m.keys()][i],getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)};}
+const {configFor,createProfile,createClient,rememberLogin,sessionVault}=require('./v25/account.js');
+function memory(){const m=new Map();return {get length(){return m.size;},key:i=>[...m.keys()][i],getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v),removeItem:k=>m.delete(k)};}
 (async()=>{
   const cfg={url:'https://example.supabase.co',publishableKey:'sb_publishable_test'};
   assert.deepEqual(configFor(new URL('https://my.github.io'),cfg),cfg);
@@ -18,6 +18,26 @@ function memory(){const m=new Map();return {get length(){return m.size;},key:i=>
   assert.equal(configFor(new URL('file:///offline.html'),cfg),null);
   assert.equal(configFor(new URL('https://my.github.io'),{...cfg,publishableKey:'sb_secret_no'}),null);
   assert.equal(configFor(new URL('https://my.github.io'),{...cfg,url:'https://example.supabase.co.evil.test'}),null);
+  assert.equal(rememberLogin(new URL(official+'/index.html?v=index-25'),formal),true);
+  assert.equal(rememberLogin(new URL(official+'/sample/'),formal),false);
+  assert.equal(rememberLogin(new URL(official+'/'),{...formal,pagesIsolationVerified:false}),false);
+  assert.equal(rememberLogin(new URL('https://xxmm1221.github.io/paper-bible-demo/'),verified),false);
+  assert.equal(rememberLogin(new URL('https://other.github.io/'),{...formal,notesOrigin:'https://other.github.io'}),false);
+  const tab=memory(),local=memory(),prefix='example.supabase.co',legacy='paper:v25:account:session:'+prefix;
+  const mock={id:'01a2cccc-0000-0000-0000-000000000000',email:'reader@example.test',access:'mock-access',refresh:'mock-refresh',expiry:Date.now()/1000+1800};
+  const browserVault={tab,local,prefix,nonce:()=>crypto.randomUUID()};
+  tab.setItem(legacy,JSON.stringify({session:mock,enabled:true}));
+  let auth=sessionVault(browserVault);
+  assert.equal(auth.shared,true);assert.deepEqual(auth.read().session,mock);assert.equal(auth.read().enabled,true);
+  assert.equal(tab.getItem(legacy),null,'a migrated credential is not left behind in the old tab store');
+  assert.deepEqual(sessionVault({...browserVault,tab:memory()}).read(),auth.read());
+  auth.clear();assert.equal(auth.read().session,undefined,'logout keeps only a token-free marker');
+  tab.setItem(legacy,JSON.stringify({session:mock,enabled:true}));
+  auth=sessionVault(browserVault);assert.equal(auth.read().session,undefined,'do not restore a logged-out session in an older tab');
+  const blocked={...local,setItem(){throw Error('Storage blocked');}};
+  tab.setItem(legacy,JSON.stringify({session:mock,enabled:false}));
+  auth=sessionVault({...browserVault,local:blocked});assert.equal(auth.shared,false);assert.deepEqual(auth.read().session,mock);
+  auth.clear();assert.equal(tab.getItem(legacy),null,'restricted storage still allows explicit tab logout');
   const store=memory(),suffix=':physical-821d',position='paper-bible-position-v1'+suffix,
     ink='paper-bible-highlights-v1:GEN:9:1:1–3:1:6~mark~verse:1:2@0:x1'+suffix,
     another='paper-bible-highlights-v1:GEN:9:1:1:1:6~mark~verse:1:3@0:x2'+suffix;

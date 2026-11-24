@@ -5,6 +5,7 @@
 })(typeof window==='undefined'?globalThis:window,function(){
   'use strict';
   const POSITION='paper-bible-position-v1', PROFILE='paper:v25:account:records:', SESSION='paper:v25:account:session:';
+  const REMEMBERED='paper:v25:account:remembered:';
   const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
   const KIND=/^(?:paper-bible-position-v1|paper-bible-(?:v25-(?:compare-)?trails|reading-history)-v1)(?:$|:)|^paper-bible-highlights-v1:/;
   const read=(store,key)=>{try{return store?.getItem(key)??null;}catch{return null;}};
@@ -88,6 +89,30 @@
     if(!validSession(s))throw Error('账号服务未返回有效会话。');
     return s;
   }
+  function rememberLogin(location,config){
+    if(location.protocol==='http:'&&['localhost','127.0.0.1'].includes(location.hostname))return true;
+    // A persistent refresh token is only permitted on the sole, verified
+    // official origin, never on a compatibility path or arbitrary preview.
+    return location.origin==='https://berealbible.github.io'&&config?.notesOrigin===location.origin&&
+      config?.pagesIsolationVerified===true&&/^\/(?:index\.html)?$/.test(location.pathname);
+  }
+  function sessionVault({tab,local,prefix,locks,nonce}){
+    const legacy=SESSION+prefix,key=REMEMBERED+prefix;
+    const previous=parse(read(tab,legacy));
+    if(local)try{
+      const probe=key+':probe:'+nonce();local.setItem(probe,'1');local.removeItem(probe);
+      // An explicit logout leaves a token-free marker, so another restored
+      // legacy tab cannot silently re-import its copy of the old session.
+      if(local.getItem(key)===null&&validSession(previous?.session))
+        local.setItem(key,JSON.stringify({session:previous.session,enabled:previous.enabled===true,epoch:nonce()}));
+      try{tab?.removeItem(legacy);}catch{/* The shared record now takes precedence. */}
+    }catch{local=null;}
+    const authStore=local||tab,authKey=local?key:legacy;
+    return {key:authKey,shared:!!local,read:()=>parse(read(authStore,authKey)),
+      put(record){if(!authStore)throw Error();authStore.setItem(authKey,JSON.stringify(record));},
+      clear(){if(local)local.setItem(key,JSON.stringify({epoch:nonce()}));else tab?.removeItem(legacy);},
+      lock:fn=>local&&locks?.request?locks.request(key,fn):Promise.resolve().then(fn)};
+  }
   function createClient(fetch,config){
     async function request(path,{body,access}={}){
       let result;
@@ -116,17 +141,20 @@
     const config=configFor(win.location,win.V25_ACCOUNT_CONFIG),doc=win.document;
     if(!config||!doc.getElementById('paper-account-open'))return null;
     const $=id=>doc.getElementById('paper-account-'+id),dialog=$('dialog');
-    let sessionStore,store;try{sessionStore=win.sessionStorage;store=win.localStorage;}catch{}
-    const prefix=new URL(config.url).hostname,sessionKey=SESSION+prefix;
-    const record=parse(read(sessionStore,sessionKey));
-    let session=validSession(record?.session)?record.session:null,enabled=!!session&&record?.enabled===true;
-    let edition,profile,active=false,busy=false,refreshing=null,flight=null,timer=0,reauth=false,volatile=false;
+    let sessionStore,store;try{sessionStore=win.sessionStorage;}catch{}try{store=win.localStorage;}catch{}
+    const prefix=new URL(config.url).hostname,nonce=()=>win.crypto.randomUUID();
+    const vault=sessionVault({tab:sessionStore,local:rememberLogin(win.location,win.V25_ACCOUNT_CONFIG)?store:null,prefix,nonce,locks:win.navigator?.locks});
+    const record=vault.read();
+    let session=(!vault.shared||UUID.test(record?.epoch||''))&&validSession(record?.session)?record.session:null,enabled=!!session&&record?.enabled===true;
+    let epoch=session?(record.epoch||nonce()):null;
+    let edition,profile,active=false,busy=false,refreshing=null,flight=null,timer=0,reauth=false,volatile=false,detached=false;
     let email='',resendAt=0,lastSync=0,message='',notice='';
     const client=createClient(win.fetch.bind(win),config);
     const show=(id,visible)=>{$(id).hidden=!visible;};
     function render(){
       $('open').textContent=session?'账号与同步':'登录与同步';
       show('auth',!session);show('send',!session&&!email);show('verify',!session&&!!email);
+      if($('remember'))show('remember',vault.shared);
       show('profile',!!session);show('consent',!!session&&!enabled);show('enabled',enabled);
       $('address').textContent=session?.email||'';$('sent').textContent=email;
       $('message').textContent=message||notice;
@@ -134,11 +162,11 @@
       if(enabled){$('sync').disabled=busy||reauth;$('resume').disabled=busy||!readPosition();}
       if(!session&&email)$('resend').disabled=busy||Date.now()<resendAt;
     }
-    function saveSession(s,linked){
-      try{if(!sessionStore)throw Error();sessionStore.setItem(sessionKey,JSON.stringify({session:s,enabled:linked}));}
+    function saveSession(s,linked,stamp){
+      try{vault.put({session:s,enabled:linked,epoch:stamp});}
       catch{throw Error('此浏览器无法保存登录会话，请允许网站存储后重试。');}
-      const switched=session?.id!==s.id;
-      session=s;enabled=linked;
+      const switched=epoch!==stamp||session?.id!==s.id;
+      session=s;enabled=linked;epoch=stamp;reauth=false;
       if(switched)win.dispatchEvent(new CustomEvent('paper-note-scope-changed'));
     }
     function makeProfile(){
@@ -162,23 +190,51 @@
       const url=cleanRoute();
       if(url.href===win.location.href)win.location.reload();else win.location.replace(url.href);
     }
+    function reconcile(){
+      if(detached)return false;
+      if(!vault.shared)return true;
+      const saved=vault.read(),next=UUID.test(saved?.epoch||'')&&validSession(saved?.session)?saved.session:null;
+      const stamp=next?saved.epoch:null,linked=!!next&&saved.enabled===true;
+      if(stamp===epoch&&next?.id===session?.id&&linked===enabled){
+        if(next?.refresh!==session?.refresh)reauth=false;
+        session=next;return true;
+      }
+      // The stage has already captured its reading adapter. Never leave a
+      // previous account's paper/profile on screen after another tab changes it.
+      const needsReload=enabled||linked;
+      active=false;clearTimeout(timer);profile=null;
+      session=needsReload?null:next;enabled=false;epoch=needsReload?null:stamp;reauth=false;
+      detached=needsReload;
+      profile=makeProfile();email='';message='';notice='';
+      win.dispatchEvent(new CustomEvent('paper-note-scope-changed'));render();
+      if(needsReload)reopen();
+      return false;
+    }
     async function token(){
-      if(!session||reauth)throw Error('登录已失效。请退出后重新验证，未同步记录会留在本机。');
+      if(!reconcile()||!session||reauth)throw Error('登录已失效。请重新验证，未同步记录会留在本机。');
       if(session.expiry>Date.now()/1000+60)return session.access;
       if(!refreshing){
-        const prior=session;
-        refreshing=(async()=>{
+        const stamp=epoch;
+        refreshing=vault.lock(async()=>{
+          if(!reconcile()||epoch!==stamp||!session||reauth)throw Error('登录已切换或失效，请重试。');
+          if(session.expiry>Date.now()/1000+60)return session.access;
+          const prior=session;
           try{
             const next=await client.refresh(prior);
-            if(session!==prior||next.id!==prior.id)throw Error('登录已切换，请重试。');
-            saveSession(next,enabled);return next.access;
+            if(!reconcile()||epoch!==stamp||next.id!==prior.id)throw Error('登录已切换，请重试。');
+            // If LockManager is unavailable, a neighboring tab may already
+            // have saved the rotated token. Never replace its newer record.
+            if(session.refresh!==prior.refresh)return session.access;
+            saveSession(next,enabled,stamp);return next.access;
           }catch(e){
             if([400,401,403].includes(e.status)){
+              if(!reconcile()||epoch!==stamp)throw Error('登录已切换，请重试。');
+              if(session.refresh!==prior.refresh)return session.access;
               reauth=true;throw Error('登录已失效。请退出后重新验证，未同步记录会留在本机。');
             }
             throw e;
-          }finally{refreshing=null;}
-        })();
+          }
+        }).finally(()=>{refreshing=null;});
       }
       return refreshing;
     }
@@ -186,20 +242,20 @@
       if(flight)return flight;
       if(!profile||!session||!enabled&&!activating)return;
       clearTimeout(timer);timer=0;
-      const target=profile,id=session.id;
+      const target=profile,id=session.id,stamp=epoch;
       flight=(async()=>{
         const access=await token();
-        if(session?.id!==id||profile!==target)return;
+        if(!reconcile()||session?.id!==id||profile!==target||epoch!==stamp)return;
         const {patch,pending}=target.changes();
         const result=await client.exchange(access,edition,patch,importGuest?target.importable():{});
-        if(session?.id!==id||profile!==target)return;
+        if(!reconcile()||session?.id!==id||profile!==target||epoch!==stamp)return;
         target.receive(result,pending,activating);
         lastSync=Date.now();notice=volatile?'浏览器存储受限；离线时的修改可能无法保留。':'已同步 · '+new Date(lastSync).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
       })().catch(e=>{notice=e.status===401||e.status===403?'同步未授权，请确认登录和后台配置。':e.message;throw Error(notice);})
         .finally(()=>{flight=null;if(profile===target&&enabled&&!reauth&&Object.keys(target.changes().pending).length)schedule(10000);render();});
       return flight;
     }
-    function background(){if(active&&enabled&&!reauth&&!doc.hidden)sync().catch(()=>{});}
+    function background(){if(!doc.hidden&&reconcile()&&active&&enabled&&!reauth)sync().catch(()=>{});}
     function schedule(ms=2500){
       if(!active||!enabled||reauth)return;
       clearTimeout(timer);timer=setTimeout(background,ms);
@@ -231,41 +287,55 @@
         let s;
         try{s=await client.verify(email,$('code').value.trim());}
         catch(e){if(e.status)throw Error(e.status===429?'验证太频繁，请稍后再试。':'验证码不正确或已过期。');throw e;}
-        saveSession(s,false);profile=makeProfile();email='';$('email').value='';$('code').value='';
-        $('import').checked=false;message='已登录。你可以选择是否启用云端同步。';
+        await vault.lock(()=>{if(!detached)saveSession(s,false,nonce());});
+        if(detached)return;
+        profile=makeProfile();email='';$('email').value='';$('code').value='';
+        $('import').checked=false;message=vault.shared?'已登录。此浏览器会保持登录；共用设备请主动退出。':'已登录。当前环境只在此标签页保持登录。';
       });
     });
     $('resend').addEventListener('click',()=>{if(email&&Date.now()>=resendAt)perform(()=>send(email));});
     $('change').addEventListener('click',()=>{email='';$('code').value='';message='';render();$('email').focus();});
     $('enable').addEventListener('click',()=>perform(async()=>{
       if(!profile)throw Error('请先等书页载入。');
+      const stamp=epoch;
       await sync({activating:true,importGuest:$('import').checked});
-      saveSession(session,true);reopen();
+      await vault.lock(()=>{
+        if(!reconcile()||epoch!==stamp||!session)throw Error('登录已切换，请重试。');
+        saveSession(session,true,stamp);reopen();
+      });
     }));
     $('sync').addEventListener('click',()=>perform(()=>sync()));
     $('resume').addEventListener('click',()=>perform(async()=>{await sync();if(readPosition())reopen();}));
     $('logout').addEventListener('click',()=>perform(async()=>{
+      const stamp=epoch;
       if(flight)await flight.catch(()=>{});
-      const current=session,wasActive=active;if(!current)return;
-      active=false;clearTimeout(timer);
-      try{sessionStore.removeItem(sessionKey);}catch{throw Error('浏览器无法清除本次会话，请关闭此标签页退出。');}
-      session=null;enabled=false;profile=null;reauth=false;notice='';
-      win.dispatchEvent(new CustomEvent('paper-note-scope-changed'));
-      Promise.resolve(client.logout(current.access)).catch(()=>{});
-      if(wasActive)reopen();else{$('import').checked=false;message='已退出。';}
+      await vault.lock(()=>{
+        if(!reconcile()||epoch!==stamp||!session)return;
+        const current=session,wasActive=active;
+        try{vault.clear();}catch{throw Error('无法清除此浏览器的登录状态，请清除本网站数据后重试。');}
+        active=false;clearTimeout(timer);
+        session=null;enabled=false;epoch=null;profile=null;reauth=false;notice='';
+        win.dispatchEvent(new CustomEvent('paper-note-scope-changed'));
+        Promise.resolve(client.logout(current.access)).catch(()=>{});
+        if(wasActive)reopen();else{$('import').checked=false;message='已退出。';}
+      });
     }));
     win.addEventListener('online',background);
     doc.addEventListener('visibilitychange',()=>{if(Date.now()-lastSync>15000)background();});
-    win.addEventListener('storage',e=>{if(active&&e.key===profile?.cacheKey)win.dispatchEvent(new CustomEvent('paper-account-data'));});
+    win.addEventListener('pageshow',()=>reconcile());
+    win.addEventListener('storage',e=>{
+      if(vault.shared&&(e.key===vault.key||e.key===null))reconcile();
+      if(active&&e.key===profile?.cacheKey)win.dispatchEvent(new CustomEvent('paper-account-data'));
+    });
     const noteScope=()=>session?prefix+':'+session.id:null;
     async function notesCall(scope,callback){
       if(!session||noteScope()!==scope)throw Error('请先登录 BeRealBible 账号。');
-      const access=await token();
-      if(noteScope()!==scope)throw Error('登录账号已切换。');
+      const stamp=epoch,access=await token();
+      if(!reconcile()||epoch!==stamp||noteScope()!==scope)throw Error('登录账号已切换。');
       return callback(access);
     }
     return {readerStorage,readerReady,openDialog,noteReanchorEnabled:config.noteReanchorEnabled===true,get usingProfile(){return enabled&&!!profile;},get notesScope(){return noteScope();},
       noteTransport(scope){return {list:()=>notesCall(scope,client.listNotes),write:note=>notesCall(scope,access=>client.writeNote(access,note))};}};
   }
-  return {configFor,createClient,createProfile,mount,eligible};
+  return {configFor,createClient,createProfile,mount,eligible,rememberLogin,sessionVault};
 });

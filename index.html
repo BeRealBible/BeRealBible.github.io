@@ -60,7 +60,7 @@
 <link rel="stylesheet" href="v25/compare.css?v=index-25&h=35a209d508ab"><script defer src="v25/compare.js?v=index-25&h=cd4962fd6efe"></script>
 <script defer src="v25/citation-links.js?v=index-25&h=e4c2409a5513"></script><link rel="stylesheet" href="v25/citation-links.css?v=index-25&h=aa3c65478250">
 <link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=4c8ac0e245ff"><script defer src="v25/notes.js?v=index-25&h=80bef6ed8426"></script><script defer src="v25/note-sync.js?v=index-25&h=dad99997eb95"></script><script defer src="v25/study-qa.js?v=index-25&h=2905e7fce066"></script>
-<link rel="stylesheet" href="v25/account.css?v=index-25&h=4413df082824"><script defer src="v25/account-config.js?v=index-25&h=220190aecdf1"></script><script defer src="v25/account.js?v=index-25&h=493f582d1664"></script>
+<link rel="stylesheet" href="v25/account.css?v=index-25&h=4413df082824"><script defer src="v25/account-config.js?v=index-25&h=220190aecdf1"></script><script defer src="v25/account.js?v=index-25&h=f70e24bd64a1"></script>
 </head>
 <body data-paper-scene="reading" data-minimal-reader>
 <div id="reader-rule-loading" role="status"><strong>BeRealBible · 正在准备书页</strong><p>首次打开需要载入全文和字体，请稍候。</p><a href="./">加载遇到问题？重新打开</a></div>
@@ -164,6 +164,7 @@
         <p>收件邮箱：<span id="paper-account-sent"></span></p>
         <label for="paper-account-code">邮箱验证码</label>
         <input id="paper-account-code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6,10}" maxlength="10" required>
+        <p id="paper-account-remember" hidden>此浏览器默认保持登录；共用设备请在阅读后主动退出。</p>
         <button type="submit" data-account-action>登录</button>
         <div class="paper-account-actions">
           <button id="paper-account-resend" type="button" data-account-action>重发验证码</button>
