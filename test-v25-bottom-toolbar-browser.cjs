@@ -30,6 +30,8 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','GEN.1:1');url.s
         const shown=()=>shelf.waitFor({state:'visible',timeout:3000});
         const camera=()=>stage.evaluate(n=>['spread','scale','x','y'].map(k=>n.dataset[k]));
         const x=16,edge=height-2,away=height-140;
+        const cdp=mouse?null:await ctx.newCDPSession(page),send=(type,points=[])=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points});
+        await page.evaluate(()=>document.getElementById('fit-book').click());
         assert.equal(await visible(),'hidden');
         if(auto){
           await page.mouse.move(x,height-25);await page.mouse.wheel(0,300);
@@ -61,15 +63,14 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','GEN.1:1');url.s
           await page.mouse.move(x,away);await page.mouse.move(x,edge);await shown();
           await page.setViewportSize({width:620,height});await hidden();
         }else{
-          // Touch-only devices can still receive emulated or synthetic mouse
-          // events. Neither these nor a real mobile swipe should trip it.
+          // Pointer hover or a contact in the outer desk margin is not a
+          // deliberate vertical scroll of the paper itself.
           await page.mouse.move(x,away);await page.mouse.move(x,edge);
           await page.waitForTimeout(140);
           assert.equal(await visible(),'hidden',label+' has no automatic edge reveal');
           if(!mouse){
-            const cdp=await ctx.newCDPSession(page),send=(type,points=[])=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points});
             await send('touchStart',[{x,y:away}]);await send('touchMove',[{x,y:height-60}]);await send('touchMove',[{x,y:edge}]);await send('touchEnd');
-            assert.equal(await visible(),'hidden','touch drag to the edge remains a reading gesture');
+            assert.equal(await visible(),'hidden','touch drag on the outer desk does not reveal the shelf');
           }
         }
         // Manual controls retain their old interaction on every form factor.
@@ -77,8 +78,62 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','GEN.1:1');url.s
         await shown();
         if(mouse){await page.mouse.move(200,80);await page.waitForTimeout(600);assert.equal(await visible(),'visible');}
         if(mouse)await page.mouse.click(8,12);else await page.touchscreen.tap(8,12);
-        await hidden();assert.deepEqual(errors,[]);
-        console.log('PASS',label,auto?'edge reveal, no drag/wheel, shelf hover, dismiss, modal and responsive reset':'no automatic edge reveal; manual controls intact');
+        await hidden();
+        await page.setViewportSize({width,height});
+        const zoomed=await stage.evaluate(el=>{
+          document.getElementById('fit-book').click();
+          for(let i=0;i<20&&+el.dataset.scale*724<el.clientHeight+330;i++)document.getElementById('zoom-in').click();
+          return +el.dataset.scale*724-el.clientHeight;
+        });
+        assert.ok(zoomed>275,'test must start with real vertical scrolling space');
+        const hide=async()=>{await page.evaluate(()=>PaperImmersion.hideChrome());await hidden();};
+        async function scroll(d){
+          const x=Math.round(width*.54),a=Math.round(height/2);
+          if(mouse){await page.mouse.move(x,a);await page.mouse.wheel(0,d);}
+          else{
+            await send('touchStart',[{x,y:a}]);
+            await send('touchMove',[{x,y:a-Math.round(d/2)}]);
+            await send('touchMove',[{x,y:a-d}]);await send('touchEnd');
+          }
+        }
+        const [spread,, ,startY]=await camera();
+        await scroll(62);await page.waitForFunction(y=>+document.getElementById('stage').dataset.y<+y,startY);
+        assert.equal(await visible(),'hidden','scrolling through the middle of the paper leaves the shelf hidden');
+        for(let i=0;i<24&&await visible()==='hidden';i++)await scroll(Math.floor(height*.40));
+        await shown();
+        const bottom=await stage.evaluate(el=>({y:+el.dataset.y,min:el.clientHeight-18-724*+el.dataset.scale}));
+        assert.ok(Math.abs(bottom.y-bottom.min)<1,'the shelf is revealed at the real bottom of the paper');
+        assert.equal((await camera())[0],spread,'a vertical boundary does not turn the page');
+        await hide();await page.waitForTimeout(250);
+        for(let i=0;i<24&&await visible()==='hidden';i++)await scroll(-Math.floor(height*.40));
+        await shown();
+        assert.ok(Math.abs(+(await camera())[3]-18)<1,'the shelf is revealed at the real top of the paper');
+        assert.equal((await camera())[0],spread);
+
+        const full=shelf.getByRole('button',{name:'全屏阅读',exact:true});
+        assert.equal(await full.getAttribute('aria-pressed'),'false');
+        if(label==='desktop'){
+          await full.click();
+          await page.waitForFunction(()=>document.fullscreenElement===document.documentElement);
+          await hidden();
+          assert.equal((await camera())[0],spread,'entering fullscreen keeps the reading spread');
+          await page.evaluate(()=>PaperImmersion.showChrome());await shown();
+          const exit=shelf.getByRole('button',{name:'退出全屏',exact:true});
+          assert.equal(await exit.getAttribute('aria-pressed'),'true');
+          await exit.click();await page.waitForFunction(()=>!document.fullscreenElement);
+          await full.waitFor();assert.equal(await full.getAttribute('aria-pressed'),'false');
+        }
+        if(label==='portrait phone'){
+          await page.evaluate(()=>{
+            Object.defineProperty(document,'fullscreenEnabled',{value:false});
+            Object.defineProperty(document.documentElement,'webkitRequestFullscreen',{value:undefined});
+          });
+          await full.tap();
+          await page.getByText('当前浏览器不支持网页全屏，可继续正常阅读。',{exact:true}).waitFor();
+          assert.equal(await full.getAttribute('aria-pressed'),'false');
+        }
+        assert.deepEqual(errors,[]);
+        console.log('PASS',label,'shelf controls, vertical boundaries and fullscreen');
       }finally{await ctx.close();}
     }
   }finally{await browser.close();}

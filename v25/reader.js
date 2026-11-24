@@ -22,7 +22,7 @@
   if(smoothTurn)stage.dataset.turnStyle='smooth';
   const reduceMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
   const LAST_PAGE=D.readingLastPage??D.pages.length-1;
-  const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,MAX_SPREAD=Math.min(LAST_PAGE&~1,(D.pages.length-2)&~1);
+  const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,PAN_PAD=18,MAX_SPREAD=Math.min(LAST_PAGE&~1,(D.pages.length-2)&~1);
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
   let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
@@ -146,12 +146,15 @@
     const e=index.getBounds();
     return {left:-Math.max(16,e.leftExtent),right:960+Math.max(16,e.rightExtent),bottom:724};
   }
+  function verticalLimits(h=envelope().bottom*scale){
+    const center=(view.h-h)/2;
+    return h<=view.h-PAN_PAD*2?[center,center]:[view.h-PAN_PAD-h,PAN_PAD];
+  }
   function constrain(){
-    const e=envelope(),w=(e.right-e.left)*scale,h=e.bottom*scale,pad=18;
+    const e=envelope(),w=(e.right-e.left)*scale,pad=PAN_PAD;
     if(w<=view.w-pad*2)x=view.w/2-(e.left+e.right)*scale/2;
     else x=clamp(x,view.w-pad-e.right*scale,pad-e.left*scale);
-    if(h<=view.h-pad*2)y=(view.h-h)/2;
-    else y=clamp(y,view.h-pad-h,pad);
+    const [minY,maxY]=verticalLimits(e.bottom*scale);y=clamp(y,minY,maxY);
   }
   function transform(){
     if(flatTouch&&CSS.supports('zoom','1')){
@@ -539,6 +542,7 @@
     }});
   history=window.PaperReadingHistory?.create({host:$('reading-history'),storage,books:window.BIBLE_SOURCE.books,pageCount:LAST_PAGE+1,byChapter:true,
     onSettings:study&&(()=>{interrupt();study.openSettings();}),
+    mountFullscreen:window.PaperImmersion?.bindFullscreen,
     onFloat:loc=>{selection?.reset({keepFocus:true});compare.clearSelection();compare.open(loc);},
     onNavigate:(page,id,entry)=>jump(page,null,id,entry,id)});
   selection=window.PaperTextSelection?.create({stage,papers,storage,commands:Page.commands,feedback,crossPage:true,onFloat:compare.openSelection,onStudy:openStudy,hasStudy,onWriteNote,scripture,
@@ -606,6 +610,12 @@
     if(Math.abs(x-oldX)<.00001&&Math.abs(y-oldY)<.00001)return false;
     searchAnchor=null;hideStartShortcut();hideColumnShortcut();focus='custom';transform();return true;
   }
+  function revealAtVerticalEnd(dy){
+    if(!v25||fold||jumpState||chapters?.isOpen()||!dy)return false;
+    const [minY,maxY]=verticalLimits();
+    if(dy<0?y>minY+.5:y<maxY-.5)return false;
+    window.PaperImmersion?.showAtReadingBoundary();return true;
+  }
   function pointerDown(e){
     let target=e.target;
     if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact]')){
@@ -641,6 +651,7 @@
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
     const g=gesture={start,end:start,band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
       edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,
+      fromPaper:onPaper(bx,by),
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
       contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
       direction:0,trend:1,extreme:0};
@@ -757,6 +768,7 @@
     if(g.kind==='pan'){
       stage.dataset.lastGesture='pan';if(g.panned)save();
       const dx=end.x-g.start.x,dy=end.y-g.start.y;
+      if(!g.band&&(g.fromPaper||g.panned)&&Math.abs(dy)>=SWIPE_MIN&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
       if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)){
         const column=mobileReadingColumn(e.pointerType);
         if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
@@ -780,6 +792,19 @@
   window.addEventListener('blur',interrupt);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)interrupt();});
   let wheelBurst=null;
+  function wheelStroke(e,dx,dy){
+    // Wheel has no cross-browser gesture-end event. Keep momentum in the
+    // same stroke so it does not re-open a toolbar the reader just dismissed.
+    const now=Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
+    if(!wheelBurst||now-wheelBurst.last>220)wheelBurst={dx:0,dy:0,axis:null,used:false};
+    const b=wheelBurst;b.last=now;b.dx+=dx;b.dy+=dy;
+    if(!b.axis&&Math.max(Math.abs(b.dx),Math.abs(b.dy))>=12){
+      if(Math.abs(b.dx)>=1.35*Math.abs(b.dy))b.axis='horizontal';
+      else if(Math.abs(b.dy)>=1.35*Math.abs(b.dx))b.axis='vertical';
+    }
+    if(!b.used&&b.axis==='vertical'&&Math.abs(b.dy)>=12&&Math.sign(dy)===Math.sign(b.dy)&&revealAtVerticalEnd(-dy))b.used=true;
+    return b;
+  }
   stage.addEventListener('wheel',e=>{
     if(jumpState||chapters?.isOpen()){wheelBurst=null;e.preventDefault();return;}
     const overIndex=!!e.target?.closest?.('.edge-index');
@@ -797,18 +822,11 @@
     e.preventDefault();if(pointers.size){wheelBurst=null;return;}
     hideColumnShortcut();cancelStartPan();
     if(scale>fitScale+.00001){
-      wheelBurst=null;if(!fold&&panTo(x-dx,y-dy))save();return;
+      if(fold){wheelBurst=null;return;}
+      if(panTo(x-dx,y-dy))save();wheelStroke(e,dx,dy);return;
     }
     if(!overIndex&&!onPaper((at.x-x)/scale,(at.y-y)/scale))return;
-    // Wheel events have no cross-browser gesture-end signal. Include the
-    // inertia tail (even during settling) in the same single-turn burst.
-    const now=Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
-    if(!wheelBurst||now-wheelBurst.last>220)wheelBurst={dx:0,dy:0,axis:null,used:false};
-    const b=wheelBurst;b.last=now;b.dx+=dx;b.dy+=dy;
-    if(!b.axis&&Math.max(Math.abs(b.dx),Math.abs(b.dy))>=12){
-      if(Math.abs(b.dx)>=1.35*Math.abs(b.dy))b.axis='horizontal';
-      else if(Math.abs(b.dy)>=1.35*Math.abs(b.dx))b.axis='vertical';
-    }
+    const b=wheelStroke(e,dx,dy);
     if(!b.used&&b.axis==='horizontal'&&Math.abs(b.dx)>=48){
       b.used=true;if(!fold)turn(b.dx>0?1:-1,1,'trackpad');
     }

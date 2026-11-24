@@ -169,7 +169,7 @@
       current:()=>{pull();return current;},canUndo:()=>Boolean(removed)};
   }
   function label(e){return (e.bookName||e.bookCode||'书页')+(e.ref?' '+e.ref:(!e.bookName&&!e.bookCode?' '+(e.page+1):''));}
-  function create({host,storage,pageCount,onNavigate,onFloat,onSettings,byChapter=false,books=[]}){
+  function create({host,storage,pageCount,onNavigate,onFloat,onSettings,mountFullscreen,byChapter=false,books=[]}){
     if(!host?.ownerDocument||typeof onNavigate!=='function')throw TypeError('History needs a shelf host and navigation callback');
     const doc=host.ownerDocument,model=createModel({storage,pageCount,byChapter,books}),win=doc.defaultView;
     const key=byChapter?COMPARE_KEY:KEY;
@@ -265,6 +265,18 @@
       const gear=button('rh-toggle rh-settings','','阅读设置',onSettings);
       gear.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.4 4.3 10 2.8h4l.6 1.5 1.5.9 1.6-.3 2 3.5-1 1.2v1.8l1 1.2-2 3.5-1.6-.3-1.5.9-.6 1.5h-4l-.6-1.5-1.5-.9-1.6.3-2-3.5 1-1.2V9.6l-1-1.2 2-3.5 1.6.3 1.5-.9Z" transform="translate(0 1.5)"/><circle cx="12" cy="12" r="3"/></svg>';
       shelf.append(gear);
+    }
+    if(compact&&mountFullscreen){
+      const fullscreen=el('button','rh-toggle rh-fullscreen');fullscreen.type='button';
+      fullscreen.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/><path d="M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"/></svg>';
+      const notice=el('div','rh-fullscreen-notice');notice.setAttribute('role','status');
+      let noticeTimer;
+      mountFullscreen(fullscreen,message=>{
+        win.clearTimeout(noticeTimer);notice.textContent=message;
+        noticeTimer=win.setTimeout(()=>{notice.textContent='';},3600);
+      });
+      listen(win,'paper-reader-chrome-hidden',()=>{win.clearTimeout(noticeTimer);notice.textContent='';});
+      shelf.append(fullscreen,notice);
     }
     host.append(shelf);shell?.classList.add('has-history-shelf');doc.documentElement.classList.add('paper-history-on');
     function navigate(id){

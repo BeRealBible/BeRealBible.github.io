@@ -14,7 +14,7 @@
   let shelfPointer = false;
   let deferredInstall = null;
   let groups = [];
-  let dock, menuButton, fullscreenButton, installButton, installDialog, installStatus;
+  let dock, menuButton, fullscreenButton, fullscreenNotice, installButton, installDialog, installStatus;
   const standaloneQuery = window.matchMedia('(display-mode: standalone)');
   const isStandalone = () => standaloneQuery.matches || window.navigator.standalone === true;
   const isFullscreen = () => Boolean(document.fullscreenElement || document.webkitFullscreenElement);
@@ -82,13 +82,33 @@
     if (scene === 'directory' && installDialog?.open) installDialog.close();
   }
 
-  window.PaperImmersion = Object.freeze({ setScene, showChrome, hideChrome });
+  function bindFullscreen(button, notice) {
+    fullscreenButton = button;
+    fullscreenNotice = notice;
+    button.addEventListener('click', toggleFullscreen);
+    syncFullscreen();
+  }
+
+  function showAtReadingBoundary() {
+    const stage = document.getElementById('stage');
+    if (!v25 || root.dataset.ruleLayout !== 'ready' || stage?.dataset.v25Opening ||
+        document.querySelector('dialog[open],.edge-chapters:not([hidden])')) return;
+    showChrome();
+  }
+
+  window.PaperImmersion = Object.freeze({ setScene, showChrome, hideChrome, bindFullscreen, showAtReadingBoundary });
 
   function syncFullscreen() {
     if (!fullscreenButton) return;
-    fullscreenButton.hidden = !canFullscreen() && !isFullscreen();
-    fullscreenButton.textContent = isFullscreen() ? '退出全屏' : '全屏阅读';
-    fullscreenButton.setAttribute('aria-pressed', String(isFullscreen()));
+    const active = isFullscreen(), label = active ? '退出全屏' : '全屏阅读';
+    if (fullscreenNotice) {
+      fullscreenButton.setAttribute('aria-label', label);
+      fullscreenButton.title = label;
+    } else {
+      fullscreenButton.hidden = !canFullscreen() && !active;
+      fullscreenButton.textContent = label;
+    }
+    fullscreenButton.setAttribute('aria-pressed', String(active));
   }
 
   function syncInstall() {
@@ -115,12 +135,14 @@
         if (document.exitFullscreen) await document.exitFullscreen();
         else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
       } else if (canFullscreen()) {
-        if (root.requestFullscreen) await root.requestFullscreen({ navigationUI: 'hide' });
+        if (root.requestFullscreen && document.fullscreenEnabled !== false) await root.requestFullscreen({ navigationUI: 'hide' });
         else await root.webkitRequestFullscreen();
         hideChrome();
-      } else openInstallGuide();
+      } else if (fullscreenNotice) fullscreenNotice('当前浏览器不支持网页全屏，可继续正常阅读。');
+      else openInstallGuide();
     } catch (_) {
-      openInstallGuide('这次未能进入全屏；浏览器可能不支持或限制了它。你仍可通过浏览器菜单添加到主屏幕，不影响继续读经。');
+      if (fullscreenNotice) fullscreenNotice('浏览器未允许切换全屏，可继续正常阅读。');
+      else openInstallGuide('这次未能进入全屏；浏览器可能不支持或限制了它。你仍可通过浏览器菜单添加到主屏幕，不影响继续读经。');
     }
     syncFullscreen();
   }
@@ -166,8 +188,7 @@
         if (inside !== shelfPointer) { shelfPointer = inside; scheduleHide(); }
         return;
       }
-      // No hit surface, discovery click or scroll handler: the last few
-      // pixels are still ordinary paper when the reader is being dragged.
+      // Hover only: the reader itself decides whether a scroll reached a limit.
       if (!entered || buttons || chromeVisible || scene !== 'reading' || root.dataset.ruleLayout !== 'ready') return;
       if (stage.dataset.v25Opening || /^(dragging|automatic|settling)/.test(stage.dataset.foldState || '') ||
           /^(running|switching)$/.test(stage.dataset.jumpState || '') ||
@@ -240,7 +261,7 @@
       hideChrome();
       window.dispatchEvent(new CustomEvent('paper-directory-request'));
     });
-    fullscreenButton.addEventListener('click', toggleFullscreen);
+    bindFullscreen(fullscreenButton);
     installButton.addEventListener('click', () => openInstallGuide());
     document.getElementById('immersion-install-close').addEventListener('click', () => installDialog.close());
     installDialog.addEventListener('close', () => scheduleHide());
