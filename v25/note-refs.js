@@ -5,6 +5,7 @@
 })(typeof window==='undefined'?globalThis:window,function(){
   'use strict';
   const MAX=256,MAX_PLACES=10,delimiter=/[,，;；.。．\r\n]/u,ending=/[,，;；.。．]\s*$/u;
+  const pickEnd=/[ \t\u00a0\u3000,，、.。．;；"'“”‘’「」『』]+$/u,pickStart=/^["'“‘「『]+/u;
   const allowsPlaces=(next,previous=0)=>next<=MAX_PLACES||previous>MAX_PLACES&&next<=previous;
   const normalize=text=>text.normalize('NFKC').replaceAll('節','节').trim();
   const key=({code,ch,lo,hi=lo,endCh=ch})=>code+'.'+ch+(lo==null?'':':'+lo+'-'+(endCh===ch?'':endCh+':')+hi);
@@ -261,11 +262,65 @@
       // book-name match without a valid completion is only a candidate.
       return suffix?suggest(value+suffix,options):single;
     }
-    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion,mergeSelection,subtractSelection};
+    function preselect(value,{accepted=false,pasted=false}={}){
+      if(!accepted&&!pickEnd.test(value))return null;
+      const text=value.replace(pickEnd,'').trim().replace(pickStart,'').trim();
+      // Resolve exactly what was entered: the ghost starting verse must
+      // never turn a delimiter after a chapter into a verse selection.
+      const refs=parse(text,{pasted});
+      return refs?.length===1?{text,ref:refs[0]}:null;
+    }
+    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion,preselect,mergeSelection,subtractSelection};
+  }
+  function bindPreselection(input,parser,{enabled=()=>true,options=()=>({}),changed=()=>{}}={}){
+    let current=null,composing=false;
+    const lineBreak=type=>type==='insertLineBreak'||type==='insertParagraph';
+    const deletion=type=>type?.startsWith('delete');
+    function apply(next,notify){
+      current=next;
+      input.toggleAttribute('data-address-preselected',!!current);
+      if(current){
+        input.value=current.text;
+        input.setSelectionRange(current.text.length,current.text.length);
+      }
+      if(notify)changed();
+    }
+    const tryPick=(accepted,notify=false)=>{
+      if(!enabled()||current||composing||input.selectionStart!==input.value.length||input.selectionEnd!==input.value.length)return false;
+      const next=parser.preselect(input.value,{...options(),accepted});
+      if(!next)return false;
+      apply(next,notify);return true;
+    };
+    input.addEventListener('keydown',e=>{
+      if(current&&!composing&&!e.isComposing&&e.keyCode!==229&&['Backspace','Delete'].includes(e.key)){
+        e.preventDefault();apply(null,true);
+      }
+    },true);
+    input.addEventListener('beforeinput',e=>{
+      if(!current||composing||e.isComposing||lineBreak(e.inputType)||!e.cancelable)return;
+      e.preventDefault();
+      if(deletion(e.inputType))apply(null,true);
+    },true);
+    input.addEventListener('input',e=>{
+      if(composing||e.isComposing||lineBreak(e.inputType))return;
+      if(current){
+        apply(current,false);
+        if(deletion(e.inputType))apply(null,true);
+        e.stopImmediatePropagation();
+      }else if(e.inputType?.startsWith('insert')&&e.inputType!=='insertFromPaste'&&
+        e.inputType!=='insertReplacementText'&&pickEnd.test(e.data??input.value))tryPick(false);
+    },true);
+    input.addEventListener('compositionstart',()=>{composing=true;},true);
+    input.addEventListener('compositionend',e=>{
+      composing=false;
+      if(current)apply(current,false);
+      else if(pickEnd.test(e.data||''))tryPick(false);
+    },true);
+    return {get ref(){return current?.ref;},accept:()=>tryPick(true,true),restore:pick=>apply(pick,false),clear:()=>apply(null,false)};
   }
   // Keep the suggested suffix out of the native input and clipboard until
   // accepted. The mirror follows the real input's font and mobile transform.
-  function bindCompletion(input,complete,{tapAfter=false}={}){
+  function bindCompletion(input,complete,{tapAfter=false,onAccept=()=>false}={}){
     const doc=input.ownerDocument,win=doc.defaultView,host=input.parentElement,make=()=>doc.createElement('span');
     const ghost=make(),line=make(),typed=make(),hint=make();
     ghost.className='scripture-ghost';hint.className='scripture-ghost__suffix';typed.className='scripture-ghost__typed';
@@ -274,7 +329,8 @@
     let value='',suffix='',shift=false,composing=false;
     function render(){
       value=input.value;
-      suffix=!composing&&doc.activeElement===input&&input.selectionStart===value.length&&input.selectionEnd===value.length?complete(value):'';
+      suffix=!composing&&!input.hasAttribute('data-address-preselected')&&doc.activeElement===input&&
+        input.selectionStart===value.length&&input.selectionEnd===value.length?complete(value):'';
       ghost.hidden=!suffix;if(!suffix)return;
       const css=win.getComputedStyle(input),num=k=>parseFloat(css[k])||0;
       const top=input.tagName==='TEXTAREA'?num('paddingTop')+num('borderTopWidth'):
@@ -287,7 +343,7 @@
     function accept(){
       if(!suffix||input.value!==value||input.selectionStart!==value.length||input.selectionEnd!==value.length||composing)return;
       input.value=value+suffix;input.setSelectionRange(input.value.length,input.value.length);
-      input.dispatchEvent(new win.InputEvent('input',{bubbles:true,inputType:'insertReplacementText',data:suffix}));
+      if(!onAccept())input.dispatchEvent(new win.InputEvent('input',{bubbles:true,inputType:'insertReplacementText',data:suffix}));
       render();
     }
     input.addEventListener('keydown',e=>{
@@ -318,5 +374,5 @@
     return {objects:canonical,key:canonical.map(key).join('|'),title:title('short'),fullTitle:title('name'),refs,
       anchorObjects:canonical.map(encode)};
   }
-  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe,bindCompletion};
+  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe,bindCompletion,bindPreselection};
 });

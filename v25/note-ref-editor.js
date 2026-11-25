@@ -2,7 +2,7 @@
 (function(win){
   'use strict';
   win.V25NoteRefEditor=({doc,parser,books,editable,spansEnabled,preview,closePreview,openSearch,closeSearch,excerpt,browse,change})=>{
-    const {key,label,covers,MAX_PLACES,allowsPlaces,ending,bindCompletion}=win.V25NoteRefs,names=new Map(books.map(b=>[b.code,b]));
+    const {key,label,covers,MAX_PLACES,allowsPlaces,ending,bindCompletion,bindPreselection}=win.V25NoteRefs,names=new Map(books.map(b=>[b.code,b]));
     const limitText='每条笔记最多关联 '+MAX_PLACES+' 处经文';
     const title=(ref,short=false)=>label(names.get(ref.code)?.[short?'short':'name']||ref.code,ref);
     const make=(tag,cls,text)=>{
@@ -30,7 +30,9 @@
     const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input');
     input.rows=1;input.wrap='off';input.maxLength=24000;input.spellcheck=false;input.autocomplete='off';
     field.append(input);
-    const paintCompletion=bindCompletion(input,parser.completion,{tapAfter:true});
+    const preselection=bindPreselection(input,parser,{enabled:()=>!editing,options:()=>({pasted}),
+      changed:()=>{message();run();paintCompletion();}});
+    const paintCompletion=bindCompletion(input,parser.completion,{tapAfter:true,onAccept:preselection.accept});
     const feedback=make('p','study-notes__ref-feedback'),chipFeedback=make('p','study-notes__ref-feedback');
     feedback.id=nonce+'-feedback';
     for(const el of [feedback,chipFeedback])el.setAttribute('aria-live','polite');
@@ -83,7 +85,6 @@
     }
     function search(){
       const query=input.value.trim();if(!query)return;
-      if(refs.length>=MAX_PLACES){message(limitText,true);return;}
       clearIdle();entered=true;
       input.blur();closePreview(root);
       openSearch({owner:root,anchor:input,query,addAddress,picker:{
@@ -148,18 +149,18 @@
       for(const {anchors,el,name} of rendered){
         const used=anchors.every(ref=>existing.some(other=>covers(other,ref)));
         const selected=anchors.every(ref=>selectedBy.some(other=>covers(other,ref)));
-        el.setAttribute('aria-pressed',String(selected));el.setAttribute('aria-disabled',String(used));
+        el.setAttribute('aria-pressed',String(selected));el.setAttribute('aria-disabled',String(used||!!preselection.ref));
         el.setAttribute('aria-label',(used?'已关联：':'选择：')+name);
         if(el.classList.contains('study-notes__verse'))el.toggleAttribute('data-selected-verse',selected&&!used);
       }
     }
     function refreshFooter(){
       const count=pending.length;
-      footer.hidden=chooser.hidden||(!count&&(output.hidden||!rendered.length));
+      footer.hidden=chooser.hidden||!!preselection.ref||(!count&&(output.hidden||!rendered.length));
       chosen.textContent=count?'已选 '+count+' 处':editing?'选一处经文':'轻点经文可多选';
       const next=refs.length-(editing?1:0)+count,over=count&&!allowsPlaces(next,refs.length);
       limit.hidden=!over;chosen.disabled=!count;done.disabled=!count||over;
-      if(!count)pickedList.hidden=true;
+      if(!count||preselection.ref)pickedList.hidden=true;
       chosen.setAttribute('aria-expanded',String(!pickedList.hidden));
     }
     function updatePicks(){
@@ -204,7 +205,7 @@
       if(refs.some(other=>covers(other,ref)))return '这处经文已关联。';
       if(!apply([...refs,ref]))return feedback.textContent||'未能更改关联。';
       pending=pending.filter(candidate=>!refs.some(other=>covers(other,candidate)));
-      input.value='';pasted=false;clearResults();updatePicks();message();paintCompletion();
+      input.value='';preselection.clear();pasted=false;clearResults();updatePicks();message();paintCompletion();
       return '';
     }
     // A malformed address should not quietly become a text search. Ordinary
@@ -274,6 +275,10 @@
       if(chooser.hidden||composing)return;
       clearResults();
       const raw=input.value.trim();if(!raw)return;
+      if(preselection.ref&&startBrowse(preselection.ref)){
+        status.textContent=preselection.ref.lo==null?'已预选整章':'已预选经文';
+        return;
+      }
       const found=suggested(),only=unique(found)?found[0]:null;
       if(only&&startBrowse(only.anchors[0],only.chapter)){
         if(only.anchors[0].endCh>only.anchors[0].ch)status.textContent='经文地址 · 跨章';
@@ -290,8 +295,7 @@
       if(!raw)return;
       const found=parsed();
       if(found?.length>1){clearResults();message('请每次输入一处经文地址。',true);return;}
-      // The legacy single-address punctuation/replace shortcut stages a
-      // choice only; a comma is not a confirmation key in either input.
+      // Replacing an existing association still stages a choice for review.
       if(found?.length===1&&(editing||punctuation||found[0].lo!=null)){run();stagePicks(found);return;}
       const ref=unique(suggested());
       if(ref){run();stagePicks([ref]);return;}
@@ -304,15 +308,12 @@
     function enter(){
       if(editing){endInput();return;}
       const raw=input.value.trim();if(!raw)return;
-      const candidates=suggested(),ref=unique(candidates);
+      const ref=preselection.ref;
       if(ref){
         const error=addAddress(ref);
         if(error)message(error,true);
         return;
       }
-      if(parsed()?.length>1){message('请每次输入一处经文地址。',true);return;}
-      if(candidates.length){message('请先从候选中选定经文。');return;}
-      if(looksLikeAddress(raw.replace(ending,''))||pasted&&raw.length>160){showInvalid();return;}
       search();
     }
     input.addEventListener('paste',()=>{pasted=true;});
@@ -323,7 +324,7 @@
         input.value=input.value.replace(/\r?\n$/u,'');paintCompletion();enter();return;
       }
       message();if(!input.value.trim())pasted=false;
-      if(e.inputType!=='insertFromPaste'&&e.inputType?.startsWith('insert')&&
+      if(editing&&e.inputType!=='insertFromPaste'&&e.inputType?.startsWith('insert')&&
         input.selectionEnd===input.value.length&&isStageEnding(e.data||input.value)&&isStageEnding(input.value)){
         endInput(true);return;
       }
@@ -332,7 +333,7 @@
     input.addEventListener('compositionstart',()=>{composing=true;clearIdle();});
     input.addEventListener('compositionend',e=>{
       composing=false;if(input.value){entered=true;clearIdle();}else armIdle();message();
-      if(isStageEnding(e.data||'')&&isStageEnding(input.value))endInput(true);else run();
+      if(editing&&isStageEnding(e.data||'')&&isStageEnding(input.value))endInput(true);else run();
     });
     const submit=e=>{if(e.isComposing||composing||e.keyCode===229)return;e.preventDefault();if(!e.repeat)enter();};
     input.addEventListener('keydown',e=>{
@@ -348,7 +349,7 @@
     more.onclick=appendResults;
     function close(focus=false){
       clearIdle();closeSearch(root);closePreview(chooser);
-      chooser.hidden=true;editing=null;input.value='';pasted=false;composing=false;entered=false;
+      chooser.hidden=true;editing=null;input.value='';preselection.clear();pasted=false;composing=false;entered=false;
       paintCompletion();
       pending=[];pickedList.hidden=true;pickedList.replaceChildren();clearResults();message();
       plus.setAttribute('aria-expanded','false');setLabel(plus,'添加关联经文');
@@ -360,7 +361,7 @@
       closeSearch(root);
       closePreview(chips);editing=ref?key(ref):null;restore=source;
       pending=[];pickedList.hidden=true;pickedList.replaceChildren();
-      input.value=ref?title(ref,true):'';pasted=false;composing=false;chooser.hidden=false;message();
+      input.value=ref?title(ref,true):'';preselection.clear();pasted=false;composing=false;chooser.hidden=false;message();
       input.setAttribute('aria-label',ref?'修改关联经文':'经文关键词或地址');
       plus.setAttribute('aria-expanded','true');setLabel(plus,'收起关联选择');
       input.placeholder=ref?'输入新的经文地址':'输入经文坐标或搜索关键词';
