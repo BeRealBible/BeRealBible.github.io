@@ -174,7 +174,7 @@ html[data-study-marks] [data-qap-paper-cues]{display:inline}
 .paper svg [data-chapter-counts] text{fill:currentColor;font-family:system-ui,sans-serif;font-weight:600;font-variant-numeric:tabular-nums}
 .paper svg [data-chapter-counts] path{stroke:currentColor;fill:none;stroke-width:.91;stroke-linecap:round;stroke-linejoin:round}
 .paper svg [data-chapter-badge-hit]{fill:transparent;pointer-events:all;cursor:pointer}
-.paper svg [data-chapter-total]:focus-visible{outline:none}
+.paper svg [data-chapter-total]{outline:none;-webkit-tap-highlight-color:transparent}
 .paper svg [data-chapter-total]:focus-visible [data-chapter-badge-hit]{fill:#bda78535;stroke:currentColor;stroke-width:.8}
 @media(hover:hover){.paper svg [data-chapter-total]:hover [data-chapter-badge-hit]{fill:#bda78524}}
 html[data-study-marks] :where(.compare-slip__chunk) :is([data-qap-mark],[data-note-mark]){

@@ -102,6 +102,12 @@ async function run(browser,width){
       const icon=el.querySelector('path'),number=el.querySelector('text');
       return getComputedStyle(icon).stroke===getComputedStyle(number).fill&&getComputedStyle(number).fill===getComputedStyle(el).color;
     }),'printed-body fill never overrides the badge color');
+    await page.evaluate(()=>{
+      window.chapterBadgeFocuses=[];
+      document.addEventListener('focusin',e=>{
+        if(e.target.matches('[data-chapter-total]'))window.chapterBadgeFocuses.push(e.target.dataset.chapterTotal);
+      });
+    });
     const currentSpread=await $('#stage').getAttribute('data-spread');
     await press(badge,true);assert.equal(await dialog.count(),0,'only a light tap opens the badge');
     await press(badge);await rendered();
@@ -114,8 +120,16 @@ async function run(browser,width){
     assert.equal(await $('#stage').getAttribute('data-spread'),currentSpread);
     assert.ok(!(await mainBar.isVisible()),'the badge does not begin verse selection');
     await close();
+    assert.deepEqual(await page.evaluate(()=>window.chapterBadgeFocuses),[],'pointer opening and closing must not focus a tiny badge and trigger the browser’s focus ring');
+    assert.ok(!await badge.evaluate(el=>el===document.activeElement),'pointer return does not leave the badge focused');
     if(!mobile){
-      await badge.press('Enter');await rendered();assert.equal((await ids()).length,6);await close();
+      await badge.press('Enter');await rendered();assert.equal((await ids()).length,6);await page.keyboard.press('Escape');
+      await dialog.waitFor({state:'hidden'});
+      assert.ok(await badge.evaluate(el=>el===document.activeElement),'keyboard return keeps the accessible badge focused');
+      assert.ok(await badge.evaluate(el=>{
+        const hit=el.querySelector('[data-chapter-badge-hit]');
+        return el.matches(':focus-visible')&&getComputedStyle(el).outlineStyle==='none'&&getComputedStyle(hit).stroke!=='none';
+      }),'keyboard gets a paper-colored SVG indicator, not a browser outline');
     }
 
     await press(body('3:1'),true);

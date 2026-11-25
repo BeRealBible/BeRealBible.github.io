@@ -748,6 +748,9 @@
   function pointerDown(e){
     if(!pointers.size&&e.button<=0)stopCoast();
     let target=e.target;
+    // The reader already handles badge taps on pointerup. Do not let the
+    // browser also focus the SVG group and paint its native focus highlight.
+    if(e.button===0&&target?.closest?.('[data-chapter-total]'))e.preventDefault();
     if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact],[data-chapter-total]')){
       // A nearby button may win the browser's touch adjustment even when
       // the actual contact is on adjacent ink. Keep that tap in the book.

@@ -762,6 +762,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await phone.page.waitForFunction(()=>history.state?.paperV25OverlayBack===1);
     await phone.page.goBack();await phone.dialog.waitFor({state:'hidden'});
     assert.equal(phone.page.url(),readingURL,'browser history Back only closes the open note');
+    assert.ok(!await chapterBadge.evaluate(el=>el===document.activeElement),
+      'Android Back from the touch-opened two-row badge does not refocus it');
     await (await phone.select('4:1')).getByRole('button',{name:'查看资料'}).tap();
     for(let i=0;i<16;i++){
       const id='N:'+String(100+i).padStart(32,'0');

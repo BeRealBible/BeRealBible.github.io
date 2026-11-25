@@ -723,8 +723,10 @@
       const {book,chapter}=badge.dataset;
       const rows=[...badge.querySelectorAll('[data-chapter-count]')];
       const distance=el=>{const r=el.getBoundingClientRect();return Math.abs((r.top+r.bottom)/2-clientY);};
-      const row=Number.isFinite(clientY)?rows.reduce((best,el)=>!best||distance(el)<distance(best)?el:best,null):rows[0];
-      return open([{code:book,ch:+chapter}],badge,row?.dataset.chapterCount==='notes'?'chapter-notes':'chapter-qa');
+      const byPointer=Number.isFinite(clientY);
+      const row=byPointer?rows.reduce((best,el)=>!best||distance(el)<distance(best)?el:best,null):rows[0];
+      // Only keyboard/assistive activation needs to return to the SVG control.
+      return open([{code:book,ch:+chapter}],byPointer?null:badge,row?.dataset.chapterCount==='notes'?'chapter-notes':'chapter-qa');
     }
 
     function noteMarksFor(node,model,keys){
