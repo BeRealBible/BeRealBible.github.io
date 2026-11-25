@@ -48,14 +48,9 @@
     trigger.append(tab.querySelector('svg').cloneNode(true));
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
-    const {create,label,bindCompletion,bindPreselection}=root.V25NoteRefs;
+    const {create,label}=root.V25NoteRefs;
     const addresses=create({...citationLinks,scripture});
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',queryKind='locate',saveTimer,geom='',wide=false;
-    const preselection=bindPreselection(input,addresses,{options:()=>({pasted:true}),
-      changed:()=>{closeGroups();refresh(true,'locate');}});
-    const paintCompletion=bindCompletion(input,value=>queryKind==='locate'?addresses.completion(value):'',
-      {tapAfter:true,onAccept:preselection.accept});
-    const restorePreselection=flag=>preselection.restore(flag?addresses.preselect(input.value,{accepted:true,pasted:true}):null);
     let scope='all',trails={},note=null,facet=null,passagePick=null;
     const contextStream=root.V25AddressStream.create({viewport:scroll,host:passage,renderVerse:verseRow});
     const scopes=$('vf-scopes'),groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),pickBook=$('vf-pick-book'),
@@ -132,7 +127,7 @@
       clearTimeout(saveTimer);
       if(note)return;
       try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({
-        mode,start,q,queryKind,preselected:!!preselection.ref,scope,trails,...trail()}));}catch{}
+        mode,start,q,queryKind,scope,trails,...trail()}));}catch{}
     }
     let mount=null;
     function layout(){
@@ -225,7 +220,7 @@
       active:()=>!panel.hidden||mode==='preview'&&windows.preview.is('search'),
       dismiss:()=>note?closeNote(note.owner,true,true):tuck()});
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
-    $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';preselection.clear();refresh(true,'locate');stage.focus({preventScroll:true});};
+    $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true,'locate');stage.focus({preventScroll:true});};
     root.V25PaperDock.onTap(stage,()=>{if(note)return;if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
@@ -239,10 +234,7 @@
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
     function landOnResult(focus=true){
       if(contextStream.active){
-        if(!panel.hidden&&focus){
-          if(preselection.ref){if(!matchMedia('(pointer:coarse)').matches)input.focus({preventScroll:true});}
-          else if(Number.isInteger(passagePick))contextStream.element(passagePick)?.focus({preventScroll:true});
-        }
+        if(!panel.hidden&&Number.isInteger(passagePick)&&focus)contextStream.element(passagePick)?.focus({preventScroll:true});
         return;
       }
       const b=list.children[current];if(!b||panel.hidden)return;
@@ -267,10 +259,10 @@
       if(!options.owner?.isConnected||!options.anchor?.isConnected)return false;
       if(note)closeNote(note.owner);
       closeGroups();remember();
-      const saved={mode,start,scope,mount,trails,trail:trail(),query:input.value,queryKind,preselected:!!preselection.ref};
+      const saved={mode,start,scope,mount,trails,trail:trail(),query:input.value,queryKind};
       if(windows.preview.is('search'))windows.preview.close('screen');
       note={...options,saved};mode='browse';scope='all';mount=null;trails={};
-      noteUI();scopeUI();input.value=options.query;preselection.clear();refresh(true,'keyword');
+      noteUI();scopeUI();input.value=options.query;refresh(true,'keyword');
       if(input.value.trim())(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
       else input.focus({preventScroll:true});
       return true;
@@ -281,7 +273,7 @@
       if(windows.preview.is('note-pick'))windows.preview.close('screen');
       closeGroups();note=null;noteUI();
       mode=fromBack&&saved.mode!=='off'?'tucked':saved.mode==='preview'?'browse':saved.mode;
-      start=saved.start;scope=saved.scope;mount=saved.mount;trails=saved.trails;input.value=saved.query;restorePreselection(saved.preselected);
+      start=saved.start;scope=saved.scope;mount=saved.mount;trails=saved.trails;input.value=saved.query;
       refresh(true,saved.queryKind);trails=saved.trails;applyTrail(saved.trail);scopeUI();layout();persist();
       if(!fromBack&&saved.mode==='preview'&&(current>=0||passagePick!=null)&&focus)resumePreview();
       else if(focus&&entry.isConnected)entry.focus({preventScroll:true});
@@ -329,13 +321,12 @@
     }
     function verseRow(row,current){
       const el=document.createElement('span'),number=document.createElement('sup');
-      el.className='vf-context__verse';el.dataset.ref=row.ref;el.tabIndex=preselection.ref?-1:0;el.setAttribute('role','button');
+      el.className='vf-context__verse';el.dataset.ref=row.ref;el.tabIndex=0;el.setAttribute('role','button');
       el.setAttribute('aria-label','打开经文：'+row.name+' '+row.display);el.setAttribute('aria-description',row.text);
-      if(preselection.ref)el.setAttribute('aria-disabled','true');
       el.toggleAttribute('data-current',current);
       number.className='compare-slip__ref';number.textContent=row.lo===row.hi?row.lo:row.lo+'–'+row.hi;
       number.setAttribute('aria-hidden','true');el.append(number,document.createTextNode(row.text));
-      el.onclick=()=>{if(!preselection.ref)previewResult(row.order,true,true);};
+      el.onclick=()=>previewResult(row.order,true,true);
       el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();if(!e.repeat)el.click();}};
       return el;
     }
@@ -355,28 +346,24 @@
       if(!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r),scripture);
       return lookup(raw,within,options);
     }
-    function locate(raw,picked){
-      const found=picked?[{anchors:[picked]}]:addresses.locateOne(raw,{pasted:true});
+    function locate(raw){
+      const found=addresses.locateOne(raw,{pasted:true});
       return found.flatMap(({anchors:[ref],partial})=>{
         const locations=addresses.locations(ref),first=scripture.resolve(locations[0])[0];
         return first?[{...first,locations,heading:label(first.name,ref),partial}]:[];
       });
     }
-    let renderedPick=null;
     function refresh(force=false,nextKind=queryKind){
-      const next=input.value.trim(),picked=nextKind==='locate'?preselection.ref:null;
-      if(next===q&&queryKind===nextKind&&picked===renderedPick&&!force)return;
+      const next=input.value.trim();
+      if(next===q&&queryKind===nextKind&&!force)return;
       if(q!==next||queryKind!==nextKind)trails={};q=next;queryKind=nextKind;current=-1;seen.clear();anchor=null;passagePick=null;
-      renderedPick=picked;
-      results=q?(queryKind==='keyword'?find(q,scope,{keywordsOnly:true}):locate(q,picked)):[];
+      results=q?(queryKind==='keyword'?find(q,scope,{keywordsOnly:true}):locate(q)):[];
       contextStream.clear();list.replaceChildren();scroll.scrollTop=0;scopeUI();
       const located=queryKind==='locate'&&results.length===1&&!results[0].partial?results[0]:null;
       passage.hidden=!located;list.hidden=!!located;
       if(located){contextStream.start(scripture.index(located.code).rows,located.order);more.hidden=true;}
       else append();
-      $('vf-status').textContent=picked?(picked.lo==null?'已预选整章':'已预选经文'):
-        q&&queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
-      paintCompletion();
+      $('vf-status').textContent=q&&queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();
     }
     let composing=false;
@@ -386,15 +373,6 @@
     input.addEventListener('compositionend',()=>{composing=false;locateInput();});
     function submit(e){
       e.preventDefault();if(composing||e.isComposing||e.keyCode===229||e.repeat||!input.value.trim())return;
-      const picked=preselection.ref;
-      if(picked){
-        if(note){
-          const error=note.addAddress(picked);
-          if(error)$('vf-status').textContent=error;
-          else{input.value='';preselection.clear();refresh(true,'locate');input.focus({preventScroll:true});}
-        }else if(results[0])previewResult(results[0].order,true,true);
-        return;
-      }
       closeGroups();refresh(false,'keyword');input.blur();(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
     }
     input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)submit(e);});
@@ -412,7 +390,7 @@
     let stored;try{stored=JSON.parse(sessionStorage.getItem(key));}catch{}
     refresh(true);
     if(stored?.start&&['browse','preview','read','tucked'].includes(stored.mode)){
-      start=stored.start;scope=stored.scope||'all';input.value=stored.q;restorePreselection(stored.preselected);
+      start=stored.start;scope=stored.scope||'all';input.value=stored.q;
       refresh(true,stored.queryKind==='locate'?'locate':'keyword');trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
       if(mode==='preview')resumePreview();
     }

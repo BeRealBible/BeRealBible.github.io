@@ -20,15 +20,9 @@ assert.deepEqual(located('路２：'),[['LUK.2:1-1',false]]);
 assert.deepEqual(located('王上1:15–20'),[['1KI.1:15-20',false]],'one continuous range counts as one address');
 assert.deepEqual(located('创1:1，创1:3'),[],'a comma cannot turn the one-address locator into a batch');
 assert.ok(located('撒母耳').length>1&&located('撒母耳').every(([,partial])=>partial),'ambiguous book matches are only candidates');
-const locked=value=>{const result=parser.preselect(value);return result&&key(result.ref);};
-assert.equal(locked('何西阿2'),null,'a displayed ghost is not a preselection');
-assert.equal(parser.completion('何西阿2'),':1');
-for(const end of [' ','　',',','，','。','；','"','”','」'])assert.equal(locked('何西阿2'+end),'HOS.2',end);
-assert.equal(locked('“何西阿2”'),'HOS.2');
-assert.equal(locked('何西阿2:1,'),'HOS.2:1-1');
-assert.equal(locked('王上1:53–2:3。'),'1KI.1:53-2:3');
-assert.equal(key(parser.preselect('何西阿2:1',{accepted:true}).ref),'HOS.2:1-1');
-for(const input of ['创造，','何西阿2: ','何西阿99，','创1:1，创2:1。','撒母耳，'])assert.equal(locked(input),null,input);
+assert.deepEqual(located('何西阿2'),[['HOS.2:1-1',false]]);
+assert.equal(key(parser.locateOne('何西阿2')[0].chapter),'HOS.2','the first verse and whole chapter can be offered separately');
+assert.deepEqual(located('王上1:53–2:3。'),[['1KI.1:53-2:3',false]]);
 for(const [spoken,ref] of [
   ['箴言书3:5','PRO.3:5-5'],['诗篇书23','PSA.23'],['雅歌书2:1','SNG.2:1-1'],
   ['马太5:3','MAT.5:3-3'],['路加2:1','LUK.2:1-1'],['约翰3:16','JHN.3:16-16'],['馬可１章１節','MRK.1:1-1'],
@@ -40,14 +34,14 @@ for(const [spoken,ref] of [
   ['约翰壹5:13','1JN.5:13-13'],['启示21:4','REV.21:4-4'],['哀歌3:23','LAM.3:23-23']
 ]){
   assert.deepEqual(keys(spoken),ref?[ref]:null,spoken);
-  assert.equal(locked(spoken+'，'),ref,spoken+' is handled identically by preselection');
+  assert.deepEqual(keys(spoken+'，'),ref?[ref]:null,spoken+' accepts trailing punctuation');
 }
 for(const [spoken,refs] of [
   ['列王2',['1KI.2','2KI.2']],['列王2:3',['1KI.2:3-3','2KI.2:3-3']],['列王23:1',['2KI.23:1-1']],
   ['撒母耳记3',['1SA.3','2SA.3']],['哥林多5:1',['1CO.5:1-1','2CO.5:1-1']]
 ]){
   assert.deepEqual(located(spoken),refs.map(ref=>[ref,true]),spoken+' previews candidates, never an automatic choice');
-  assert.equal(parser.completion(spoken),'');assert.equal(locked(spoken+' '),null);
+  assert.equal(parser.completion(spoken),'');assert.equal(keys(spoken+' '),null);
 }
 assert.deepEqual(names.bookChoices('列王'),['1KI','2KI']);
 assert.equal(names.bookCode('约翰'),'JHN');
@@ -105,14 +99,6 @@ for(const raw of ['王上2:3-1:53','王上1:54至2:3','王上1:53至2:999','王�
   assert.equal(keys(raw),null,raw);
 }
 const span=parser.exact('1:53~2:3','1KI');
-const picked=(raw,options)=>parser.mergeSelection(parser.parse(raw),options).map(key);
-assert.deepEqual(picked('路2:14；路2:12；路2:13；路2:16；路2:16'),['LUK.2:12-14','LUK.2:16-16']);
-assert.deepEqual(picked('路2:12-13；路2:13-14；路2'),['LUK.2','LUK.2:12-14']);
-assert.deepEqual(picked('王上2:1；王上1:53'),['1KI.1:53-2:1']);
-assert.deepEqual(picked('王上2:1；王上1:53',{crossChapter:false}),['1KI.1:53-53','1KI.2:1-1']);
-assert.deepEqual(picked('王上22:53；王下1:1'),['1KI.22:53-53','2KI.1:1-1']);
-assert.deepEqual(parser.subtractSelection(parser.exact('路2:12-14'),parser.exact('路2:13')).map(key),['LUK.2:12-12','LUK.2:14-14']);
-assert.deepEqual(parser.subtractSelection(span,parser.exact('王上2:1')).map(key),['1KI.1:53-53','1KI.2:2-3']);
 assert.deepEqual(encode(span),['1KI',1,53,2,3]);
 assert.deepEqual(decode(encode(span)),span);
 assert.deepEqual(parser.locations(span),[{code:'1KI',ref:'1:53'},{code:'1KI',ref:'2:1-3'}]);

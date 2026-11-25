@@ -5,7 +5,7 @@
 })(typeof window==='undefined'?globalThis:window,function(){
   'use strict';
   const MAX=256,MAX_PLACES=10,delimiter=/[,，;；.。．\r\n]/u,ending=/[,，;；.。．]\s*$/u;
-  const pickEnd=/[ \t\u00a0\u3000,，、.。．;；"'“”‘’「」『』]+$/u,pickStart=/^["'“‘「『]+/u;
+  const pickEnd=/[ \t\u00a0\u3000,，、.。．;；"'“”‘’「」『』]+$/u;
   const allowsPlaces=(next,previous=0)=>next<=MAX_PLACES||previous>MAX_PLACES&&next<=previous;
   const normalize=text=>text.normalize('NFKC').replaceAll('節','节').trim();
   const key=({code,ch,lo,hi=lo,endCh=ch})=>code+'.'+ch+(lo==null?'':':'+lo+'-'+(endCh===ch?'':endCh+':')+hi);
@@ -64,46 +64,6 @@
       if(endCh!==ch){ref.endCh=endCh;return segments(ref).length?ref:null;}
       if(hi<lo)return null;
       return scripture.resolve(loc(ref)).length?ref:null;
-    }
-    function neighbor(code,pos,step){
-      const book=scripture.index(code),ch=Math.floor(pos/1000),v=pos%1000,row=book?.byRef.get(ch+':'+v);
-      if(!row)return null;
-      if(v+step>=row.lo&&v+step<=row.hi)return pos+step;
-      const other=book.rows[row.order+step];
-      return other?other.ch*1000+(step<0?other.hi:other.lo):null;
-    }
-    const between=(code,a,b)=>a!=null&&b!=null&&a<=b?
-      checked(code,Math.floor(a/1000),a%1000,b%1000,Math.floor(b/1000)):null;
-    // Group only picks made in this chooser, never re-group a saved note on
-    // load. Whole chapters are named objects rather than verse ranges.
-    function mergeSelection(refs,{crossChapter=true}={}){
-      const unique=[...new Map(refs.map(ref=>[key(ref),ref])).values()];
-      const order=ref=>scripture.index(ref.code).book.index;
-      const compare=(a,b)=>order(a)-order(b)||a.ch-b.ch||(a.lo??0)-(b.lo??0);
-      const whole=unique.filter(ref=>ref.lo==null),runs=[];
-      for(const ref of unique.filter(ref=>ref.lo!=null).sort(compare)){
-        const last=runs.at(-1),from=startOf(ref),to=endOf(ref);
-        if(last?.code===ref.code){
-          const end=endOf(last);
-          if(from<=end||neighbor(ref.code,end,1)===from){
-            if(to<=end)continue;
-            const joined=(crossChapter||last.ch===Math.floor(to/1000))&&between(ref.code,startOf(last),to);
-            if(joined){runs[runs.length-1]=joined;continue;}
-          }
-        }
-        runs.push(ref);
-      }
-      return [...whole,...runs].sort(compare);
-    }
-    function subtractSelection(ref,cut){
-      if(ref.code!==cut.code)return [ref];
-      if(ref.lo==null||cut.lo==null)return key(ref)===key(cut)?[]:[ref];
-      const a=startOf(ref),b=endOf(ref),c=startOf(cut),d=endOf(cut);
-      if(b<c||d<a)return [ref];
-      // Removing one highlighted verse from a span leaves the real
-      // predecessor/successor as the new endpoints, even at a chapter break.
-      return [c>a&&between(ref.code,a,neighbor(ref.code,c,-1)),
-        d<b&&between(ref.code,neighbor(ref.code,d,1),b)].filter(Boolean);
     }
     function start(value,defaultCode,resolve=bookCode){
       const text=value.trim();
@@ -272,105 +232,7 @@
       // book-name match without a valid completion is only a candidate.
       return suffix?suggest(value+suffix,options):single;
     }
-    function preselect(value,{accepted=false,pasted=false}={}){
-      if(!accepted&&!pickEnd.test(value))return null;
-      const text=value.replace(pickEnd,'').trim().replace(pickStart,'').trim();
-      // Resolve exactly what was entered: the ghost starting verse must
-      // never turn a delimiter after a chapter into a verse selection.
-      const refs=parse(text,{pasted});
-      return refs?.length===1?{text,ref:refs[0]}:null;
-    }
-    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion,preselect,mergeSelection,subtractSelection};
-  }
-  function bindPreselection(input,parser,{enabled=()=>true,options=()=>({}),changed=()=>{}}={}){
-    let current=null,composing=false;
-    const lineBreak=type=>type==='insertLineBreak'||type==='insertParagraph';
-    const deletion=type=>type?.startsWith('delete');
-    function apply(next,notify){
-      current=next;
-      input.toggleAttribute('data-address-preselected',!!current);
-      if(current){
-        input.value=current.text;
-        input.setSelectionRange(current.text.length,current.text.length);
-      }
-      if(notify)changed();
-    }
-    const tryPick=(accepted,notify=false)=>{
-      if(!enabled()||current||composing||input.selectionStart!==input.value.length||input.selectionEnd!==input.value.length)return false;
-      const next=parser.preselect(input.value,{...options(),accepted});
-      if(!next)return false;
-      apply(next,notify);return true;
-    };
-    input.addEventListener('keydown',e=>{
-      if(current&&!composing&&!e.isComposing&&e.keyCode!==229&&['Backspace','Delete'].includes(e.key)){
-        e.preventDefault();apply(null,true);
-      }
-    },true);
-    input.addEventListener('beforeinput',e=>{
-      if(!current||composing||e.isComposing||lineBreak(e.inputType)||!e.cancelable)return;
-      e.preventDefault();
-      if(deletion(e.inputType))apply(null,true);
-    },true);
-    input.addEventListener('input',e=>{
-      if(composing||e.isComposing||lineBreak(e.inputType))return;
-      if(current){
-        apply(current,false);
-        if(deletion(e.inputType))apply(null,true);
-        e.stopImmediatePropagation();
-      }else if(e.inputType?.startsWith('insert')&&e.inputType!=='insertFromPaste'&&
-        e.inputType!=='insertReplacementText'&&pickEnd.test(e.data??input.value))tryPick(false);
-    },true);
-    input.addEventListener('compositionstart',()=>{composing=true;},true);
-    input.addEventListener('compositionend',e=>{
-      composing=false;
-      if(current)apply(current,false);
-      else if(pickEnd.test(e.data||''))tryPick(false);
-    },true);
-    return {get ref(){return current?.ref;},accept:()=>tryPick(true,true),restore:pick=>apply(pick,false),clear:()=>apply(null,false)};
-  }
-  // Keep the suggested suffix out of the native input and clipboard until
-  // accepted. The mirror follows the real input's font and mobile transform.
-  function bindCompletion(input,complete,{tapAfter=false,onAccept=()=>false}={}){
-    const doc=input.ownerDocument,win=doc.defaultView,host=input.parentElement,make=()=>doc.createElement('span');
-    const ghost=make(),line=make(),typed=make(),hint=make();
-    ghost.className='scripture-ghost';hint.className='scripture-ghost__suffix';typed.className='scripture-ghost__typed';
-    ghost.toggleAttribute('data-tap-after',tapAfter);
-    ghost.setAttribute('aria-hidden','true');ghost.hidden=true;line.append(typed,hint);ghost.append(line);host.append(ghost);
-    let value='',suffix='',shift=false,composing=false;
-    function render(){
-      value=input.value;
-      suffix=!composing&&!input.hasAttribute('data-address-preselected')&&doc.activeElement===input&&
-        input.selectionStart===value.length&&input.selectionEnd===value.length?complete(value):'';
-      ghost.hidden=!suffix;if(!suffix)return;
-      const css=win.getComputedStyle(input),num=k=>parseFloat(css[k])||0;
-      const top=input.tagName==='TEXTAREA'?num('paddingTop')+num('borderTopWidth'):
-        (input.offsetHeight-num('lineHeight'))/2;
-      Object.assign(ghost.style,{left:input.offsetLeft+'px',top:input.offsetTop+'px',width:input.offsetWidth+'px',height:input.offsetHeight+'px',
-        fontFamily:css.fontFamily,fontWeight:css.fontWeight,fontSize:css.fontSize,letterSpacing:css.letterSpacing,lineHeight:css.lineHeight,
-        transform:css.transform,transformOrigin:css.transformOrigin,paddingTop:top+'px',paddingLeft:(num('paddingLeft')+num('borderLeftWidth'))+'px'});
-      typed.textContent=value;hint.textContent=suffix;line.style.transform='translateX('+(-input.scrollLeft)+'px)';
-    }
-    function accept(){
-      if(!suffix||input.value!==value||input.selectionStart!==value.length||input.selectionEnd!==value.length||composing)return;
-      input.value=value+suffix;input.setSelectionRange(input.value.length,input.value.length);
-      if(!onAccept())input.dispatchEvent(new win.InputEvent('input',{bubbles:true,inputType:'insertReplacementText',data:suffix}));
-      render();
-    }
-    input.addEventListener('keydown',e=>{
-      if(e.key!=='Shift'){shift=false;return;}
-      if(!e.repeat)shift=!!suffix&&!e.isComposing&&!composing&&!e.ctrlKey&&!e.metaKey&&!e.altKey;
-    });
-    input.addEventListener('keyup',e=>{
-      if(e.key!=='Shift'){render();return;}
-      if(shift&&!e.isComposing&&!composing)accept();shift=false;
-    });
-    for(const type of ['focus','input','select','selectionchange','scroll','pointerup'])input.addEventListener(type,render);
-    input.addEventListener('blur',()=>{shift=false;render();});
-    input.addEventListener('compositionstart',()=>{composing=true;shift=false;render();});
-    input.addEventListener('compositionend',()=>{composing=false;render();});
-    hint.addEventListener('pointerdown',e=>e.preventDefault());hint.addEventListener('click',accept);
-    const observer=new win.ResizeObserver(render);observer.observe(host);render.dispose=()=>observer.disconnect();
-    return render;
+    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion};
   }
   function describe(objects,books,parser,plain){
     if(!objects.some(o=>o.endCh>o.ch))return plain(objects);
@@ -384,5 +246,5 @@
     return {objects:canonical,key:canonical.map(key).join('|'),title:title('short'),fullTitle:title('name'),refs,
       anchorObjects:canonical.map(encode)};
   }
-  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe,bindCompletion,bindPreselection};
+  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe};
 });

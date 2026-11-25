@@ -69,9 +69,10 @@
     const back=action('back','返回搜索结果','M20 12H4m7-7-7 7 7 7',()=>close('back',true));
     const jump=action('jump','在主书查看','M13 5h6v6m0-6-8 8m7 0v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',()=>{if(activeRow)config?.onJump?.(activeRow);});
     const pin=action('pin','固定经文浮窗','m15 4 5 5-3 1-3 4 .5 2.5L13 18l-7-7 1.5-1.5 2.5.5 4-3 1-3ZM9.5 14.5 4 20',()=>config?.onPin?.(config.rows,activeRow));
-    const notePicked=new Map(),noteFooter=node('footer','compare-slip__note-footer'),noteStatus=node('span');
-    const noteConfirm=btn('compare-slip__note-confirm','确定','确定加入笔记',()=>{
-      if(config?.picker?.confirm([...notePicked.values()]))close('confirmed',true);
+    let notePicked=null;
+    const noteFooter=node('footer','compare-slip__note-footer'),noteStatus=node('span');
+    const noteConfirm=btn('compare-slip__note-confirm','确定插入','确定插入',()=>{
+      if(notePicked&&config?.picker?.confirm(notePicked))close('confirmed',true);
       else updateNotePicks();
     });
     noteStatus.setAttribute('role','status');noteFooter.append(noteStatus,noteConfirm);
@@ -252,7 +253,7 @@
     function close(reason='dismiss',restore=false){
       if(!config)return;
       releaseEditor();picking?.close();onHide?.();
-      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;notePicked.clear();noteFooter.remove();
+      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;notePicked=null;noteFooter.remove();
       rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
@@ -261,18 +262,18 @@
     function updateNotePicks(){
       const picker=config?.picker;if(!picker)return;
       for(const {el,row} of rows){
-        const pressed=notePicked.has(row.id),used=!!picker.has?.(row);
+        const pressed=notePicked?.id===row.id,used=!!picker.has?.(row);
         el.setAttribute('aria-pressed',String(pressed));el.setAttribute('aria-disabled',String(used));
         el.toggleAttribute('data-selected-verse',pressed);
       }
-      const {count,error}=picker.review([...notePicked.values()]);
-      noteStatus.textContent=error||(count?'已选 '+count+' 处':'轻点经文选取');
+      const error=notePicked&&picker.error(notePicked);
+      noteStatus.textContent=error||(notePicked?'已选：'+notePicked.short+' '+notePicked.display:'轻点一节经文');
       noteStatus.toggleAttribute('data-error',!!error);
-      noteConfirm.disabled=!count||!!error;
+      noteConfirm.disabled=!notePicked||!!error;
     }
     function pickNoteRow(row){
       if(!config?.picker||config.picker.has?.(row))return;
-      if(notePicked.has(row.id))notePicked.delete(row.id);else notePicked.set(row.id,row);
+      notePicked=row;
       updateNotePicks();
     }
     function renderChunk(n){

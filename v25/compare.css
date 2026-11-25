@@ -50,6 +50,7 @@
 .compare-slip__note-footer [data-error]{color:#8e342a}
 .compare-slip__note-confirm{min-height:26px;padding:2px 10px;border:1px solid #7c624063;border-radius:4px;color:#62452d;background:#efe3c9;font:600 12px/1.25 var(--ui,sans-serif)}
 .compare-slip__note-confirm:disabled{opacity:.44}
+@media(pointer:coarse){.compare-slip__note-confirm{min-height:38px}}
 /* The active navigation tools take priority if paper slips overlap. */
 body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
