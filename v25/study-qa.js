@@ -158,16 +158,67 @@
       if(rows)yield {ch,rows:lo==null?rows:rows.filter(row=>row.lo<=hi&&row.hi>=lo)};
     }
   }
-  function formatNoteCopy(body,anchors,{scripture,parser,label,limit=50}){
-    const chunks=anchors.map(anchor=>{
-      let text='',length=0;
-      passage: for(const part of passageRows(anchor,scripture,parser))for(const row of part.rows)for(const char of row.text){
-        if(length===limit){text+='…';break passage;}
-        text+=char;length++;
+  function markdownRuns(text){
+    const pattern=/(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/g,styles=[];
+    let end=0,plain='';
+    for(const m of text.matchAll(pattern)){
+      plain+=text.slice(end,m.index);
+      const a=plain.length;
+      plain+=m[2]||m[3]||m[4];end=m.index+m[0].length;
+      styles.push({a,z:plain.length,tag:m[2]?'strong':m[3]?'em':'code'});
+    }
+    return {plain:plain+text.slice(end),styles};
+  }
+  const escapeHtml=text=>text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+  function noteBodyCopy(body){
+    const lines=body.split(/\r\n?|\n/).map(line=>{
+      const heading=/^#{1,6}\s+(.+)$/.exec(line),quote=/^>\s?(.*)$/.exec(line);
+      const {plain,styles}=markdownRuns((heading?.[1]??quote?.[1]??line).replace(/^(\s*)[-*+]\s+/,'$1• '));
+      let html='',i=0;
+      for(const {a,z,tag} of styles){
+        html+=escapeHtml(plain.slice(i,a))+'<'+tag+'>'+escapeHtml(plain.slice(a,z))+'</'+tag+'>';i=z;
       }
-      return label(anchor)+(text?'\n'+text:'');
+      html+=escapeHtml(plain.slice(i));
+      return {plain,html:heading?'<strong>'+html+'</strong>':html,quote:!!quote};
     });
-    return [...(body?[body]:[]),...chunks].join('\n\n');
+    const blocks=[];
+    for(const line of lines){
+      const last=blocks.at(-1);
+      if(last&&last.quote===line.quote)last.lines.push(line.html);
+      else blocks.push({quote:line.quote,lines:[line.html]});
+    }
+    return {
+      text:lines.map(line=>(line.quote?'> ':'')+line.plain).join('\n'),
+      html:blocks.map(({quote,lines})=>quote?'<blockquote><p>'+lines.join('<br>')+'</p></blockquote>':'<p>'+lines.join('<br>')+'</p>').join('')
+    };
+  }
+  function formatNoteCopy(body,anchors,{scripture,parser,label,maxPlaces=10}){
+    const places=anchors.slice(0,maxPlaces).map(anchor=>{
+      const chars=[];
+      passage: for(const part of passageRows(anchor,scripture,parser))for(const row of part.rows)for(const char of row.text){
+        if(chars.length===50){chars[49]='…';break passage;}
+        chars.push(char);
+      }
+      const address=label(anchor),excerpt=chars.join('');
+      return {text:address+(excerpt?'\n'+excerpt:''),
+        html:'<p><strong>'+escapeHtml(address)+'</strong></p>'+
+          (excerpt?'<blockquote><p>'+escapeHtml(excerpt)+'</p></blockquote>':'')};
+    });
+    const parts=[...(body?[noteBodyCopy(body)]:[]),...places];
+    return {text:parts.map(p=>p.text).join('\n\n'),html:parts.map(p=>p.html).join('')};
+  }
+  async function writeNoteClipboard(win,tools,{text,html}){
+    try{
+      const clipboard=win.navigator.clipboard;
+      if(html&&clipboard?.write&&win.ClipboardItem){
+        await clipboard.write([new win.ClipboardItem({
+          'text/plain':new win.Blob([text],{type:'text/plain'}),
+          'text/html':new win.Blob([html],{type:'text/html'})
+        })]);
+        return true;
+      }
+    }catch{}
+    return tools.writeText(win,text);
   }
   function createNoteBack(win){
     if(!/Android/i.test(win.navigator.userAgent)&&win.navigator.userAgentData?.platform!=='Android'){
@@ -324,16 +375,7 @@
     function inline(host,text,context){
       // Maintain the Markdown typography without hiding a reference that
       // crosses emphasis runs, e.g. "**撒下** 2:1".
-      const pattern=/(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/g;
-      let end=0,plain='';
-      const styles=[];
-      for(const m of text.matchAll(pattern)){
-        plain+=text.slice(end,m.index);
-        const a=plain.length;
-        plain+=m[2]||m[3]||m[4];end=m.index+m[0].length;
-        styles.push({a,z:plain.length,tag:m[2]?'strong':m[3]?'em':'code'});
-      }
-      plain+=text.slice(end);
+      const {plain,styles}=markdownRuns(text);
       function write(node,a,z){
         for(const run of styles){
           const left=Math.max(a,run.a),right=Math.min(z,run.z);
@@ -621,11 +663,12 @@
       copy.addEventListener('click',async()=>{
         if(!editing||profile!==scope())return;
         const id=editing.noteId,tools=win.PaperTextSelection;
-        const text=formatNoteCopy(field.value,editing.objects,{scripture,parser,
+        editorActions.querySelector('.paper-copy-field')?.remove();
+        const payload=formatNoteCopy(field.value,editing.objects,{scripture,parser,maxPlaces:grammar.MAX_PLACES,
           label:ref=>grammar.label(scripture.index(ref.code)?.book.name||ref.code,ref)});
-        const ok=await tools.writeText(win,text);
+        const ok=await writeNoteClipboard(win,tools,payload);
         if(!compose.isConnected||editing?.noteId!==id||profile!==scope())return;
-        if(ok||tools.fallbackCopy(doc,editorActions,text))feedback('已复制笔记和引用经文');
+        if(ok||tools.fallbackCopy(doc,editorActions,payload.text))feedback('已复制笔记和引用经文');
         else feedback('浏览器未允许自动复制，可手动复制已选文字');
       });
       const off=model?.listen((key,source)=>{
