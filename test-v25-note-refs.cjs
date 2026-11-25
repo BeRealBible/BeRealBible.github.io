@@ -14,6 +14,12 @@ for(const [value,suffix,ref] of [['创世纪',' 1:1','GEN.1:1-1'],['创世','记
   assert.equal(parser.completion(value),suffix);assert.deepEqual(keys(value+suffix),[ref]);
 }
 for(const value of ['撒母耳','路99','路99:','路2:31','王中2:3','爱是恒久忍耐','创1:2–'])assert.equal(parser.completion(value),'',value);
+const located=value=>parser.locateOne(value).map(row=>[key(row.anchors[0]),!!row.partial]);
+assert.deepEqual(located('创世'),[['GEN.1:1-1',false]],'a valid incomplete book completion is a unique address');
+assert.deepEqual(located('路２：'),[['LUK.2:1-1',false]]);
+assert.deepEqual(located('王上1:15–20'),[['1KI.1:15-20',false]],'one continuous range counts as one address');
+assert.deepEqual(located('创1:1，创1:3'),[],'a comma cannot turn the one-address locator into a batch');
+assert.ok(located('撒母耳').length>1&&located('撒母耳').every(([,partial])=>partial),'ambiguous book matches are only candidates');
 assert.deepEqual(suggestions('《路加福音》'),['LUK.1:1-1']);
 assert.deepEqual(suggestions('路2'),['LUK.2:1-1']);
 assert.deepEqual(parser.suggest('路2')[0].chapter,{code:'LUK',ch:2});

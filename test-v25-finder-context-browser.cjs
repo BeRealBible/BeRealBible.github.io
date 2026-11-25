@@ -85,6 +85,12 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         assert.equal(await input.inputValue(),address);
         assert.ok(Math.abs(await top()-anchor)<=3,'returning keeps the passage at the same reading position');
         assert.ok(!await scopes.isVisible());assert.deepEqual(await pose(),main);
+        await input.fill(address+'，');
+        await context.getByRole('button',{name:'打开经文：创世记 5:15',exact:true}).waitFor();
+        assert.ok(!await preview.isVisible()&&!await scopes.isVisible(),'a comma does not confirm, navigate, or search');
+        await input.fill(address+'，创世记 6:2');
+        assert.ok(!await context.isVisible()&&!await scopes.isVisible(),'the toolbar does not locate two addresses at once');
+        assert.equal(await finder.locator('#vf-list button').count(),0);
         await input.fill('创造');
         assert.ok(!await scopes.isVisible()&&!await context.isVisible());
         assert.equal(await finder.locator('#vf-list button').count(),0);

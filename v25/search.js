@@ -51,7 +51,7 @@
     const {create,label,bindCompletion}=root.V25NoteRefs;
     const addresses=create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',queryKind='locate',saveTimer,geom='',wide=false;
-    const paintCompletion=bindCompletion(input,value=>queryKind==='locate'?addresses.completion(value):'');
+    const paintCompletion=bindCompletion(input,value=>queryKind==='locate'?addresses.completion(value):'',{tapAfter:true});
     let scope='all',trails={},note=null,facet=null,passagePick=null;
     const contextStream=root.V25AddressStream.create({viewport:scroll,host:passage,renderVerse:verseRow});
     const scopes=$('vf-scopes'),groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),pickBook=$('vf-pick-book'),
@@ -341,13 +341,10 @@
       return lookup(raw,within,options);
     }
     function locate(raw){
-      let suggestions=addresses.suggest(raw,{pasted:true});
-      const suffix=!suggestions.length&&addresses.completion(raw);
-      if(suffix)suggestions=addresses.suggest(raw+suffix);
-      return suggestions.flatMap(({anchors})=>anchors.flatMap(ref=>{
+      return addresses.locateOne(raw,{pasted:true}).flatMap(({anchors:[ref],partial})=>{
         const locations=addresses.locations(ref),first=scripture.resolve(locations[0])[0];
-        return first?[{...first,locations,heading:label(first.name,ref)}]:[];
-      }));
+        return first?[{...first,locations,address:ref,partial,heading:label(first.name,ref)}]:[];
+      });
     }
     function refresh(force=false,nextKind=queryKind){
       const next=input.value.trim();if(next===q&&queryKind===nextKind&&!force)return;
@@ -368,7 +365,19 @@
     input.addEventListener('input',e=>{if(!composing&&!e.isComposing)locateInput();});
     input.addEventListener('compositionend',()=>{composing=false;locateInput();});
     function submit(e){
-      e.preventDefault();if(composing||e.isComposing||e.keyCode===229||!input.value.trim())return;
+      e.preventDefault();if(composing||e.isComposing||e.keyCode===229||e.repeat||!input.value.trim())return;
+      if(note&&queryKind==='locate'){
+        const match=results.length===1&&!results[0].partial?results[0]:null;
+        if(match){
+          const error=note.addAddress(match.address);
+          if(error)$('vf-status').textContent=error;
+          else{input.value='';refresh(true,'locate');input.focus({preventScroll:true});}
+          return;
+        }
+        if(results.length||addresses.parse(input.value,{pasted:true})?.length>1){
+          $('vf-status').textContent=results.length?'请先从候选中选定经文。':'请每次输入一处经文地址。';return;
+        }
+      }
       closeGroups();refresh(false,'keyword');input.blur();(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
     }
     input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)submit(e);});

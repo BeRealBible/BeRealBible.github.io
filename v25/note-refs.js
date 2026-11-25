@@ -253,14 +253,23 @@
       }
       return forms.find(suffix=>exact(value+suffix)?.lo!=null)||'';
     }
-    return {exact,parse,inspect,locations,segments,suggest,completion,mergeSelection,subtractSelection};
+    function locateOne(value,options={}){
+      const single=suggest(value,options).filter(result=>result.anchors.length===1);
+      if(options.editing||single.some(result=>!result.partial))return single;
+      const suffix=completion(value);
+      // A completion for a unique book/chapter is a real address; a loose
+      // book-name match without a valid completion is only a candidate.
+      return suffix?suggest(value+suffix,options):single;
+    }
+    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion,mergeSelection,subtractSelection};
   }
   // Keep the suggested suffix out of the native input and clipboard until
   // accepted. The mirror follows the real input's font and mobile transform.
-  function bindCompletion(input,complete){
+  function bindCompletion(input,complete,{tapAfter=false}={}){
     const doc=input.ownerDocument,win=doc.defaultView,host=input.parentElement,make=()=>doc.createElement('span');
     const ghost=make(),line=make(),typed=make(),hint=make();
     ghost.className='scripture-ghost';hint.className='scripture-ghost__suffix';typed.className='scripture-ghost__typed';
+    ghost.toggleAttribute('data-tap-after',tapAfter);
     ghost.setAttribute('aria-hidden','true');ghost.hidden=true;line.append(typed,hint);ghost.append(line);host.append(ghost);
     let value='',suffix='',shift=false,composing=false;
     function render(){

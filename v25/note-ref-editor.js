@@ -30,7 +30,7 @@
     const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input');
     input.rows=1;input.wrap='off';input.maxLength=24000;input.spellcheck=false;input.autocomplete='off';
     field.append(input);
-    const paintCompletion=bindCompletion(input,parser.completion);
+    const paintCompletion=bindCompletion(input,parser.completion,{tapAfter:true});
     const feedback=make('p','study-notes__ref-feedback'),chipFeedback=make('p','study-notes__ref-feedback');
     feedback.id=nonce+'-feedback';
     for(const el of [feedback,chipFeedback])el.setAttribute('aria-live','polite');
@@ -86,7 +86,7 @@
       if(refs.length>=MAX_PLACES){message(limitText,true);return;}
       clearIdle();entered=true;
       input.blur();closePreview(root);
-      openSearch({owner:root,anchor:input,query,picker:{
+      openSearch({owner:root,anchor:input,query,addAddress,picker:{
         has:row=>refs.some(ref=>covers(ref,row)),
         review(rows){
           const count=freshTargets(rows).length;
@@ -195,10 +195,17 @@
     }
     done.onclick=confirm;
     const parsed=()=>parser.parse(input.value,{pasted});
-    function suggested(){
-      const value=input.value,found=parser.suggest(value,{pasted,editing:!!editing});
-      const suffix=!found.length&&parser.completion(value);
-      return suffix?parser.suggest(value+suffix,{editing:!!editing}):found;
+    const suggested=()=>parser.locateOne(input.value,{pasted,editing:!!editing});
+    function unique(found){
+      return found.length===1&&!found[0].partial?found[0].anchors[0]:null;
+    }
+    function addAddress(ref){
+      if(!root.isConnected||chooser.hidden||editing)return '笔记关联窗口已收起。';
+      if(refs.some(other=>covers(other,ref)))return '这处经文已关联。';
+      if(!apply([...refs,ref]))return feedback.textContent||'未能更改关联。';
+      pending=pending.filter(candidate=>!refs.some(other=>covers(other,candidate)));
+      input.value='';pasted=false;clearResults();updatePicks();message();paintCompletion();
+      return '';
     }
     // A malformed address should not quietly become a text search. Ordinary
     // keywords (including ones ending in punctuation) still use text lookup.
@@ -267,7 +274,7 @@
       if(chooser.hidden||composing)return;
       clearResults();
       const raw=input.value.trim();if(!raw)return;
-      const found=suggested(),only=found.length===1&&found[0].anchors.length===1?found[0]:null;
+      const found=suggested(),only=unique(found)?found[0]:null;
       if(only&&startBrowse(only.anchors[0],only.chapter)){
         if(only.anchors[0].endCh>only.anchors[0].ch)status.textContent='经文地址 · 跨章';
         return;
@@ -282,26 +289,42 @@
       const raw=input.value.trim();
       if(!raw)return;
       const found=parsed();
-      // Keyboard address entry only picks a passage; the final confirmation
-      // below the results is shared with touch and pointer users.
-      if(found?.length&&(editing||punctuation||found.length>1||found[0].lo!=null)){run();stagePicks(found);return;}
-      const picks=parser.suggest(input.value,{pasted,editing:!!editing});
-      if(picks.length===1&&!picks[0].partial){run();stagePicks(picks[0].anchors);return;}
+      if(found?.length>1){clearResults();message('请每次输入一处经文地址。',true);return;}
+      // The legacy single-address punctuation/replace shortcut stages a
+      // choice only; a comma is not a confirmation key in either input.
+      if(found?.length===1&&(editing||punctuation||found[0].lo!=null)){run();stagePicks(found);return;}
+      const ref=unique(suggested());
+      if(ref){run();stagePicks([ref]);return;}
       if(editing||looksLikeAddress(raw.replace(ending,''))||raw.length>160||pasted&&/[\r\n]/u.test(raw)){
         clearResults();showInvalid();return;
       }
       run();
+    }
+    const isStageEnding=text=>ending.test(text)&&!/,\s*$/u.test(text.normalize('NFKC'));
+    function enter(){
+      if(editing){endInput();return;}
+      const raw=input.value.trim();if(!raw)return;
+      const candidates=suggested(),ref=unique(candidates);
+      if(ref){
+        const error=addAddress(ref);
+        if(error)message(error,true);
+        return;
+      }
+      if(parsed()?.length>1){message('请每次输入一处经文地址。',true);return;}
+      if(candidates.length){message('请先从候选中选定经文。');return;}
+      if(looksLikeAddress(raw.replace(ending,''))||pasted&&raw.length>160){showInvalid();return;}
+      search();
     }
     input.addEventListener('paste',()=>{pasted=true;});
     input.addEventListener('input',e=>{
       if(input.value||e.isComposing){entered=true;clearIdle();}
       if(e.isComposing||composing)return;
       if(['insertLineBreak','insertParagraph'].includes(e.inputType)){
-        input.value=input.value.replace(/\r?\n$/u,'');if(editing)endInput();else search();return;
+        input.value=input.value.replace(/\r?\n$/u,'');paintCompletion();enter();return;
       }
       message();if(!input.value.trim())pasted=false;
       if(e.inputType!=='insertFromPaste'&&e.inputType?.startsWith('insert')&&
-        input.selectionEnd===input.value.length&&ending.test(e.data||input.value)&&ending.test(input.value)){
+        input.selectionEnd===input.value.length&&isStageEnding(e.data||input.value)&&isStageEnding(input.value)){
         endInput(true);return;
       }
       run();
@@ -309,9 +332,9 @@
     input.addEventListener('compositionstart',()=>{composing=true;clearIdle();});
     input.addEventListener('compositionend',e=>{
       composing=false;if(input.value){entered=true;clearIdle();}else armIdle();message();
-      if(ending.test(e.data||'')&&ending.test(input.value))endInput(true);else run();
+      if(isStageEnding(e.data||'')&&isStageEnding(input.value))endInput(true);else run();
     });
-    const submit=e=>{if(e.isComposing||composing||e.keyCode===229)return;e.preventDefault();if(editing)endInput();else search();};
+    const submit=e=>{if(e.isComposing||composing||e.keyCode===229)return;e.preventDefault();if(!e.repeat)enter();};
     input.addEventListener('keydown',e=>{
       if(e.key!=='Enter'||e.isComposing||composing||e.keyCode===229)return;
       if(e.shiftKey)e.preventDefault();else submit(e);

@@ -38,6 +38,11 @@
 .scripture-ghost>span{display:block}
 .scripture-ghost__typed{visibility:hidden}
 .scripture-ghost__suffix{color:#8a7864;pointer-events:auto;cursor:pointer}
+.study-notes__lookup .scripture-ghost[data-tap-after]>span,
+#verse-finder[data-note-search] .scripture-ghost[data-tap-after]>span{display:flex;min-width:100%;width:max-content}
+.study-notes__lookup .scripture-ghost[data-tap-after] .scripture-ghost__suffix,
+#verse-finder[data-note-search] .scripture-ghost[data-tap-after] .scripture-ghost__suffix{flex:1;cursor:text}
+#verse-finder[data-note-search] .scripture-ghost[data-tap-after] .scripture-ghost__suffix{margin-inline-end:15px}
 /* Keep a native 16px editing surface without enlarging the printed text
    on focus. Its painted box (including caret and clear button) fills the slot. */
 #verse-finder[data-layout=narrow] .vf-field{min-height:25px}
