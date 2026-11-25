@@ -137,8 +137,7 @@ async function run(browser,width){
     assert.equal(await verseTag('2SA.3:1').getAttribute('data-selected-verse'),'');
     assert.ok(await citation.locator('.paper-selection-tools [data-study]').isEnabled());
     await previewText.press('Escape');
-    assert.ok(await citation.isVisible()&&await dialog.isVisible(),'leaving the selection keeps both the preview and QAP open');
-    await page.keyboard.press('Escape');await citation.waitFor({state:'hidden'});
+    await citation.waitFor({state:'hidden'});
     assert.ok(await dialog.isVisible());
     assert.equal(await firstRef.getAttribute('aria-expanded'),'false');
     const second=bodyOf('2SA.3.2');

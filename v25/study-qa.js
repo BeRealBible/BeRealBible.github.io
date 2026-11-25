@@ -220,51 +220,6 @@
     }catch{}
     return tools.writeText(win,text);
   }
-  function createNoteBack(win){
-    if(!/Android/i.test(win.navigator.userAgent)&&win.navigator.userAgentData?.platform!=='Android'){
-      return {register:()=>({active(){},dispose(){}})};
-    }
-    const key='paperV25NoteBack',h=win.history,entries=new Map();
-    let watcher=null,armed=false,removing=false,waitForInteraction=false;
-    const priority=entry=>+entry.panel.style.getPropertyValue('--slip-priority');
-    const top=()=>[...entries.values()].filter(e=>e.active&&!e.panel.hidden&&!e.panel.hasAttribute('data-collapsed'))
-      .sort((a,b)=>priority(b)-priority(a))[0];
-    const dismiss=()=>top()?.dismiss();
-    function sync(){
-      if(top()){
-        // Android Back can arrive as a native CloseWatcher request or as a
-        // direct browser history traversal. Both dismiss the same note window.
-        if(!watcher&&typeof win.CloseWatcher==='function')try{
-          watcher=new win.CloseWatcher();
-          watcher.addEventListener('close',()=>{watcher=null;dismiss();sync();},{once:true});
-        }catch{}
-        if(removing||waitForInteraction)return;
-        if(h.state?.[key]){armed=true;return;}
-        if(win.navigator.userActivation?.hasBeenActive===false)return;
-        try{h.pushState({...h.state,[key]:true},'');armed=true;}catch{}
-      }else{
-        watcher?.destroy();watcher=null;
-        if(!removing&&armed){
-          armed=false;
-          if(h.state?.[key])try{removing=true;h.back();}catch{removing=false;}
-        }
-      }
-    }
-    win.addEventListener('popstate',()=>{
-      if(removing){removing=false;sync();return;}
-      if(!armed||h.state?.[key])return;
-      armed=false;waitForInteraction=true;dismiss();sync();
-    });
-    for(const event of ['pointerup','click','keyup'])win.addEventListener(event,e=>{
-      if(!e.isTrusted||!top()||armed)return;
-      waitForInteraction=false;sync();
-    });
-    return {register(panel,dismiss){
-      const entry={panel,dismiss,active:false};entries.set(panel,entry);
-      const observer=new win.MutationObserver(sync);observer.observe(panel,{attributes:true,attributeFilter:['hidden','data-collapsed']});
-      return {active(value){entry.active=value;sync();},dispose(){observer.disconnect();entries.delete(panel);sync();}};
-    }};
-  }
   function describeSelection(next,books,{separate=false}={}){
     const order=new Map(books.map((book,i)=>[book.code,{...book,i}])),groups=new Map();
     for(const {code,ch,lo,hi=lo} of next){
@@ -303,7 +258,6 @@
   }
   function mount({stage,paper,scripture,citationLinks,openWindow,openCitation,closeCitation,openNoteSearch,closeNoteSearch,feedback=()=>{}}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
-    const noteBack=createNoteBack(win);
     const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
     const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
     const root=doc.documentElement,marked=new WeakMap(),countedFaces=new WeakMap(),noteCues=new Map();
@@ -424,7 +378,7 @@
           load().then(render,()=>{if(status.isConnected)status.textContent='问答未能载入。请关闭后重试。';});
         }
     }
-    function renderMaterial(scroll,description,model,profile,initial,onBack){
+    function renderMaterial(scroll,description,model,profile,initial){
       const doc=scroll.ownerDocument,make=(tag,cls,text)=>{
         const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
       };
@@ -483,7 +437,6 @@
         }});
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
       compose.append(notebook,hint,status,editorActions);parts.notes.panel.append(listing,viewer,compose);
-      const backHandle=noteBack.register(slip,onBack);
       let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null;
       let qaRendered=false,seenText='',composing=false;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
@@ -569,7 +522,6 @@
         if(active)parts[active].top=scroll.scrollTop;
         if(key!=='notes')refEditor.suspend();
         active=key;
-        backHandle.active(key==='notes');
         syncAdd();
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
@@ -695,7 +647,7 @@
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose(){backHandle.dispose();swipeEvents.abort();refEditor.dispose();off?.();}};
+      return {request,dispose(){swipeEvents.abort();refEditor.dispose();off?.();}};
     }
     function open(next,restore,mode='view'){
       // A contiguous reader selection starts as one range; only addresses
@@ -710,7 +662,7 @@
       }
       let content;
       return openWindow({key,title,fullTitle,restore,material:notesEnabled,mode,focus:mode!=='write',
-        render(scroll,onBack){if(!notesEnabled)renderQA(scroll,objects);else content=renderMaterial(scroll,selection,model,profile,mode,onBack);},
+        render(scroll){if(!notesEnabled)renderQA(scroll,objects);else content=renderMaterial(scroll,selection,model,profile,mode);},
         onReopen(nextMode){content?.request(nextMode);},onDispose(){content?.dispose();}});
     }
     function openChapterBadge(badge,clientY){

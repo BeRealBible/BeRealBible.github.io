@@ -183,8 +183,7 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         assert.match(await page.evaluate(()=>copyTest.at(-1)),/诗篇 23:1/);
         await preview.locator('.compare-slip__scroll').press('Shift+Space');await tools(preview).waitFor();
         await preview.locator('.compare-slip__scroll').press('Escape');
-        assert.ok(await preview.isVisible());
-        await page.evaluate(()=>V25ScriptureWindows.preview.close());
+        await preview.waitFor({state:'hidden'});
         await open('EXO','1:1');await open('MAT','5:1');const rom=await open('ROM','8:1');
         await input(rom,'8:2',true);await task(rom,'float').click();
         assert.equal(await $('.compare-slip[data-role=fixed]:not([hidden])').count(),5);

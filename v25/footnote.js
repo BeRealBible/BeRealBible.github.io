@@ -10,6 +10,7 @@
   const picker=doc.createElement('div');picker.id='v25-citation-choice';picker.hidden=true;
   picker.setAttribute('role','group');picker.setAttribute('aria-label','选择一处引用经文');
   stage.parentElement.append(picker);
+  window.V25OverlayBack.register(picker,{layer:49,dismiss:()=>hide(true)});
   let current=null;
   const forbidden=()=>book.classList.contains('curl-active')||['running','switching'].includes(stage.dataset.jumpState)||
     !!doc.querySelector('#edge-index-host[data-edge-expanded="true"],.edge-chapters:not([hidden]),#book-picker[open]');
@@ -81,7 +82,6 @@
   },true);
   doc.addEventListener('keydown',e=>{
     if(!current||e.target!==current&&!inside(picker,e.target))return;
-    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hide(true);return;}
     if(e.target===current&&e.key==='Tab'&&!e.shiftKey){
       e.preventDefault();if(picker.hidden)manager().preview.focus();else picker.firstElementChild.focus({preventScroll:true});
     }

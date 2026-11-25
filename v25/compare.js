@@ -378,7 +378,6 @@
     panel.addEventListener('focusin',()=>{if(!collapsed)onUse?.();});
     panel.addEventListener('keydown',e=>{
       if(e.isComposing||e.keyCode===229)return;
-      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close('dismiss',true);return;}
       if(e.target!==scroll)return;
       const dir=['PageDown','ArrowDown','End',' '].includes(e.key)?(e.shiftKey&&e.key===' '?-1:1):
         ['PageUp','ArrowUp','Home'].includes(e.key)?-1:0;
@@ -418,7 +417,7 @@
       if(config.picker)panel.insertBefore(noteFooter,resize);
       manual=null;foldedMark=null;panel.removeAttribute('style');
       collapse(false);
-      if(study){scroll.scrollTop=0;config.render(scroll,()=>close('dismiss',true));}
+      if(study){scroll.scrollTop=0;config.render(scroll);}
       else show(config.seed);
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
@@ -447,10 +446,15 @@
       begin(){onBegin?.();clearSelection(reader());}};
     const preview=createWindow({...opts,id:'v25-scripture-preview',role:'preview',
       select:pickingFor(()=>preview,(locs,notice)=>openSelection(locs,notice,true))});
+    win.V25OverlayBack.register(preview.panel,{layer:49,dismiss:()=>preview.close('dismiss',true)});
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
         role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>{closeCitation(pin.panel);onHide?.(pin.panel);},
         select:pickingFor(()=>pin,openSelection)});
+      // Study slips share the comparison slots, but are not pinned scripture.
+      win.V25OverlayBack.register(pin.panel,{layer:46,order:()=>pin.used,
+        active:()=>pin.is('study')&&!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'),
+        dismiss:()=>pin.close('dismiss',true)});
       return pin;
     });
     const expanded=()=>pins.filter(pin=>!pin.panel.hidden&&!pin.panel.hasAttribute('data-collapsed'));

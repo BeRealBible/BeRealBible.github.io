@@ -211,13 +211,19 @@
       if(edit)input.focus({preventScroll:true});else if(current>=0&&anchor?.i===current)landOnResult();else $('vf-close').focus({preventScroll:true});
     }
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
-    trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=()=>note?closeNote(note.owner,true):tuck();
+    const dismiss=()=>note?closeNote(note.owner,true):tuck();
+    trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=dismiss;
+    root.V25OverlayBack.register(panel,{
+      layer:()=>document.querySelector('.compare-slip:not([hidden])')?48:31,
+      // A verse preview hides the ordinary finder, but closing the verse
+      // reveals that same finder as the next layer.
+      active:()=>!panel.hidden||mode==='preview'&&windows.preview.is('search'),
+      dismiss:()=>note?closeNote(note.owner,true,true):tuck()});
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
     $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true,'locate');stage.focus({preventScroll:true});};
     root.V25PaperDock.onTap(stage,()=>{if(note)return;if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
-      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();if(mode==='preview')backToResults();else if(!choices.hidden)closeGroups(true);else if(note)closeNote(note.owner,true);else tuck();}
     });
     scroll.addEventListener('scroll',()=>{
       if(panel.hidden)return;
@@ -261,15 +267,15 @@
       else input.focus({preventScroll:true});
       return true;
     }
-    function closeNote(owner,focus=false){
+    function closeNote(owner,focus=false,fromBack=false){
       if(!note||owner&&owner!==note.owner&&!owner.contains(note.owner))return false;
       const {anchor:entry,saved}=note;
       if(windows.preview.is('note-pick'))windows.preview.close('screen');
       closeGroups();note=null;noteUI();
-      mode=saved.mode==='preview'?'browse':saved.mode;
+      mode=fromBack&&saved.mode!=='off'?'tucked':saved.mode==='preview'?'browse':saved.mode;
       start=saved.start;scope=saved.scope;mount=saved.mount;trails=saved.trails;input.value=saved.query;
       refresh(true,saved.queryKind);trails=saved.trails;applyTrail(saved.trail);scopeUI();layout();persist();
-      if(saved.mode==='preview'&&(current>=0||passagePick!=null)&&focus)resumePreview();
+      if(!fromBack&&saved.mode==='preview'&&(current>=0||passagePick!=null)&&focus)resumePreview();
       else if(focus&&entry.isConnected)entry.focus({preventScroll:true});
       return true;
     }

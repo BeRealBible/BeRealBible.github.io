@@ -57,9 +57,7 @@
       const act=e.target.closest('button')?.dataset.act;
       if(act==='next')move(1);else if(act==='back')move(-1);else if(act==='skip')close();
     });
-    slip.addEventListener('keydown',e=>{
-      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}
-    });
+    window.V25OverlayBack.register(slip,{layer:38,dismiss:close});
     compact.addEventListener('change',()=>{if(step)render(step);});
     // A real page turn can stand in for the first "next"; never turn for the user.
     new MutationObserver(changes=>{

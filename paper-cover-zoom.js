@@ -41,7 +41,9 @@
     }
     button.addEventListener('click',()=>show(panel.hidden));
     range.addEventListener('input',()=>{const n=Number(range.value);if(Number.isFinite(n))onZoom(n);});
-    control.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden){event.preventDefault();event.stopPropagation();show(false,true);}});
+    if(win.V25OverlayBack)win.V25OverlayBack.register(panel,{
+      layer:()=>shelf&&doc.querySelector('.compare-slip:not([hidden])')?47:37,dismiss:()=>show(false,true)});
+    else control.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden){event.preventDefault();event.stopPropagation();show(false,true);}});
     control.addEventListener('focusout',event=>{if(!panel.hidden&&event.relatedTarget&&!control.contains(event.relatedTarget))show(false);});
     doc.addEventListener('pointerdown',event=>{if(!panel.hidden&&!event.composedPath().includes(control))show(false);},true);
     function sync(scale,fit,limit){

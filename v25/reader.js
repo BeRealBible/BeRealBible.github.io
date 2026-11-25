@@ -616,6 +616,7 @@
     onDismiss:()=>{if(startPanKind==='directoryPan')cancelStartPan();},
     getPreview:(index,chapter)=>chapterPreview(D.books[index]?.code,chapter),
     getCurrent:()=>({bookIndex:D.books.indexOf(currentBook()),chapter:parseInt(readingLocation().ref,10)||1})});
+  window.V25OverlayBack.register(chapters.element,{layer:10000,dismiss:()=>chapters.close()});
   function openEdgeChapters(i,_book,metadata={}){
     interrupt();
     chapters.open({bookIndices:metadata.bookIndices||[i],index:i,anchor:metadata.anchor});

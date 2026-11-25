@@ -610,7 +610,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await modify.fill('撒下3:99');await desk.page.keyboard.insertText('.');
     assert.equal(await modify.getAttribute('aria-invalid'),'true');assert.equal(writes.length,beforeEdit);
     assert.equal(await chip('撒母耳记下 4:1').count(),1,'invalid replacements leave the verified address alone');
-    await modify.press('Escape');assert.equal(await chip('撒母耳记下 4:1').count(),1);assert.equal(writes.length,beforeEdit);
+    await desk.dialog.getByRole('button',{name:'收起关联选择',exact:true}).click();
+    assert.equal(await chip('撒母耳记下 4:1').count(),1);assert.equal(writes.length,beforeEdit);
     await desk.dialog.getByRole('button',{name:'修改关联：撒母耳记下 4:1',exact:true}).click();
     await modify.fill('撒下3');await modify.press('Enter');
     assert.equal(writes.length,beforeEdit);
@@ -696,7 +697,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     if(!await readNote(phone).waitFor({timeout:650}).then(()=>true,()=>false))await chapterNote.tap();
     await readNote(phone).waitFor();
     const readingURL=phone.page.url();
-    await phone.page.waitForFunction(()=>history.state?.paperV25NoteBack===true);
+    await phone.page.waitForFunction(()=>history.state?.paperV25OverlayBack===1);
     await phone.page.goBack();await phone.dialog.waitFor({state:'hidden'});
     assert.equal(phone.page.url(),readingURL,'browser history Back only closes the open note');
     await (await phone.select('4:1')).getByRole('button',{name:'查看资料'}).tap();
@@ -734,7 +735,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       await phone.dialog.waitFor({state:'hidden'});
       assert.equal(phone.page.url(),readingURL,'native CloseWatcher closes only the note window');
     }else await closeMaterials(phone).tap();
-    await phone.page.waitForFunction(()=>!history.state?.paperV25NoteBack);
+    await phone.page.waitForFunction(()=>!history.state?.paperV25OverlayBack);
     await phone.page.goBack();await phone.page.waitForURL(previous);
 
     const exodus=await visit(browser,1280,null,'EXO.4:1'),exoBadge=exodus.page.locator('#stage [data-chapter-total="EXO.4"]');
