@@ -1,7 +1,7 @@
 /* One inline, paragraph-preserving passage reader for both address inputs. */
 (function(root){
   'use strict';
-  function create({viewport,host=viewport,renderVerse,onExtend=()=>{}}){
+  function create({viewport,host=viewport,renderVerse,renderChapter,onExtend=()=>{}}){
     const doc=viewport.ownerDocument,make=(tag,cls,text)=>{
       const el=doc.createElement(tag);el.className=cls;if(text)el.textContent=text;return el;
     };
@@ -14,7 +14,10 @@
       const {rows,at}=stream,fragment=doc.createDocumentFragment();let paragraph;
       for(let i=lo;i<hi;i++){
         const row=rows[i];
-        if(!i||rows[i-1].ch!==row.ch)fragment.append(make('h2','compare-slip__chapter-title','第 '+row.ch+' 章'));
+        if(!i||rows[i-1].ch!==row.ch){
+          const heading=renderChapter?.(row)||make('h2','compare-slip__chapter-title','第 '+row.ch+' 章');
+          heading.dataset.addressChapterIndex=i;fragment.append(heading);
+        }
         for(const title of row.titles)fragment.append(make('h3','compare-slip__section-title',title));
         if(!paragraph||boundary(rows,i)){paragraph=make('p','compare-slip__paragraph');fragment.append(paragraph);}
         else paragraph.append(doc.createTextNode(' '));
@@ -29,12 +32,14 @@
     }
     function layout(){
       if(!request||!viewport.clientHeight)return;
-      const {index,dy}=request,el=element(index);
+      const {index,dy,chapter}=request,el=chapter?host.querySelector(`[data-address-chapter-index="${index}"]`):element(index);
       if(el){viewport.scrollTop=index===0&&dy==null?0:Math.max(0,el.offsetTop-(dy??5));request=null;snapshot();}
     }
     function start(rows,at){
       if(!rows?.[at])return false;
-      stream={rows,at};request={index:at};last=null;loadAround(at);return true;
+      // A clickable chapter heading must be visible when we land at verse 1.
+      const chapter=!!renderChapter&&(!at||rows[at-1].ch!==rows[at].ch);
+      stream={rows,at};request={index:at,chapter};last=null;loadAround(at);return true;
     }
     function snapshot(){
       if(!stream)return null;

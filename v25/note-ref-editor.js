@@ -27,28 +27,24 @@
     const tally=make('span','study-notes__tally');
     head.append(make('strong','','关联经文'),tally);root.append(head,chips,chooser);
 
-    const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input'),
-      cancel=button('','study-notes__pick-cancel','取消经文选择');
+    const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input');
     input.rows=1;input.wrap='off';input.maxLength=24000;input.spellcheck=false;input.autocomplete='off';
-    icon(cancel,'M6 6l12 12M18 6 6 18');cancel.hidden=true;field.append(input,cancel);
+    field.append(input);
     const feedback=make('p','study-notes__ref-feedback'),chipFeedback=make('p','study-notes__ref-feedback');
     feedback.id=nonce+'-feedback';
     for(const el of [feedback,chipFeedback])el.setAttribute('aria-live','polite');
     const status=make('p','study-notes__search-status');status.setAttribute('aria-live','polite');
-    const output=make('div'),context=make('div','study-notes__browse-context'),special=make('div','study-notes__special'),
+    const output=make('div'),special=make('div','study-notes__special'),
       results=make('div','study-notes__results'),more=button('更多结果','study-notes__link');
     results.setAttribute('role','region');results.setAttribute('aria-label','可选经文');
     output.setAttribute('role','group');output.setAttribute('aria-label','关联搜索结果');
-    output.append(status,context,special,results,more);
-    const footer=make('div','study-notes__pick-footer'),done=button('确定插入','study-notes__pick-confirm'),
-      pickError=make('span','study-notes__pick-limit');
-    pickError.setAttribute('role','status');footer.append(pickError,done);footer.hidden=true;
+    output.append(status,special,results,more);
     input.setAttribute('aria-describedby',feedback.id);
-    chooser.append(field,feedback,output,footer);root.append(chipFeedback);
+    chooser.append(field,feedback,output);root.append(chipFeedback);
 
     let refs=[],shown='',editing=null,restore=null,pasted=false,composing=false,idle=0,entered=false,
-      matches=[],rendered=[],listed=0,browseTarget=null,selected=null,draft=null;
-    const browseStream=win.V25AddressStream.create({viewport:results,renderVerse:rowOption,onExtend:decorateResults});
+      matches=[],rendered=[],listed=0,browseTarget=null;
+    const browseStream=win.V25AddressStream.create({viewport:results,renderVerse:rowOption,renderChapter:chapterOption,onExtend:decorateResults});
     function message(text='',error=false){
       for(const el of [feedback,chipFeedback]){
         const active=el===(chooser.hidden?chipFeedback:feedback)&&!!text;
@@ -58,16 +54,16 @@
       else input.removeAttribute('aria-invalid');
     }
     function clearResults(){
-      matches=[];rendered=[];listed=0;browseTarget=null;browseStream.clear();context.replaceChildren();special.replaceChildren();
-      results.replaceChildren();results.removeAttribute('data-browse');results.scrollTop=0;more.hidden=true;status.textContent='';refreshFooter();
+      matches=[];rendered=[];listed=0;browseTarget=null;browseStream.clear();special.replaceChildren();
+      results.replaceChildren();results.removeAttribute('data-browse');results.scrollTop=0;more.hidden=true;status.textContent='';
     }
     function clearIdle(){win.clearTimeout(idle);idle=0;}
     function armIdle(){
       clearIdle();
-      if(chooser.hidden||editing||entered||composing||selected)return;
+      if(chooser.hidden||editing||entered||composing)return;
       idle=win.setTimeout(()=>{
         idle=0;
-        if(!chooser.hidden&&!entered&&!composing&&!input.value&&!selected)close(chooser.contains(doc.activeElement));
+        if(!chooser.hidden&&!entered&&!composing&&!input.value)close(chooser.contains(doc.activeElement));
       },5000);
     }
     chooser.addEventListener('pointerdown',armIdle,{passive:true});
@@ -119,7 +115,7 @@
       tally.textContent=refs.length+' / '+MAX_PLACES;
       tally.title=limitText;
       plus.toggleAttribute('data-at-limit',refs.length>=MAX_PLACES);
-      updatePicks();
+      decorateResults();
     }
     function apply(next){
       if(!editable||!next.length)return false;
@@ -132,10 +128,8 @@
       const existing=refs.filter(ref=>key(ref)!==editing);
       for(const {ref,el,name} of rendered){
         const used=existing.some(other=>covers(other,ref));
-        const active=!!selected&&key(selected)===key(ref);
-        el.setAttribute('aria-pressed',String(active));el.setAttribute('aria-disabled',String(used));
+        el.setAttribute('aria-disabled',String(used));
         el.setAttribute('aria-label',(used?'已关联：':'选择：')+name);
-        if(el.classList.contains('study-notes__verse'))el.toggleAttribute('data-selected-verse',active);
       }
     }
     function pickProblem(ref,base){
@@ -144,48 +138,20 @@
       if(!spansEnabled&&ref.endCh>ref.ch)return '此版本的账号服务还不支持保存跨章关联。';
       return '';
     }
-    function refreshFooter(){
-      footer.hidden=chooser.hidden||!selected;
-      const error=selected?pickProblem(selected,refs.filter(ref=>key(ref)!==editing)):'';
-      pickError.textContent=error;done.disabled=!selected||!!error;
-    }
-    function updatePicks(){decorateResults();refreshFooter();}
-    function syncSelection(){
-      input.readOnly=!!selected;cancel.hidden=!selected;field.toggleAttribute('data-selected',!!selected);
-      status.toggleAttribute('data-pick-readout',!!selected);
-      status.textContent=selected?'已选：'+title(selected):draft?.status??status.textContent;
-    }
-    function selectOne(ref){
-      if(composing||refs.some(other=>key(other)!==editing&&covers(other,ref)))return;
-      if(!draft)draft={value:input.value,start:input.selectionStart,end:input.selectionEnd,pasted,
-        top:results.scrollTop,spot:browseStream.snapshot(),status:status.textContent};
-      selected=ref;input.value=title(ref);
-      if(input===doc.activeElement)input.blur();
-      syncSelection();message();updatePicks();
-    }
-    cancel.onclick=()=>{
-      if(!draft)return;
-      input.value=draft.value;pasted=draft.pasted;selected=null;
-      input.setSelectionRange(draft.start,draft.end);
-      syncSelection();updatePicks();
-      if(!browseStream.restore(draft.spot))results.scrollTop=draft.top;
-      draft=null;message();input.focus({preventScroll:true});
-    };
-    function confirm(){
-      if(!selected||!root.isConnected||chooser.hidden)return;
+    function insert(ref){
+      if(!ref||!root.isConnected||chooser.hidden||composing)return;
       if(editing&&!refs.some(ref=>key(ref)===editing)){
         message('原关联已变更，请重新选择要修改的经文。',true);return;
       }
-      const base=refs.filter(ref=>key(ref)!==editing),error=pickProblem(selected,base);
+      const base=refs.filter(ref=>key(ref)!==editing),error=pickProblem(ref,base);
       if(error){message(error,true);return;}
-      if(!apply([...base,selected]))return;
+      if(!apply([...base,ref]))return;
       if(editing){close(true);return;}
-      selected=draft=null;input.value='';pasted=false;syncSelection();message();clearResults();
+      clearIdle();entered=true;input.value='';pasted=false;message();clearResults();
       // Do not raise the phone keyboard merely because a link was inserted.
       if(win.matchMedia('(pointer:coarse)').matches)plus.focus({preventScroll:true});
       else input.focus({preventScroll:true});
     }
-    done.onclick=confirm;
     const parsed=()=>parser.parse(input.value,{pasted});
     const suggested=()=>parser.locateOne(input.value,{pasted,editing:!!editing});
     function unique(found){
@@ -199,18 +165,22 @@
     }
     function bindOption(el,ref){
       const name=title(ref);
-      el.onclick=()=>selectOne(ref);
+      el.onclick=()=>{if(el.getAttribute('aria-disabled')!=='true')insert(ref);};
       rendered.push({ref,el,name});
       return name;
     }
-    function option({ref,text,shortcut}){
-      const el=button('',shortcut?'study-notes__address-option':'study-notes__result');
+    function option({ref,text,range}){
+      const el=button('',range?'study-notes__address-option':'study-notes__result');
       const name=bindOption(el,ref);
       const copy=make('span','study-notes__result-text');
-      copy.append(make('strong','study-notes__result-ref',shortcut==='chapter'?'整章':name));
+      copy.append(make('strong','study-notes__result-ref',name));
       if(text)copy.append(make('span','study-notes__result-excerpt',text));
       el.append(copy);
       return el;
+    }
+    function chapterOption({code,ch}){
+      const heading=make('h2','compare-slip__chapter-title'),pick=button('第 '+ch+' 章','study-chapter-pick');
+      bindOption(pick,{code,ch});heading.append(pick);return heading;
     }
     function rowOption(row,current=false){
       const {code,ch,lo,hi}=row;
@@ -233,26 +203,25 @@
       for(const item of matches.slice(listed,listed+10)){
         results.append(option(item));listed++;
       }
-      more.hidden=listed>=matches.length;updatePicks();
+      more.hidden=listed>=matches.length;decorateResults();
     }
-    function startBrowse(anchor,chapter){
+    function startBrowse(anchor){
       const book=browse(anchor);
       if(!book?.rows.length||!Number.isInteger(book.at))return false;
       // Scroll to the line of the located verse while keeping its real
       // paragraph (and earlier ones) intact above that line.
       const range=anchor.lo!=null&&(anchor.hi!==anchor.lo||anchor.endCh>anchor.ch);
       browseTarget=range?null:anchor;
-      if(chapter||anchor.lo==null)context.append(option({ref:chapter||anchor,shortcut:'chapter'}));
-      if(range)special.append(option({ref:anchor,shortcut:'range'}));
+      if(range)special.append(option({ref:anchor,range:true}));
       results.setAttribute('data-browse','');browseStream.start(book.rows,book.at);browseStream.layout();
-      updatePicks();return true;
+      decorateResults();return true;
     }
     function run(){
-      if(chooser.hidden||composing||selected)return;
+      if(chooser.hidden||composing)return;
       clearResults();
       const raw=input.value.trim();if(!raw)return;
       const found=suggested(),only=unique(found)?found[0]:null;
-      if(only&&startBrowse(only.anchors[0],only.chapter)){
+      if(only&&startBrowse(only.anchors[0])){
         if(only.anchors[0].endCh>only.anchors[0].ch)status.textContent='经文地址 · 跨章';
         return;
       }
@@ -262,17 +231,18 @@
       appendResults();
     }
     function enter(){
-      if(selected||!input.value.trim())return;
+      if(!input.value.trim())return;
       if(!editing){search();return;}
-      // Replacement remains an address-only field, with no implicit save.
+      // The pencil field is address-only; Enter is equivalent to picking
+      // its exact address, never an inferred/ambiguous candidate.
       const found=parsed();
-      if(found?.length===1)selectOne(found[0]);
+      if(found?.length===1)insert(found[0]);
       else if(!suggested().length)showInvalid();
     }
     input.addEventListener('paste',()=>{pasted=true;});
     input.addEventListener('input',e=>{
       if(input.value||e.isComposing){entered=true;clearIdle();}
-      if(e.isComposing||composing||selected)return;
+      if(e.isComposing||composing)return;
       if(['insertLineBreak','insertParagraph'].includes(e.inputType)){
         input.value=input.value.replace(/\r?\n$/u,'');enter();return;
       }
@@ -299,7 +269,7 @@
     function close(focus=false){
       clearIdle();closeSearch(root);closePreview(chooser);
       chooser.hidden=true;editing=null;input.value='';pasted=false;composing=false;entered=false;
-      selected=draft=null;syncSelection();clearResults();message();
+      clearResults();message();
       plus.setAttribute('aria-expanded','false');setLabel(plus,'添加关联经文');plusInk.setAttribute('d',addIcon);
       if(focus)(restore?.isConnected?restore:plus).focus({preventScroll:true});
       restore=null;
@@ -308,8 +278,8 @@
       clearIdle();entered=false;
       closeSearch(root);
       closePreview(chips);editing=ref?key(ref):null;restore=source;
-      selected=draft=null;input.value=ref?title(ref,true):'';pasted=false;composing=false;chooser.hidden=false;
-      done.textContent=ref?'确定替换':'确定插入';syncSelection();message();
+      input.value=ref?title(ref,true):'';pasted=false;composing=false;chooser.hidden=false;
+      message();
       input.setAttribute('aria-label',ref?'修改关联经文':'经文关键词或地址');
       plus.setAttribute('aria-expanded','true');setLabel(plus,'收起关联选择');plusInk.setAttribute('d','m5 15 7-7 7 7');
       input.placeholder=ref?'输入新的经文地址':'输入经文坐标或搜索关键词';

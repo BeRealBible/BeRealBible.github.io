@@ -248,7 +248,10 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       await snapshot(phone,'phone-address-preview');
       await query.fill('路');await pick('路加福音 1:1').waitFor();
       await query.press('2');await pick('路加福音 2:1').waitFor();
-      await pick('路加福音 2章').waitFor();
+      const chapterTitle=pick('路加福音 2章').locator('xpath=parent::h2');
+      await chapterTitle.waitFor();
+      assert.equal(await chapterTitle.textContent(),'第 2 章');
+      assert.equal(await phone.dialog.getByRole('button',{name:'整章',exact:true}).count(),0);
       await phone.page.keyboard.insertText(':');
       await pick('路加福音 2:1').waitFor();assert.equal(await query.inputValue(),'路2:');
       await query.press('3');await pick('路加福音 2:3').waitFor();
@@ -256,10 +259,9 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       await query.fill('路2:99');
       assert.equal(await region.locator('[role=button],button').count(),0,'an absent verse has no fallback');
       await query.fill('路2:13');
-      const verse13=pick('路加福音 2:13'),verse12=pick('路加福音 2:12'),verse14=pick('路加福音 2:14');
+      const verse13=pick('路加福音 2:13'),verse12=pick('路加福音 2:12');
       const verseTop=el=>el.getClientRects()[0].top-el.closest('[data-browse]').getBoundingClientRect().top;
-      const cancelPick=phone.dialog.getByRole('button',{name:'取消经文选择',exact:true}),
-        insert=phone.dialog.getByRole('button',{name:'确定插入',exact:true});
+      const insert=phone.dialog.getByRole('button',{name:'确定插入',exact:true});
       await verse13.waitFor();
       assert.ok(await verse13.evaluate(el=>el.tagName==='SPAN'&&getComputedStyle(el).display==='inline'&&
         el.parentElement.tagName==='P'&&el.previousElementSibling?.dataset.ref==='2:12'&&el.nextElementSibling?.dataset.ref==='2:14'),
@@ -269,18 +271,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       assert.ok(await verse12.evaluate(verseTop)<0,'verse 12 starts above the target');
       await region.evaluate(el=>{el.scrollTop=el.querySelector('[data-ref="2:12"]').offsetTop-5;});
       assert.ok(Math.abs(await verse12.evaluate(verseTop))<12,'the preceding verse can be scrolled into view');
-      await verse12.tap();assert.equal(await verse12.getAttribute('aria-pressed'),'true');
-      assert.equal(await query.inputValue(),'路加福音 2:12');
-      assert.ok(!await query.isEditable());
-      await verse14.tap();assert.equal(await verse14.getAttribute('aria-pressed'),'true');
-      assert.equal(await verse12.getAttribute('aria-pressed'),'false');
-      assert.equal(await query.inputValue(),'路加福音 2:14');
-      assert.ok(await insert.isEnabled());
-      await snapshot(phone,'phone-address-selected');
-      await cancelPick.tap();
-      assert.equal(await query.inputValue(),'路2:13','× restores the original typed address, not the last selection');
       assert.ok(await query.isEditable()&&!await insert.isVisible());
-      assert.equal(writes.length,5,'tapping verses stages them without saving');
+      assert.equal(writes.length,5,'scrolling without picking does not save');
       await query.fill('拔示巴进入内室见王');
       assert.equal(await phone.dialog.locator('.study-notes__result').count(),0,'typing words does not search by default');
       const finder=phone.page.getByRole('complementary',{name:'笔记经文检索笺'}),chooseBook=finder.getByRole('group',{name:'指定书卷'});
@@ -294,8 +286,11 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       const reader=phone.page.getByRole('complementary',{name:'选取关联经文浮窗'});
       const hit=reader.getByRole('button',{name:'选择：列王纪上 1:15',exact:true});
       await hit.tap();assert.equal(await hit.getAttribute('aria-pressed'),'true');
-      await reader.getByRole('button',{name:'选择：列王纪上 1:16',exact:true}).tap();
-      assert.equal(await hit.getAttribute('aria-pressed'),'false','keyword results also allow exactly one selected verse');
+      const keywordChapter=reader.getByRole('button',{name:'选择：列王纪上 1章',exact:true});
+      await keywordChapter.tap();
+      assert.equal(await hit.getAttribute('aria-pressed'),'false','the keyword reader only selects one verse or chapter');
+      assert.equal(await keywordChapter.getAttribute('aria-pressed'),'true');
+      assert.equal(writes.length,5,'selecting a keyword result does not save before confirmation');
       assert.ok(await reader.getByRole('button',{name:'确定插入',exact:true}).isEnabled());
       await snapshot(phone,'phone-keyword-verse');
       await reader.getByRole('button',{name:'返回搜索结果'}).tap();
@@ -433,9 +428,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const chip=name=>desk.dialog.getByRole('button',{name:'查看关联经文：'+name,exact:true});
     const pick=name=>desk.dialog.getByRole('button',{name:'选择：'+name,exact:true});
     const plus=desk.dialog.getByRole('button',{name:'添加关联经文',exact:true});
-    const done=desk.dialog.getByRole('button',{name:'确定插入',exact:true}),
-      cancelPick=desk.dialog.getByRole('button',{name:'取消经文选择',exact:true}),
-      collapse=desk.dialog.getByRole('button',{name:'收起关联选择',exact:true});
+    const collapse=desk.dialog.getByRole('button',{name:'收起关联选择',exact:true});
     const stamp=()=>status.getByText('已同步',{exact:true}).waitFor();
     const typeRef=async(value,punct)=>{await refInput.fill(value);await desk.page.keyboard.insertText(punct);};
     assert.equal(await refInput.count(),0);
@@ -452,27 +445,14 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.ok(await refInput.isEditable());assert.equal(writes.length,beforeBad);
     assert.equal(await refInput.inputValue(),'王中1:15；');
     await typeRef('王上1:15','，');
-    assert.ok(await refInput.isEditable()&&!await done.isVisible(),'punctuation does not select or lock anything');
+    assert.ok(await refInput.isEditable(),'punctuation does not select or lock anything');
+    assert.equal(await desk.dialog.getByRole('button',{name:/^确定(?:插入|替换)$/}).count(),0);
     assert.equal(await refInput.inputValue(),'王上1:15，');
-    await refInput.evaluate(el=>el.setSelectionRange(1,3));
-    await pick('列王纪上 1:15').click();
-    await pick('列王纪上 1:16').press('Space');
-    assert.equal(await pick('列王纪上 1:15').getAttribute('aria-pressed'),'false');
-    assert.equal(await pick('列王纪上 1:16').getAttribute('aria-pressed'),'true');
-    assert.equal(await refInput.inputValue(),'列王纪上 1:16');
-    assert.ok(!await refInput.isEditable());
-    await refInput.press('Enter');
     assert.equal(writes.length,beforeBad);assert.equal(await chip('列王纪上 1:15').count(),0);
-    await cancelPick.click();
-    assert.equal(await refInput.inputValue(),'王上1:15，');
-    assert.deepEqual(await refInput.evaluate(el=>[el.selectionStart,el.selectionEnd]),[1,3]);
-    assert.ok(await refInput.isEditable()&&!await done.isVisible());
-    await refInput.fill('王上1:15–16');await pick('列王纪上 1:15–16').click();
-    await done.click();await stamp();
+    await refInput.fill('王上1:15–16');await pick('列王纪上 1:15–16').click();await stamp();
     assert.equal(await refInput.inputValue(),'');
-    await refInput.fill('王上1:18');await pick('列王纪上 1:18').click();
-    await done.click();await stamp();
-    assert.equal(writes.length,beforeBad+2,'each confirmation saves a single association');
+    await refInput.fill('王上1:18');await pick('列王纪上 1:18').press('Space');await stamp();
+    assert.equal(writes.length,beforeBad+2,'each direct pick saves a single association');
     assert.deepEqual(writes.at(-1).anchors,[['2SA',4,1,1],['1KI',1,15,16],['1KI',1,18,18]],'an explicit continuous range is one association');
     await collapse.click();
     await chip('列王纪上 1:15–16').click();
@@ -488,9 +468,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste'}));
     });
     const beforePaste=writes.length;assert.equal(await chip('撒母耳记上 1:15').count(),0);
-    await pick('撒母耳记上 1:15').click();
-    assert.equal(writes.length,beforePaste);
-    await done.click();await stamp();
+    await pick('撒母耳记上 1:15').click();await stamp();
     assert.equal(writes.length,beforePaste+1);assert.equal(await refInput.inputValue(),'');
     await desk.dialog.getByRole('button',{name:'收起关联选择',exact:true}).click();
     assert.equal(await edit.inputValue(),'另一条独立笔记');
@@ -556,9 +534,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       await desk.dialog.getByText('经文地址 · 跨章',{exact:true}).waitFor();
       assert.equal(await chip('列王纪上 1:53–2:3').count(),0,'a valid suggestion is not yet attached');
       await typeRef('列王纪上第一章五十三节至第二章三节','；');
-      await pick('列王纪上 1:53–2:3').click();
       assert.equal(writes.length,beforeSearch+2);
-      await done.click();await stamp();
+      await pick('列王纪上 1:53–2:3').click();await stamp();
       await desk.dialog.getByRole('button',{name:'收起关联选择',exact:true}).click();
       assert.deepEqual(writes.at(-1).anchor_objects.find(r=>r.length===5),['1KI',1,53,2,3]);
       assert.deepEqual(writes.at(-1).anchors.filter(r=>r[0]==='1KI'&&(r[2]===53||r[1]===2)),[['1KI',1,53,53],['1KI',2,1,3]]);
@@ -582,7 +559,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       assert.equal(writes.at(-1).anchor_objects,null,'removing one span removes its grouping and all projections');
       assert.ok(!writes.at(-1).anchors.some(r=>r[0]==='1KI'&&(r[2]===53||r[1]===2)));
     }
-    await plus.click();await refInput.fill('诗篇书1章');await pick('诗篇 1章').click();await done.click();await stamp();
+    await plus.click();await refInput.fill('诗篇书1章');await pick('诗篇 1章').click();await stamp();
     const literal='另一条独立笔记\n\n读到这里，想到**信心**也需要在日常的小事上操练。\n<em>原样保留</em>';
     await edit.fill(literal);await stamp();
     const beforeReading=writes.length;
@@ -672,9 +649,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await desk.dialog.getByRole('button',{name:'收起关联选择',exact:true}).click();
     assert.equal(await chip('撒母耳记下 4:1').count(),1);assert.equal(writes.length,beforeEdit);
     await desk.dialog.getByRole('button',{name:'修改关联：撒母耳记下 4:1',exact:true}).click();
-    await modify.fill('撒下3');await modify.press('Enter');
-    assert.equal(writes.length,beforeEdit);
-    await desk.dialog.getByRole('button',{name:'确定替换',exact:true}).click();await stamp();
+    await modify.fill('撒下3');await modify.press('Enter');await stamp();
+    assert.equal(writes.length,beforeEdit+1);
     assert.deepEqual(writes.at(-1).anchors.find(r=>r[0]==='2SA'),['2SA',3]);
     for(const name of ['列王纪上 1:15–16','列王纪上 1:18','撒母耳记上 1:15','哥林多前书 13:4','诗篇 23:1']){
       await remove(name).click();await stamp();
@@ -686,12 +662,14 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     // An address in the note's shared finder opens the insertion-capable window.
     await plus.click();await refInput.fill('爱是恒久忍耐');await refInput.press('Enter');
     await searchQuery.fill('马太福音5:1');await finder.locator('#vf-context [data-ref="5:1"][data-current]').click();
-    await reader.getByRole('button',{name:'选择：马太福音 5:1',exact:true}).click();
-    await readerConfirm.click();await chip('马太福音 5:1').waitFor();await stamp();
+    await reader.getByRole('button',{name:'选择：马太福音 5章',exact:true}).click();
+    assert.equal(await chip('马太福音 5章').count(),0,'the reader requires confirmation even for a chapter heading');
+    await readerConfirm.click();await chip('马太福音 5章').waitFor();await stamp();
+    assert.deepEqual(writes.at(-1).anchors.find(r=>r[0]==='MAT'),['MAT',5]);
     assert.equal(await searchQuery.inputValue(),'马太福音5:1');
     await finder.getByRole('button',{name:'关闭检索笺'}).click();
     assert.equal(await refInput.inputValue(),'爱是恒久忍耐');
-    await remove('马太福音 5:1').click();await stamp();
+    await remove('马太福音 5章').click();await stamp();
     const beforeLimit=writes.length;
     await refInput.fill('列王2');await refInput.press('Space');
     await pick('列王纪上 2章').waitFor();await pick('列王纪下 2章').waitFor();
@@ -707,24 +685,22 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
         const verse=el.getClientRects()[0],pane=el.closest('[data-browse]').getBoundingClientRect();
         return {top:verse.top-pane.top,bottom:verse.bottom-pane.top,height:pane.height};
       });
-      assert.ok(visible.top>=-1&&visible.bottom<=visible.height&&(n===1||visible.top<20),
+      assert.ok(visible.top>=-1&&visible.bottom<=visible.height,
         'lookup '+n+' shows its own target verse: '+JSON.stringify(visible));
       await target.click();
-      assert.equal(await refInput.inputValue(),'创世记 '+n+':1');
-      await done.click();await chip('创世记 '+n+':1').waitFor();await stamp();
+      await chip('创世记 '+n+':1').waitFor();await stamp();
       assert.equal(await refInput.inputValue(),'');
       assert.ok(await refInput.evaluate(el=>el===document.activeElement),'the same input remains ready for the next address');
       assert.ok(!await finder.isVisible(),'clicking a known address does not enter keyword search');
     }
-    assert.equal(writes.length,beforeLimit+8,'each confirmation adds exactly one link');
-    await refInput.fill('创9:1');await pick('创世记 9:1').click();await done.click();await stamp();
+    assert.equal(writes.length,beforeLimit+8,'each tap adds exactly one link');
+    await refInput.fill('创9:1');await pick('创世记 9:1').click();await stamp();
     assert.equal(writes.at(-1).anchors.length,10);
     await typeRef('创10:1','。');await pick('创世记 10:1').click();
     await desk.dialog.getByText('每条笔记最多关联 10 处经文',{exact:true}).filter({visible:true}).waitFor();
-    assert.ok(await done.isDisabled());
-    assert.equal(await refInput.inputValue(),'创世记 10:1','failed insertion leaves the address in the field');
-    assert.equal(writes.length,beforeLimit+9,'confirmation cannot add an eleventh association');
-    await cancelPick.click();assert.equal(await refInput.inputValue(),'创10:1。');
+    assert.ok(await refInput.isEditable());
+    assert.equal(await refInput.inputValue(),'创10:1。','failed insertion leaves the original address in the field');
+    assert.equal(writes.length,beforeLimit+9,'a tap cannot add an eleventh association');
     await desk.dialog.getByRole('button',{name:'收起关联选择',exact:true}).click();
     await plus.click();assert.equal(await refInput.count(),0,'the plus cannot add an eleventh association either');
     for(let n=1;n<=9;n++){await remove('创世记 '+n+':1').click();await stamp();}
@@ -781,13 +757,15 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await mobileAdd.tap();assert.equal(await field.inputValue(),'');assert.equal(writes.length,beforeBlank);
     const phoneQuery=phone.dialog.getByRole('textbox',{name:'经文关键词或地址'});
     await phone.dialog.getByRole('button',{name:'添加关联经文',exact:true}).tap();
-    const phoneInsert=phone.dialog.getByRole('button',{name:'确定插入',exact:true});
     await phoneQuery.fill('何西阿2');
     await phoneQuery.press('Space');
     assert.equal(await phoneQuery.inputValue(),'何西阿2 ');
-    await phone.dialog.getByRole('button',{name:'选择：何西阿书 2章',exact:true}).tap();
-    assert.equal(await phoneQuery.inputValue(),'何西阿书 2章');
-    await phoneInsert.tap();
+    const hoseaPick=phone.dialog.getByRole('button',{name:'选择：何西阿书 2章',exact:true}),hoseaHeading=hoseaPick.locator('xpath=parent::h2');
+    assert.ok(await hoseaHeading.evaluate(el=>{
+      const title=el.getBoundingClientRect(),pane=el.closest('[data-browse]').getBoundingClientRect();
+      return title.top>=pane.top-1&&title.bottom<=pane.bottom;
+    }),'a chapter address shows its selectable heading without scrolling');
+    await hoseaPick.tap();
     await phone.dialog.getByRole('button',{name:'查看关联经文：何西阿书 2章',exact:true}).waitFor();
     assert.equal(await phoneQuery.inputValue(),'');
     await phoneQuery.fill('路德1:16');
@@ -796,7 +774,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       const verse=el.getClientRects()[0],pane=el.closest('[data-browse]').getBoundingClientRect();
       return verse.top>=pane.top-1&&verse.top<pane.top+20&&verse.bottom<=pane.bottom;
     }),'the second result is visibly positioned in the mobile passage');
-    await secondTarget.tap();await phoneInsert.tap();
+    await secondTarget.tap();
     await phone.dialog.getByRole('button',{name:'查看关联经文：路得记 1:16',exact:true}).waitFor();
     assert.equal(await phoneQuery.inputValue(),'');
     if(await phone.page.evaluate(()=>typeof window.lastReaderCloseWatcher?.requestClose==='function')){

@@ -70,6 +70,7 @@
     const jump=action('jump','在主书查看','M13 5h6v6m0-6-8 8m7 0v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',()=>{if(activeRow)config?.onJump?.(activeRow);});
     const pin=action('pin','固定经文浮窗','m15 4 5 5-3 1-3 4 .5 2.5L13 18l-7-7 1.5-1.5 2.5.5 4-3 1-3ZM9.5 14.5 4 20',()=>config?.onPin?.(config.rows,activeRow));
     let notePicked=null;
+    const noteOptions=new WeakMap();
     const noteFooter=node('footer','compare-slip__note-footer'),noteStatus=node('span');
     const noteConfirm=btn('compare-slip__note-confirm','确定插入','确定插入',()=>{
       if(notePicked&&config?.picker?.confirm(notePicked))close('confirmed',true);
@@ -261,27 +262,43 @@
     }
     function updateNotePicks(){
       const picker=config?.picker;if(!picker)return;
-      for(const {el,row} of rows){
-        const pressed=notePicked?.id===row.id,used=!!picker.has?.(row);
+      for(const el of scroll.querySelectorAll('[data-note-pick-option]')){
+        const ref=noteOptions.get(el),pressed=notePicked?.id===ref.id,used=!!picker.has?.(ref);
         el.setAttribute('aria-pressed',String(pressed));el.setAttribute('aria-disabled',String(used));
-        el.toggleAttribute('data-selected-verse',pressed);
+        if(ref.lo!=null)el.toggleAttribute('data-selected-verse',pressed);
       }
       const error=notePicked&&picker.error(notePicked);
-      noteStatus.textContent=error||(notePicked?'已选：'+notePicked.short+' '+notePicked.display:'轻点一节经文');
+      noteStatus.textContent=error||(notePicked?'已选：'+notePicked.short+' '+notePicked.display:'轻点经节或章标题');
       noteStatus.toggleAttribute('data-error',!!error);
       noteConfirm.disabled=!notePicked||!!error;
     }
-    function pickNoteRow(row){
-      if(!config?.picker||config.picker.has?.(row))return;
-      notePicked=row;
-      updateNotePicks();
+    function bindNoteOption(el,ref){
+      noteOptions.set(el,ref);el.dataset.notePickOption='';
+      el.setAttribute('aria-label','选择：'+ref.name+' '+ref.display);
+      el.addEventListener('click',()=>{
+        if(!config?.picker||config.picker.has?.(ref))return;
+        notePicked=ref;updateNotePicks();
+      });
+      if(el.tagName!=='BUTTON'){
+        el.tabIndex=0;el.setAttribute('role','button');
+        el.addEventListener('keydown',e=>{
+          if(e.key!=='Enter'&&e.key!==' ')return;
+          e.preventDefault();if(!e.repeat)el.click();
+        });
+      }
     }
     function renderChunk(n){
       const {chapter,rows}=stream.chunks[n],section=node('section','compare-slip__chunk');
       section.dataset.chunk=String(n);section.dataset.chapter=String(chapter);
-      const heading=node('h2','compare-slip__chapter-title','第 '+chapter+' 章');
-      heading.dataset.studyChapter=stream.book.code+'.'+chapter;
-      if(select?.onStudy){heading.tabIndex=0;heading.setAttribute('aria-description',select.onWriteNote?'长按或按回车选择整章，写笔记或查看资料。':'长按或按回车选择整章，查看经文问答。');}
+      const heading=node('h2','compare-slip__chapter-title'),title='第 '+chapter+' 章',{code,name,short}=stream.book;
+      if(config.picker){
+        const control=btn('study-chapter-pick',title,title);
+        bindNoteOption(control,{id:code+'.'+chapter,code,name,short,ch:chapter,display:chapter+'章'});
+        heading.append(control);
+      }else{
+        heading.textContent=title;heading.dataset.studyChapter=code+'.'+chapter;
+        if(select?.onStudy){heading.tabIndex=0;heading.setAttribute('aria-description',select.onWriteNote?'长按或按回车选择整章，写笔记或查看资料。':'长按或按回车选择整章，查看经文问答。');}
+      }
       section.append(heading);
       let paragraph;
       for(const row of rows){
@@ -293,13 +310,7 @@
         const text=node('span','compare-slip__verse'),num=node('sup','compare-slip__ref',verses);
         text.dataset.ref=row.ref;text.dataset.verseId=row.id;
         if(config.picker){
-          text.tabIndex=0;text.setAttribute('role','button');
-          text.setAttribute('aria-label','选择：'+row.name+' '+row.display);text.setAttribute('aria-description',row.text);
-          text.addEventListener('click',()=>pickNoteRow(row));
-          text.addEventListener('keydown',e=>{
-            if(e.key!=='Enter'&&e.key!==' ')return;
-            e.preventDefault();if(!e.repeat)pickNoteRow(row);
-          });
+          text.setAttribute('aria-description',row.text);bindNoteOption(text,row);
         }
         const cited=config.cited.has(row.id);
         if(cited)text.dataset.cited='';
