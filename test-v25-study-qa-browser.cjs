@@ -100,7 +100,7 @@ async function run(browser,width){
     assert.ok((await ids()).includes('2SA.3.1'));
     assert.ok(!(await ids()).includes('2SA.3.4'),'verse selection cannot broaden into a chapter');
     assert.match(await title.textContent(),/(思考问答|经文资料) 撒下 3:1/);
-    assert.equal(await dialog.locator('.compare-slip__scroll h2,.study-qa__refs,#study-qa-scopes').count(),0,'no decorative labels or address lists in QAP content');
+    assert.equal(await dialog.locator('.compare-slip__scroll').locator(':is(h2,.study-qa__refs,#study-qa-scopes):visible').count(),0,'no visible decorative labels or address lists in QAP content');
     assert.equal(await dialog.locator('.study-qa__status').textContent(),'');
     assert.equal(await dialog.locator('details[open]').count(),0);
     // A link in a folded question opens a reader, not its <details>.

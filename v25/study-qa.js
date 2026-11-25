@@ -288,7 +288,8 @@
       const doc=scroll.ownerDocument,make=(tag,cls,text)=>{
         const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
       };
-      const tabs=make('div','study-material__tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','经文资料');
+      const bar=make('div','study-material__bar'),tabs=make('div','study-material__tabs');
+      tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','经文资料');
       const owner=scroll.closest('.compare-slip').id,parts={};
       for(const [key,label] of [['notes','笔记'],['qa','问答']]){
         const button=make('button','study-material__tab',label),panel=make('div','study-material__panel');
@@ -302,7 +303,9 @@
         const next=e.key==='Home'?'notes':e.key==='End'?'qa':active==='notes'?'qa':'notes';
         e.preventDefault();parts[next].button.focus({preventScroll:true});show(next);
       });
-      scroll.append(tabs,parts.notes.panel,parts.qa.panel);
+      const add=make('button','study-notes__add','+');add.type='button';
+      add.setAttribute('aria-label','新增笔记');add.title='新增笔记';
+      bar.append(tabs,add);scroll.append(bar,parts.notes.panel,parts.qa.panel);
       const listing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
       const field=make('textarea','study-notes__field');
       field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=8;
@@ -311,6 +314,15 @@
       const status=make('p','study-notes__status');status.setAttribute('role','status');
       const done=make('button','study-notes__link','返回笔记列表');done.type='button';
       const button=(label,cls='study-notes__link')=>{const el=make('button',cls,label);el.type='button';return el;};
+      const viewer=make('article','study-notes__view'),viewBar=make('div','study-notes__view-bar');
+      const back=button('返回笔记列表','study-notes__back'),edit=button('编辑','study-notes__edit');
+      edit.setAttribute('aria-label','编辑笔记');
+      const viewTitle=make('h2','study-notes__view-title','笔记正文');viewTitle.tabIndex=-1;
+      const viewBody=make('p','study-notes__view-text'),viewStatus=make('p','study-notes__status');
+      viewStatus.setAttribute('role','status');viewStatus.dataset.unsaved='true';
+      const references=make('section','study-notes__references'),passages=make('div','study-notes__passages');
+      references.append(make('h3','study-notes__refs-title','引用经文'),passages);
+      viewBar.append(back,edit);viewer.append(viewBar,viewTitle,viewBody,viewStatus,references);
       const refEditor=win.V25NoteRefEditor({doc,parser,books:paper.books,editable:win.V25Account?.noteReanchorEnabled===true,
         spansEnabled:win.V25Account?.noteSpanEnabled===true,
         preview:openCitation,closePreview:closeCitation,openSearch:openNoteSearch,closeSearch:closeNoteSearch,excerpt:anchor=>{
@@ -328,35 +340,95 @@
           editing={...next,noteId:id};refEditor.setRefs(editing.objects);statusText();return true;
         }});
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
-      compose.append(notebook,hint,status,done);parts.notes.panel.append(compose,listing);
-      let active=null,editing=null,qaRendered=false,seenText='',composing=false;
+      compose.append(notebook,hint,status,done);parts.notes.panel.append(listing,viewer,compose);
+      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null;
+      let qaRendered=false,seenText='',composing=false;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
       const fromItem=item=>describe((item.anchorObjects||item.refs).map(grammar.decode));
+      function currentDescriptor(id){
+        if(!id)return null;
+        const latest=model.descriptor(id);if(latest)return latest;
+        const cached=model.get(id);return cached&&fromItem(cached);
+      }
+      const noteButton=id=>id&&[...listing.querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
+      const syncAdd=()=>{add.hidden=active!=='notes'||listing.hidden;};
+      function showNoteScreen(screen){
+        listing.hidden=screen!=='list';viewer.hidden=screen!=='view';compose.hidden=screen!=='edit';
+        syncAdd();
+      }
       const newNote=()=>{
         if(description.objects.length>grammar.MAX_PLACES){feedback('所选超过 '+grammar.MAX_PLACES+' 处，请减少后再写笔记。');return;}
         startEditing(description,idForNew());
       };
+      add.addEventListener('click',()=>{
+        if(add.hidden)return;
+        if(model)newNote();else open(description.objects,add,'write');
+      });
       function listNotes(){
-        if(editing||active!=='notes')return;
+        if(editing||viewing||active!=='notes')return;
         const matches=model?.query(description.objects)||[],frag=doc.createDocumentFragment();
         if(!model){frag.append(make('p','study-notes__empty','登录后可查看自己的云端笔记。'));listing.replaceChildren(frag);return;}
-        const add=button('+','study-notes__add');add.setAttribute('aria-label','新增笔记');add.title='新增笔记';add.addEventListener('click',newNote);frag.append(add);
+        const focusedId=doc.activeElement?.dataset.noteId;
         if(!matches.length)frag.append(make('p','study-notes__empty','所选经文还没有笔记。'));
         for(const item of matches){
-          const article=make('article','study-notes__item'),header=make('div','study-notes__item-head');
-          const label=make('span','study-notes__address',item.label),edit=make('button','study-notes__link','编辑');edit.type='button';
-          edit.setAttribute('aria-label','编辑笔记：'+item.label);
-          edit.addEventListener('click',()=>startEditing(fromItem(item),item.id));
-          header.append(label,edit);
-          article.append(header,make('p','study-notes__text',item.text));frag.append(article);
+          const article=make('article','study-notes__item'),openNote=button('','study-notes__open');
+          const excerpt=item.text.trim().replace(/\s+/g,' '),name=excerpt.length>60?excerpt.slice(0,60)+'…':excerpt;
+          openNote.dataset.noteId=item.id;openNote.setAttribute('aria-label','查看笔记：'+name+'，'+item.label);
+          openNote.addEventListener('click',()=>startViewing(item.id));
+          openNote.append(make('span','study-notes__text',item.text),make('span','study-notes__address',item.label));
+          article.append(openNote);frag.append(article);
         }
         listing.replaceChildren(frag);
+        if(focusedId)(noteButton(focusedId)||add).focus({preventScroll:true});
+      }
+      function passage(anchor){
+        const card=make('div','study-notes__passage'),book=scripture.index(anchor.code);
+        const cross=anchor.endCh>anchor.ch;
+        card.append(make('h4','study-notes__passage-title',grammar.label(book?.book.name||anchor.code,anchor)));
+        let hasText=false;
+        for(const {ch,lo,hi=lo} of parser.segments(anchor)){
+          const chunk=book?.chunks.find(c=>c.chapter===ch);
+          const rows=chunk?.rows.filter(row=>lo==null||row.lo<=hi&&row.hi>=lo);
+          if(!rows?.length)continue;
+          hasText=true;
+          if(cross)card.append(make('h5','study-notes__passage-chapter','第 '+ch+' 章'));
+          let p;
+          for(const row of rows){
+            if(!p||row.paragraph||row.titles.length){p=make('p','compare-slip__paragraph');card.append(p);}
+            else p.append(doc.createTextNode(' '));
+            const verse=make('span');verse.dataset.noteVerse=row.id;
+            verse.append(make('sup','compare-slip__ref',row.lo===row.hi?String(row.lo):row.lo+'–'+row.hi),doc.createTextNode(row.text));
+            p.append(verse);
+          }
+        }
+        if(!hasText)card.append(make('p','study-notes__empty','未找到此处经文。'));
+        return card;
+      }
+      function paintViewing(){
+        const desc=currentDescriptor(viewing),body=model.body(viewing),{text,warn}=model.status(viewing);
+        const content=body.trim()?body:'这条笔记还没有正文。';
+        if(viewBody.textContent!==content)viewBody.textContent=content;
+        const warning=warn?text:'';
+        if(viewStatus.textContent!==warning)viewStatus.textContent=warning;
+        const key=desc?.key||'';
+        if(renderedRefs!==key){
+          renderedRefs=key;passages.replaceChildren(...(desc?.objects||[]).map(passage));references.hidden=!key;
+        }
+        edit.disabled=!key;
+      }
+      function startViewing(id,top=0,focus=viewTitle){
+        if(profile!==scope())return;
+        if(!editing&&!viewing)listTop=scroll.scrollTop;
+        editing=null;editReturn=null;refEditor.reset();viewing=id;
+        paintViewing();showNoteScreen('view');scroll.scrollTop=top;
+        focus.focus({preventScroll:true});
       }
       function show(key){
         if(active===key)return;
         if(active)parts[active].top=scroll.scrollTop;
         if(key!=='notes')refEditor.suspend();
         active=key;
+        syncAdd();
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
         }
@@ -412,9 +484,13 @@
         const {text,warn}=model.status(editing.noteId);
         status.dataset.unsaved=warn?'true':'false';if(status.textContent!==text)status.textContent=text;
       }
-      function startEditing(desc,id){
-        editing={...desc,noteId:id};compose.hidden=false;listing.hidden=true;
-        refEditor.reset();field.value=seenText=model.body(id);statusText();
+      function startEditing(desc,id,fromView=false){
+        if(profile!==scope())return;
+        if(!editing&&!viewing&&active==='notes')listTop=scroll.scrollTop;
+        editReturn=fromView?{id,top:scroll.scrollTop}:null;
+        done.textContent=fromView?'完成编辑':'返回笔记列表';
+        viewing=null;editing={...desc,noteId:id};showNoteScreen('edit');
+        refEditor.reset();composing=false;field.value=seenText=model.body(id);statusText();
         refEditor.setRefs(desc.objects);
         show('notes');
         scroll.scrollTop=0;
@@ -430,8 +506,18 @@
       field.addEventListener('input',record);
       field.addEventListener('compositionstart',()=>{composing=true;});
       field.addEventListener('compositionend',e=>{composing=false;record(e);});
-      const returnToList=()=>{editing=null;refEditor.reset();compose.hidden=true;listing.hidden=false;listNotes();};
-      done.addEventListener('click',()=>{returnToList();parts.notes.button.focus({preventScroll:true});});
+      function returnToList(){
+        const id=viewing;
+        editing=null;viewing=null;editReturn=null;refEditor.reset();showNoteScreen('list');listNotes();
+        if(active==='notes')scroll.scrollTop=listTop;else parts.notes.top=listTop;
+        if(active==='notes')(noteButton(id)||parts.notes.button).focus({preventScroll:true});
+      }
+      back.addEventListener('click',returnToList);
+      edit.addEventListener('click',()=>{const desc=currentDescriptor(viewing);if(desc?.key)startEditing(desc,viewing,true);});
+      done.addEventListener('click',()=>{
+        if(editReturn)startViewing(editReturn.id,editReturn.top,edit);
+        else returnToList();
+      });
       const off=model?.listen((key,source)=>{
         if(editing&&key===editing.noteId){
           const latest=model.descriptor(key);
@@ -441,9 +527,10 @@
             field.value=seenText=model.body(key);field.setSelectionRange(a,z);
           }
           statusText();
-        }else listNotes();
+        }else if(viewing){if(key==null||key===viewing)paintViewing();}
+        else listNotes();
       });
-      compose.hidden=true;
+      showNoteScreen('list');
       const request=mode=>{
         // A scripture address is a shared association, never a note identity.
         if(mode==='write')newNote();
