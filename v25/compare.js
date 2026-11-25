@@ -158,7 +158,7 @@
     function keepCaret(view,z){
       panel.setAttribute('data-note-keyboard','');
       const area=scroll.getBoundingClientRect(),bottom=Math.min(view.visibleBottom,area.bottom),
-        tabs=scroll.querySelector('.study-material__tabs'),top=Math.max(view.top,area.top,tabs?.getBoundingClientRect().bottom||0);
+        header=scroll.querySelector('.study-material__header'),top=Math.max(view.top,area.top,header?.getBoundingClientRect().bottom||0);
       let rect=editor.getBoundingClientRect();
       const room=Math.min(78,Math.max(0,bottom-top-5)),lift=rect.top+room-bottom;
       if(lift>0&&rect.top>top){scroll.scrollTop+=Math.min(lift,rect.top-top)/z;rect=editor.getBoundingClientRect();}

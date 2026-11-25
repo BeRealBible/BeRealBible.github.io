@@ -64,6 +64,35 @@ const wait=()=>new Promise(r=>setImmediate(r));
   assert.equal(moveCalls.length,2,'the same text on different refs must not rebase');
   assert.match(moving.status(stable).text,/没有覆盖云端/);moving.dispose();
 
+  const removalStorage=memory(),removalSession=memory(),removalCalls=[],removalReplies=[];
+  const removalOptions={...options,storage:removalStorage},removalKey='N:REMOVE',removalDesc={...desc,noteId:removalKey};
+  let removalRemote={note_key:removalKey,refs:[['GEN',1,24,24]],body:'待删除笔记',revision:1};
+  const removalClient={...client,storage:removalStorage,sessionStorage:removalSession,
+    transport:{list:async()=>[removalRemote],write(note){removalCalls.push(note);return new Promise(resolve=>removalReplies.push(resolve));}}};
+  let removal=create({...removalClient,model:createStore(removalOptions)});
+  assert.ok(await removal.refresh());
+  assert.equal(removal.remove(removalDesc,'过时正文'),false,'deletion requires the version the reader confirmed');
+  online=false;
+  assert.ok(removal.remove(removalDesc,'待删除笔记'));
+  assert.equal(removalCalls.length,0);
+  assert.equal(removal.query(desc.objects).length,1,'the note stays visible until the server acknowledges deletion');
+  assert.ok(removal.status(removalKey).removing);
+  removal.dispose();removal=create({...removalClient,model:createStore(removalOptions)});
+  assert.equal(removal.body(removalKey),'待删除笔记','dropped connection or reload does not conceal or lose the note');
+  assert.equal(removal.write(removalDesc,'重复修改'),false);
+  online=true;removal.resume();assert.equal(removalCalls[0].text,'');
+  removalRemote={...removalRemote,revision:2,body:'另一端刚刚编辑'};
+  removalReplies.shift()({ok:false,...removalRemote});await wait();
+  assert.equal(removal.body(removalKey),removalRemote.body);
+  assert.ok(!removal.hasPending(),'a conflicting deletion does not retry against newer content');
+  assert.match(removal.status(removalKey).text,/未删除/);
+  assert.ok(removal.remove(removalDesc,removalRemote.body));
+  assert.equal(removalCalls[1].revision,2);
+  removalReplies.shift()({ok:true,revision:3});await wait();
+  assert.equal(removal.body(removalKey),'');
+  assert.deepEqual(removal.query(desc.objects),[],'an acknowledged deletion removes the note from the index');
+  assert.ok(!removal.hasPending());removal.dispose();
+
   const db=new PGlite();
   try{
     const a='2eec0000-0000-0000-0000-000000000001',b='2eec0000-0000-0000-0000-000000000002',ids=[1,2,3].map(x=>'adad0000-0000-0000-0000-00000000000'+x);
@@ -118,6 +147,9 @@ const wait=()=>new Promise(r=>setImmediate(r));
     assert.deepEqual((await listV2()).find(n=>n.note_key===spanKey).anchor_objects,objects);
     assert.deepEqual(await v2(spanKey,newRefs,'旧版移动到别处',2,ids[2]),{ok:true,revision:3});
     assert.equal((await listV2()).find(n=>n.note_key===spanKey).anchor_objects,null);
+    assert.deepEqual(await v3('N:SPANDELETE',projected,'跨章待删',0,ids[0],objects),{ok:true,revision:1});
+    assert.deepEqual(await v3('N:SPANDELETE',projected,'',1,ids[1],objects),{ok:true,revision:2});
+    assert.equal((await listV2()).find(n=>n.note_key==='N:SPANDELETE').body,'');
     const many=Array.from({length:11},(_,i)=>['GEN',i+1]);
     await assert.rejects(v2('N:PLACESCAP',many,'超限',0,ids[0]),{code:'22023'});
     assert.deepEqual(await v2('N:PLACESCAP',many.slice(0,10),'刚好十处',0,ids[0]),{ok:true,revision:1});

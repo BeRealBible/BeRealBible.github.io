@@ -16,6 +16,7 @@
   const apply=(text,[from,end,insert])=>text.slice(0,from)+insert+text.slice(end);
   const validEdit=e=>typeof e?.id==='string'&&Array.isArray(e.change)&&e.change.length===3&&
     Number.isSafeInteger(e.change[0])&&Number.isSafeInteger(e.change[1])&&e.change[0]>=0&&e.change[1]>=e.change[0]&&typeof e.change[2]==='string';
+  const removing=s=>s?.pending[0]?.remove===true;
   function create({model,describe,storage,sessionStorage,scope,active=()=>true,transport,
     online=()=>true,id=()=>globalThis.crypto.randomUUID(),retrySoon=()=>{},spansEnabled=false}){
     let journalId;
@@ -47,11 +48,14 @@
       const data=JSON.parse(storage?.getItem(storageKey)??storage?.getItem(linksKey)??storage?.getItem(legacyKey)??'[]');
       for(const e of Array.isArray(data)?data:[]){
         if(typeof e.base!=='string'||e.base.length>TEXT_LIMIT||!Number.isSafeInteger(e.revision)||e.revision<0||!Array.isArray(e.pending)||!e.pending.length||!e.pending.every(validEdit))continue;
+        if(e.pending.some(edit=>edit.remove!==undefined)&&
+          !(removing(e)&&e.pending.length===1&&!e.pending[0].refs&&e.base.trim()&&
+            e.pending[0].change[0]===0&&e.pending[0].change[1]===e.base.length&&e.pending[0].change[2]===''))continue;
         const initial=descriptor(e.refs),key=e.noteId??initial.key;
         if(!validDesc(initial)||!validId(key)||e.pending.some(edit=>edit.refs!==undefined&&!validDesc(descriptor(edit.refs))))continue;
         const baseDesc=identified(initial,key),last=e.pending.findLast(edit=>edit.refs!==undefined);
         const desc=last?identified(descriptor(last.refs),key):baseDesc;
-        const text=e.pending.reduce((body,edit)=>apply(body,edit.change),e.base);if(text.length>TEXT_LIMIT)continue;
+        const text=removing(e)?e.base:e.pending.reduce((body,edit)=>apply(body,edit.change),e.base);if(text.length>TEXT_LIMIT)continue;
         states.set(key,{desc,baseDesc,revision:e.revision,base:e.base,text,pending:e.pending,blocked:e.blocked===true,running:false,failed:false});model.write(desc,text);
       }
     }catch{/* Damaged or locked browser storage never prevents reading or sign-in. */}
@@ -77,10 +81,16 @@
               if(reply.body===s.base&&sameRefs&&Number.isSafeInteger(reply.revision)&&reply.revision>s.revision){
                 s.revision=reply.revision;persist();continue;
               }
+              if(e.remove){
+                // A removal is conditional on the note shown at confirmation.
+                // Restore editing and pull the new note rather than hiding it.
+                s.pending.shift();s.removeRejected=true;persist();refresh();break;
+              }
               s.blocked=true;persist();break;
             }
             if(reply?.ok!==true||!Number.isSafeInteger(reply.revision)||reply.revision!==s.revision+1)throw Error('Invalid note acknowledgement');
             s.base=body;s.baseDesc=target;s.revision=reply.revision;s.pending.shift();persist();
+            if(e.remove){s.text='';model.write(target,'','removed');}
           }
         }catch{s.failed=true;if(active())retrySoon();}
         finally{s.running=false;notify(key);}
@@ -94,7 +104,8 @@
         const desc=identified(descriptor(r.anchor_objects??r.refs),r.note_key),key=desc.noteId;
         if(!validDesc(desc)||!validId(key))continue;
         const old=states.get(key);if(old?.pending.length||old&&old.revision>=r.revision)continue;
-        states.set(key,{desc,baseDesc:desc,revision:r.revision,base:r.body,text:r.body,pending:[],blocked:false,running:false,failed:false});
+        states.set(key,{desc,baseDesc:desc,revision:r.revision,base:r.body,text:r.body,pending:[],blocked:false,running:false,failed:false,
+          removeRejected:!!r.body.trim()&&old?.removeRejected});
         model.write(desc,r.body,'cloud');
       }
     }
@@ -115,7 +126,9 @@
       const key=desc.noteId??desc.key;
       if(!active()||!validDesc(desc)||!validId(key)||typeof text!=='string'||text.length>TEXT_LIMIT)return false;
       const s=init(desc,key);
+      if(removing(s))return false;
       if(s.text!==text){
+        s.removeRejected=false;
         if(seen!==undefined&&s.text!==seen)s.blocked=true;
         s.pending.push({id:id(),change:delta(s.text,text)});s.text=text;persist();
         model.write(s.desc,text,source);
@@ -125,24 +138,37 @@
     function reanchor(key,next,source,expected){
       if(!active()||!validId(key)||!validDesc(next))return false;
       const cached=model.get(key),s=states.get(key)??(cached?init(descriptor(cached.anchorObjects??cached.refs),key):null);
-      if(!s||s.blocked||(expected!==undefined&&s.desc.key!==expected))return false;
+      if(!s||s.blocked||removing(s)||(expected!==undefined&&s.desc.key!==expected))return false;
       if(next.key===s.desc.key)return true;
       s.desc=identified(next,key);
       s.pending.push({id:id(),change:[0,0,''],refs:refsOf(next)});persist();
       model.write(s.desc,s.text,source);process(s);notify(key,source);return true;
     }
+    function remove(desc,seen,source){
+      const key=desc.noteId??desc.key;
+      if(!active()||!validId(key)||!validDesc(desc)||!model.get(key))return false;
+      const s=init(desc,key);
+      if(s.blocked||s.pending.length||!s.text.trim()||s.text!==seen||s.desc.key!==desc.key)return false;
+      // Existing RPCs accept an empty body as a revisioned deletion; keep
+      // the visible note intact until its own deletion is acknowledged.
+      s.removeRejected=false;
+      s.pending.push({id:id(),change:[0,s.text.length,''],remove:true});
+      persist();process(s);notify(key,source);return true;
+    }
     function status(key){
       const s=states.get(key),keep=durable?'已记在本机':'浏览器存储不足，请在关页前复制正文';
-      if(s?.blocked)return {text:'另一设备修改了同一条笔记；当前文字没有覆盖云端。'+keep+'。',warn:true};
+      if(removing(s))return {text:s.running?'正在删除…':(durable?'等待同步删除':'未能保存删除请求，请保持此页打开'),warn:!durable||s.failed,removing:true,pending:true};
+      if(s?.blocked)return {text:'另一设备修改了同一条笔记；当前文字没有覆盖云端。'+keep+'。',warn:true,pending:true};
       if(s?.pending.length){
-        if(s.running)return {text:'正在同步…'+(!durable?'（'+keep+'）':''),warn:!durable};
-        return {text:keep+' · 待同步',warn:!durable||s.failed};
+        if(s.running)return {text:'正在同步…'+(!durable?'（'+keep+'）':''),warn:!durable,pending:true};
+        return {text:keep+' · 待同步',warn:!durable||s.failed,pending:true};
       }
+      if(s?.removeRejected)return {text:'这条笔记在另一设备已变更，本次未删除。',warn:true};
       if(s?.revision)return {text:'已同步',warn:false};
       if(model.get(key))return {text:loaded?'此处缓存尚未得到云端确认。':'正在读取云端笔记…',warn:loaded};
       return {text:'',warn:false};
     }
-    return {get:model.get,query:model.query,write,reanchor,status,refresh,resume,invalidate:model.invalidate,
+    return {get:model.get,query:model.query,write,remove,reanchor,status,refresh,resume,invalidate:model.invalidate,
       descriptor:key=>states.get(key)?.desc,ready:()=>loaded,
       body:key=>states.get(key)?.text??model.get(key)?.text??'',
       hasPending:()=>[...states.values()].some(s=>s.pending.length),

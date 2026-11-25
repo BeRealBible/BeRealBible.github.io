@@ -163,8 +163,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const addNote=reader=>reader.dialog.getByRole('button',{name:'新增笔记',exact:true});
     const noteButton=(reader,body)=>reader.dialog.locator('.study-notes__item').filter({hasText:body}).getByRole('button',{name:/查看笔记：/});
     const readNote=reader=>reader.dialog.locator('.study-notes__view');
-    const editNote=reader=>readNote(reader).getByRole('button',{name:'编辑笔记',exact:true});
-    const finishEdit=reader=>reader.dialog.getByRole('button',{name:'完成编辑',exact:true});
+    const editNote=reader=>reader.dialog.getByRole('button',{name:'编辑笔记',exact:true});
+    const finishEdit=reader=>reader.dialog.getByRole('button',{name:'返回笔记详情',exact:true});
     const closeMaterials=reader=>reader.dialog.getByRole('button',{name:'关闭资料浮窗'});
     const writeFromVerse=async reader=>(await reader.select('4:1')).getByRole('button',{name:'写笔记'}).click();
     await closeMaterials(desk).click();
@@ -354,8 +354,19 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.equal(await field.inputValue(),'ab笔','only Edit in the detail opens the editor');
     assert.ok(await field.evaluate(el=>el===document.activeElement));
     assert.equal(writes.length,5,'opening an existing note does not write anything');
+    assert.ok(await finishEdit(phone).evaluate(el=>{
+      const button=el.getBoundingClientRect(),field=el.closest('.compare-slip').querySelector('.study-notes__field').getBoundingClientRect();
+      return el.textContent===''&&!!el.querySelector('svg')&&button.bottom<=field.top;
+    }),'the editor arrow is above the field and icon-only');
     await finishEdit(phone).tap();
     assert.ok(await readNote(phone).isVisible());assert.ok(!await field.isVisible());
+    const phoneActions=phone.dialog.getByRole('group',{name:'笔记操作',exact:true});
+    assert.equal(await phoneActions.getByRole('button').count(),3);
+    assert.ok(await phoneActions.evaluate(el=>[...el.children].every((child,i)=>{
+      const r=child.getBoundingClientRect(),prev=child.previousElementSibling?.getBoundingClientRect();
+      return !child.textContent&&r.width>=44&&r.height>=44&&
+        (!i||r.left>=prev.right-.5&&Math.abs(r.top-prev.top)<1);
+    })),'all three icon touch targets fit in one row on the phone');
     await closeMaterials(phone).tap();
     const readBar=await phone.select('4:1');await readBar.getByRole('button',{name:'查看资料'}).tap();
     assert.equal(await phone.dialog.getByRole('tab',{name:'笔记'}).getAttribute('aria-selected'),'true');
@@ -551,7 +562,11 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await edit.fill(literal);await stamp();
     const beforeReading=writes.length;
     const copy=desk.dialog.getByRole('button',{name:'复制笔记和引用经文',exact:true});
-    assert.ok(await copy.evaluate(el=>el.previousElementSibling?.textContent==='完成编辑'));
+    assert.equal(await copy.count(),0,'copy is not offered while editing');
+    await finishEdit(desk).click();
+    const actions=desk.dialog.getByRole('group',{name:'笔记操作',exact:true});
+    assert.deepEqual(await actions.getByRole('button').evaluateAll(els=>els.map(el=>[el.getAttribute('aria-label'),el.textContent])),
+      [['编辑笔记',''],['复制笔记和引用经文',''],['删除笔记','']]);
     if(process.env.V25_NOTES_NATIVE_CLIPBOARD==='1'){
       await desk.ctx.grantPermissions(['clipboard-read','clipboard-write'],{origin});
       await desk.page.evaluate(()=>{window.testNativeNoteClipboard=true;});
@@ -586,7 +601,6 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await desk.page.waitForFunction(()=>window.copiedNotePlain);
     assert.equal(await desk.page.evaluate(()=>window.copiedNotePlain),copied,'blocked rich copy falls back to the same readable text');
     assert.equal(writes.length,beforeReading,'copy does not write');
-    await finishEdit(desk).click();
     const showNote=readNote(desk),psalm=showNote.locator('.study-notes__passage').filter({has:desk.page.getByRole('heading',{name:'诗篇 1章',exact:true})});
     assert.equal(await showNote.locator('.study-notes__view-text').textContent(),literal);
     assert.equal(await showNote.locator('.study-notes__view-text em').count(),0,'saved notes remain plain text');
@@ -753,10 +767,20 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await noteCue('4:12').first().waitFor({state:'attached'});
     await exoBadge.click();
     assert.equal(await exodus.dialog.getByRole('tab',{name:'笔记'}).getAttribute('aria-selected'),'true');
-    await noteButton(exodus,sampleNote.body).waitFor();
-    await closeMaterials(exodus).click();
-    cloud.set('b:'+sampleNote.note_key,{...sampleNote,body:'',revision:2});
-    await exodus.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+    await noteButton(exodus,sampleNote.body).click();
+    const trash=exodus.dialog.getByRole('button',{name:'删除笔记',exact:true}),
+      deletePrompt=exodus.page.getByRole('dialog',{name:'删除这条笔记？',exact:true}),beforeDelete=writes.length;
+    await trash.click();await deletePrompt.waitFor();
+    assert.ok(await deletePrompt.getByRole('button',{name:'取消',exact:true}).evaluate(el=>el===document.activeElement));
+    await exodus.page.keyboard.press('Escape');await deletePrompt.waitFor({state:'hidden'});
+    assert.equal(writes.length,beforeDelete,'cancelling delete never writes a note');
+    assert.ok(await readNote(exodus).isVisible());
+    await trash.click();await deletePrompt.getByRole('button',{name:'确认删除',exact:true}).click();
+    await exodus.dialog.getByText('所选经文还没有笔记。',{exact:true}).waitFor();
+    assert.equal(writes.length,beforeDelete+1);
+    assert.equal(writes.at(-1).who,'b');assert.equal(writes.at(-1).anchor_key,sampleNote.note_key);
+    assert.equal(writes.at(-1).note_body,'');assert.equal(cloud.get('b:'+sampleNote.note_key).body,'');
+    assert.equal(cloud.get('a:'+original).body,'ab笔','other notes and accounts are unchanged');
     await exoBadge.waitFor({state:'detached'});
     assert.deepEqual(exodus.err,[]);await exodus.ctx.close();
     assert.deepEqual([...desk.err,...phone.err,...other.err],[]);

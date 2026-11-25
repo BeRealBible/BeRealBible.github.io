@@ -382,7 +382,7 @@
       const doc=scroll.ownerDocument,make=(tag,cls,text)=>{
         const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
       };
-      const bar=make('div','study-material__bar'),tabs=make('div','study-material__tabs');
+      const header=make('div','study-material__header'),bar=make('div','study-material__bar'),tabs=make('div','study-material__tabs');
       tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','经文资料');
       const slip=scroll.closest('.compare-slip'),owner=slip.id,parts={};
       for(const [key,label] of [['notes','笔记'],['qa','问答']]){
@@ -399,26 +399,39 @@
       });
       const addSlot=make('div','study-notes__add-slot'),add=make('button','study-notes__add','+');add.type='button';
       add.setAttribute('aria-label','新增笔记');add.title='新增笔记';
-      addSlot.append(add);bar.append(addSlot,tabs);scroll.append(bar,parts.notes.panel,parts.qa.panel);
+      addSlot.append(add);bar.append(addSlot,tabs);header.append(bar);scroll.append(header,parts.notes.panel,parts.qa.panel);
       const listing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
       const field=make('textarea','study-notes__field');
       field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=8;
       field.spellcheck=false;field.autocomplete='off';field.maxLength=win.V25Notes.LIMIT;
       const hint=make('p','study-notes__sync-hint','输入会自动同步到当前账号。');
       const status=make('p','study-notes__status');status.setAttribute('role','status');
-      const done=make('button','study-notes__link','返回笔记列表');done.type='button';
       const button=(label,cls='study-notes__link')=>{const el=make('button',cls,label);el.type='button';return el;};
-      const editorActions=make('div','study-notes__editor-actions'),copy=button('复制');
-      copy.setAttribute('aria-label','复制笔记和引用经文');editorActions.append(done,copy);
-      const viewer=make('article','study-notes__view'),viewBar=make('div','study-notes__view-bar');
-      const back=button('返回笔记列表','study-notes__back'),edit=button('编辑','study-notes__edit');
-      edit.setAttribute('aria-label','编辑笔记');
+      const labelButton=(el,label)=>{el.setAttribute('aria-label',label);el.title=label;};
+      function iconButton(label,path,cls=''){
+        const el=button('','study-notes__icon '+cls),svg=doc.createElementNS(SVG,'svg'),stroke=doc.createElementNS(SVG,'path');
+        labelButton(el,label);svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');
+        stroke.setAttribute('d',path);svg.append(stroke);el.append(svg);return el;
+      }
+      const noteBar=make('div','study-notes__toolbar'),actions=make('div','study-notes__view-actions'),
+        manualCopy=make('div','study-notes__copy-area');
+      actions.setAttribute('role','group');actions.setAttribute('aria-label','笔记操作');
+      const back=iconButton('返回笔记列表','M19 12H5m7-7-7 7 7 7'),
+        edit=iconButton('编辑笔记','M13.5 6.5l4 4M4 20h4L20 8l-4-4L4 16v4z'),
+        copy=iconButton('复制笔记和引用经文','M8 8h12v12H8zM16 4H4v12'),
+        trash=iconButton('删除笔记','M4 6h16m-4 0V3H8v3M6 6l1 14h10l1-14m-8 4v6m4-6v6','study-notes__trash');
+      actions.append(edit,copy,trash);noteBar.append(back,actions);header.append(noteBar,manualCopy);
+      const viewer=make('article','study-notes__view');
       const viewTitle=make('h2','study-notes__view-title','笔记正文');viewTitle.tabIndex=-1;
       const viewBody=make('p','study-notes__view-text'),viewStatus=make('p','study-notes__status');
       viewStatus.setAttribute('role','status');viewStatus.dataset.unsaved='true';
       const references=make('section','study-notes__references'),passages=make('div','study-notes__passages');
       references.append(make('h3','study-notes__refs-title','引用经文'),passages);
-      viewBar.append(back,edit);viewer.append(viewBar,viewTitle,viewBody,viewStatus,references);
+      const deletePrompt=make('dialog','study-qa study-notes__delete-prompt'),deleteHeading=make('h3','','删除这条笔记？'),
+        deleteButtons=make('div','study-notes__delete-actions'),cancelDelete=button('取消'),confirmDelete=button('确认删除','study-notes__delete-confirm');
+      deleteHeading.id=owner+'-delete-title';deletePrompt.setAttribute('aria-labelledby',deleteHeading.id);cancelDelete.autofocus=true;
+      deleteButtons.append(cancelDelete,confirmDelete);deletePrompt.append(deleteHeading,deleteButtons);
+      viewer.append(viewTitle,viewBody,viewStatus,references,deletePrompt);
       const refEditor=win.V25NoteRefEditor({doc,parser,books:paper.books,editable:win.V25Account?.noteReanchorEnabled===true,
         spansEnabled:win.V25Account?.noteSpanEnabled===true,
         preview:openCitation,closePreview:closeCitation,openSearch:openNoteSearch,closeSearch:closeNoteSearch,excerpt:anchor=>{
@@ -436,8 +449,8 @@
           editing={...next,noteId:id};refEditor.setRefs(editing.objects);statusText();return true;
         }});
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
-      compose.append(notebook,hint,status,editorActions);parts.notes.panel.append(listing,viewer,compose);
-      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null;
+      compose.append(notebook,hint,status);parts.notes.panel.append(listing,viewer,compose);
+      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null,deleteTarget=null;
       let qaRendered=false,seenText='',composing=false;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
       const fromItem=item=>describe((item.anchorObjects||item.refs).map(grammar.decode));
@@ -447,10 +460,19 @@
         const cached=model.get(id);return cached&&fromItem(cached);
       }
       const noteButton=id=>id&&[...listing.querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
-      const syncAdd=()=>{add.hidden=active!=='notes'||listing.hidden;};
+      function syncHeader(){
+        add.hidden=active!=='notes'||listing.hidden;
+        noteBar.hidden=active!=='notes'||!listing.hidden;actions.hidden=viewer.hidden;
+        manualCopy.hidden=noteBar.hidden||viewer.hidden;
+        labelButton(back,editing&&editReturn?'返回笔记详情':'返回笔记列表');
+      }
       function showNoteScreen(screen){
         listing.hidden=screen!=='list';viewer.hidden=screen!=='view';compose.hidden=screen!=='edit';
-        syncAdd();
+        if(screen!=='view'){
+          if(deletePrompt.open)deletePrompt.close();
+          manualCopy.replaceChildren();
+        }
+        syncHeader();
       }
       const newNote=()=>{
         if(description.objects.length>grammar.MAX_PLACES){feedback('所选超过 '+grammar.MAX_PLACES+' 处，请减少后再写笔记。');return;}
@@ -499,16 +521,18 @@
         return card;
       }
       function paintViewing(){
-        const desc=currentDescriptor(viewing),body=model.body(viewing),{text,warn}=model.status(viewing);
+        const desc=currentDescriptor(viewing),body=model.body(viewing),{text,warn,removing,pending}=model.status(viewing);
         const content=body.trim()?body:'这条笔记还没有正文。';
         if(viewBody.textContent!==content)viewBody.textContent=content;
-        const warning=warn?text:'';
+        const warning=warn||removing?text:'';
         if(viewStatus.textContent!==warning)viewStatus.textContent=warning;
         const key=desc?.key||'';
         if(renderedRefs!==key){
           renderedRefs=key;passages.replaceChildren(...(desc?.objects||[]).map(passage));references.hidden=!key;
         }
-        edit.disabled=!key;
+        edit.disabled=!key||!!removing;copy.disabled=!key;
+        trash.disabled=!key||!body.trim()||!!pending;
+        trash.title=pending?'同步完成后可删除':'删除笔记';
       }
       function startViewing(id,top=0,focus=viewTitle){
         if(profile!==scope())return;
@@ -522,7 +546,7 @@
         if(active)parts[active].top=scroll.scrollTop;
         if(key!=='notes')refEditor.suspend();
         active=key;
-        syncAdd();
+        syncHeader();
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
         }
@@ -582,9 +606,8 @@
         if(profile!==scope())return;
         if(!editing&&!viewing&&active==='notes')listTop=scroll.scrollTop;
         editReturn=fromView?{id,top:scroll.scrollTop}:null;
-        done.textContent=fromView?'完成编辑':'返回笔记列表';
         viewing=null;editing={...desc,noteId:id};showNoteScreen('edit');
-        refEditor.reset();editorActions.querySelector('.paper-copy-field')?.remove();composing=false;field.value=seenText=model.body(id);statusText();
+        refEditor.reset();composing=false;field.value=seenText=model.body(id);statusText();
         refEditor.setRefs(desc.objects);
         show('notes');
         scroll.scrollTop=0;
@@ -606,24 +629,39 @@
         if(active==='notes')scroll.scrollTop=listTop;else parts.notes.top=listTop;
         if(active==='notes')(noteButton(id)||parts.notes.button).focus({preventScroll:true});
       }
-      back.addEventListener('click',returnToList);
       edit.addEventListener('click',()=>{const desc=currentDescriptor(viewing);if(desc?.key)startEditing(desc,viewing,true);});
-      done.addEventListener('click',()=>{
+      back.addEventListener('click',()=>{
         if(editReturn)startViewing(editReturn.id,editReturn.top,edit);
         else returnToList();
       });
       copy.addEventListener('click',async()=>{
-        if(!editing||profile!==scope())return;
-        const id=editing.noteId,tools=win.PaperTextSelection;
-        editorActions.querySelector('.paper-copy-field')?.remove();
-        const payload=formatNoteCopy(field.value,editing.objects,{scripture,parser,maxPlaces:grammar.MAX_PLACES,
+        if(!viewing||profile!==scope())return;
+        const id=viewing,desc=currentDescriptor(id),tools=win.PaperTextSelection;
+        if(!desc?.key)return;
+        manualCopy.replaceChildren();
+        const payload=formatNoteCopy(model.body(id),desc.objects,{scripture,parser,maxPlaces:grammar.MAX_PLACES,
           label:ref=>grammar.label(scripture.index(ref.code)?.book.name||ref.code,ref)});
         const ok=await writeNoteClipboard(win,tools,payload);
-        if(!compose.isConnected||editing?.noteId!==id||profile!==scope())return;
-        if(ok||tools.fallbackCopy(doc,editorActions,payload.text))feedback('已复制笔记和引用经文');
+        if(!viewer.isConnected||viewing!==id||profile!==scope())return;
+        if(ok||tools.fallbackCopy(doc,manualCopy,payload.text))feedback('已复制笔记和引用经文');
         else feedback('浏览器未允许自动复制，可手动复制已选文字');
       });
+      trash.addEventListener('click',()=>{
+        if(!viewing||profile!==scope()||deletePrompt.open)return;
+        const desc=currentDescriptor(viewing);if(!desc?.key)return;
+        deleteTarget={desc:{...desc,noteId:viewing},body:model.body(viewing)};deletePrompt.showModal();
+      });
+      cancelDelete.addEventListener('click',()=>deletePrompt.close());
+      deletePrompt.addEventListener('close',()=>{if(!deletePrompt.open)deleteTarget=null;});
+      confirmDelete.addEventListener('click',()=>{
+        const target=deleteTarget;deleteTarget=null;deletePrompt.close();
+        if(!target||viewing!==target.desc.noteId||profile!==scope())return;
+        if(!model.remove(target.desc,target.body,viewer))feedback('笔记已变更或仍在同步，请稍后重试。');
+      });
       const off=model?.listen((key,source)=>{
+        if(key&&(key===viewing||key===editing?.noteId)&&source==='removed'){
+          returnToList();feedback('笔记已删除');return;
+        }
         if(editing&&key===editing.noteId){
           const latest=model.descriptor(key);
           if(latest){editing=latest;refEditor.setRefs(latest.objects);}
@@ -632,7 +670,10 @@
             field.value=seenText=model.body(key);field.setSelectionRange(a,z);
           }
           statusText();
-        }else if(viewing){if(key==null||key===viewing)paintViewing();}
+        }else if(viewing){if(key==null||key===viewing){
+          if(source==='cloud'&&!model.body(viewing).trim()&&!model.get(viewing))returnToList();
+          else paintViewing();
+        }}
         else listNotes();
       });
       showNoteScreen('list');
@@ -647,7 +688,7 @@
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose(){swipeEvents.abort();refEditor.dispose();off?.();}};
+      return {request,dispose(){if(deletePrompt.open)deletePrompt.close();swipeEvents.abort();refEditor.dispose();off?.();}};
     }
     function open(next,restore,mode='view'){
       // A contiguous reader selection starts as one range; only addresses
