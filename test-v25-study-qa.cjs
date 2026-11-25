@@ -71,11 +71,12 @@ const [bodyCopy,...quoted]=payload.text.split(/\n\n(?=诗篇|约翰福音)/u);
 assert.equal(bodyCopy,body);
 assert.equal(quoted.length,3);
 assert.equal(payload.html.match(/<blockquote>/g).length,3);
+assert.equal(payload.html.match(/<blockquote><p style="color:#8a312b">/g).length,3,'rich quotes carry a distinct ink color');
 assert.ok(payload.html.includes('<p><strong>约翰福音 3:35–4:2</strong></p>'));
 for(const [i,part] of quoted.entries()){
   const anchor=diverse[i],text=[...parser.segments(anchor).flatMap(({ch,lo,hi=lo})=>scripture.index(anchor.code).chunks.find(c=>c.chapter===ch).rows
     .filter(row=>lo==null||lo<=row.hi&&hi>=row.lo)).map(row=>row.text).join('')];
-  assert.equal(part.split('\n')[1],text.length>50?text.slice(0,49).join('')+'…':text.join(''));
+  assert.equal(part.split('\n')[1],'> '+(text.length>50?text.slice(0,49).join('')+'…':text.join('')));
 }
 const legacyAnchors=Array.from({length:12},(_,i)=>inChapter('PSA',i+1));
 const legacy=format('# 小标题\n**重点** 与 *斜体*\n- <img src=x onerror=evil> & 安全\n> 我的引用',legacyAnchors);
@@ -90,9 +91,14 @@ assert.match(legacy.text,/\n\n诗篇 10章\n/u);
 assert.doesNotMatch(legacy.text,/\n\n诗篇 (11|12)章\n/u);
 const boundary=length=>formatNoteCopy('',[inChapter('PSA',1)],{
   scripture:{index:()=>({chunks:[{chapter:1,rows:[{text:'𠮷'.repeat(length)}]}]})},parser,label:()=> '边界'
-}).text.split('\n')[1];
+}).text.split('\n')[1].slice(2);
 assert.equal(boundary(50),'𠮷'.repeat(50),'exactly 50 code points need no ellipsis');
 assert.equal(boundary(51),'𠮷'.repeat(49)+'…','50 code points include the ellipsis, without splitting surrogate pairs');
+const multiLine=formatNoteCopy('',[inChapter('PSA',1)],{
+  scripture:{index:()=>({chunks:[{chapter:1,rows:[{text:'一行\n二行 & <原文>'}]}]})},parser,label:()=> '示例'
+});
+assert.equal(multiLine.text,'示例\n> 一行\n> 二行 & <原文>');
+assert.match(multiLine.html,/一行<br>二行 &amp; &lt;原文&gt;/);
 assert.deepEqual(
   [createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4),
    createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4,1)],

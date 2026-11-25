@@ -200,9 +200,12 @@
         chars.push(char);
       }
       const address=label(anchor),excerpt=chars.join('');
-      return {text:address+(excerpt?'\n'+excerpt:''),
+      const lines=excerpt?excerpt.split(/\r\n?|\n/):[];
+      // Plain-only paste still separates the quote; HTML uses a semantic blockquote
+      // so destinations can apply their own quote styling if they drop the color.
+      return {text:[address,...lines.map(line=>'> '+line)].join('\n'),
         html:'<p><strong>'+escapeHtml(address)+'</strong></p>'+
-          (excerpt?'<blockquote><p>'+escapeHtml(excerpt)+'</p></blockquote>':'')};
+          (lines.length?'<blockquote><p style="color:#8a312b">'+lines.map(escapeHtml).join('<br>')+'</p></blockquote>':'')};
     });
     const parts=[...(body?[noteBodyCopy(body)]:[]),...places];
     return {text:parts.map(p=>p.text).join('\n\n'),html:parts.map(p=>p.html).join('')};
@@ -414,13 +417,14 @@
         stroke.setAttribute('d',path);svg.append(stroke);el.append(svg);return el;
       }
       const noteBar=make('div','study-notes__toolbar'),actions=make('div','study-notes__view-actions'),
-        manualCopy=make('div','study-notes__copy-area');
+        manualCopy=make('div','study-notes__copy-area'),copyToast=make('span','study-notes__copy-toast');
+      copyToast.setAttribute('role','status');
       actions.setAttribute('role','group');actions.setAttribute('aria-label','笔记操作');
       const back=iconButton('返回笔记列表','M19 12H5m7-7-7 7 7 7'),
         edit=iconButton('编辑笔记','M13.5 6.5l4 4M4 20h4L20 8l-4-4L4 16v4z'),
-        copy=iconButton('复制笔记和引用经文','M8 8h12v12H8zM16 4H4v12'),
+        copy=iconButton('复制笔记和引用经文','M8 8h12v12H8zM16 4H4v12','study-notes__copy'),
         trash=iconButton('删除笔记','M4 6h16m-4 0V3H8v3M6 6l1 14h10l1-14m-8 4v6m4-6v6','study-notes__trash');
-      actions.append(edit,copy,trash);noteBar.append(back,actions);header.append(noteBar,manualCopy);
+      actions.append(edit,copy,trash);noteBar.append(back,actions,copyToast);header.append(noteBar,manualCopy);
       const viewer=make('article','study-notes__view');
       const viewTitle=make('h2','study-notes__view-title','笔记正文');viewTitle.tabIndex=-1;
       const viewBody=make('p','study-notes__view-text'),viewStatus=make('p','study-notes__status');
@@ -451,7 +455,7 @@
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
       compose.append(notebook,hint,status);parts.notes.panel.append(listing,viewer,compose);
       let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null,deleteTarget=null;
-      let qaRendered=false,seenText='',composing=false;
+      let qaRendered=false,seenText='',composing=false,copyTimer=0;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
       const fromItem=item=>describe((item.anchorObjects||item.refs).map(grammar.decode));
       function currentDescriptor(id){
@@ -460,10 +464,18 @@
         const cached=model.get(id);return cached&&fromItem(cached);
       }
       const noteButton=id=>id&&[...listing.querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
+      function clearCopyToast(){
+        win.clearTimeout(copyTimer);copyTimer=0;copyToast.textContent='';
+      }
+      function showCopyToast(){
+        win.clearTimeout(copyTimer);copyToast.textContent='文字已复制';
+        copyTimer=win.setTimeout(clearCopyToast,1600);
+      }
       function syncHeader(){
         add.hidden=active!=='notes'||listing.hidden;
         noteBar.hidden=active!=='notes'||!listing.hidden;actions.hidden=viewer.hidden;
         manualCopy.hidden=noteBar.hidden||viewer.hidden;
+        if(manualCopy.hidden)clearCopyToast();
         labelButton(back,editing&&editReturn?'返回笔记详情':'返回笔记列表');
       }
       function showNoteScreen(screen){
@@ -642,9 +654,9 @@
         const payload=formatNoteCopy(model.body(id),desc.objects,{scripture,parser,maxPlaces:grammar.MAX_PLACES,
           label:ref=>grammar.label(scripture.index(ref.code)?.book.name||ref.code,ref)});
         const ok=await writeNoteClipboard(win,tools,payload);
-        if(!viewer.isConnected||viewing!==id||profile!==scope())return;
-        if(ok||tools.fallbackCopy(doc,manualCopy,payload.text))feedback('已复制笔记和引用经文');
-        else feedback('浏览器未允许自动复制，可手动复制已选文字');
+        if(signal.aborted||!viewer.isConnected||active!=='notes'||viewing!==id||profile!==scope())return;
+        if(ok||tools.fallbackCopy(doc,manualCopy,payload.text))showCopyToast();
+        else{clearCopyToast();feedback('浏览器未允许自动复制，可手动复制已选文字');}
       });
       trash.addEventListener('click',()=>{
         if(!viewing||profile!==scope()||deletePrompt.open)return;
@@ -688,7 +700,7 @@
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose(){if(deletePrompt.open)deletePrompt.close();swipeEvents.abort();refEditor.dispose();off?.();}};
+      return {request,dispose(){if(deletePrompt.open)deletePrompt.close();clearCopyToast();swipeEvents.abort();refEditor.dispose();off?.();}};
     }
     function open(next,restore,mode='view'){
       // A contiguous reader selection starts as one range; only addresses

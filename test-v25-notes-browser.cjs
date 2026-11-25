@@ -31,7 +31,10 @@ async function visit(browser,width,holdNotes,ref='2SA.3:1'){
         if(window.testNativeNoteClipboard)await systemClipboard.write(items);
         window.copiedNoteRich=Object.fromEntries(await Promise.all(items[0].types.map(async type=>[type,await (await items[0].getType(type)).text()])));
       },
-      async writeText(text){window.copiedNotePlain=text;},
+      async writeText(text){
+        if(window.denyPlainNoteCopy)throw new DOMException('Plain clipboard blocked','NotAllowedError');
+        window.copiedNotePlain=text;
+      },
       readNative:()=>systemClipboard.read()
     }});
     function assertClipboardShape(items){
@@ -344,6 +347,17 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.ok(await phone.page.evaluate(()=>document.activeElement.tagName!=='TEXTAREA'),'reading a note never raises the keyboard');
     assert.equal(writes.length,5,'opening the detail is read-only');
     await snapshot(phone,'mobile-note-detail');
+    const noCopyShadow=button=>button.evaluate(el=>{
+      const css=getComputedStyle(el);
+      return css.backgroundColor==='rgba(0, 0, 0, 0)'&&css.boxShadow==='none'&&css.outlineStyle==='none';
+    });
+    const phoneCopy=phone.dialog.getByRole('button',{name:'复制笔记和引用经文',exact:true}),
+      phoneToast=phone.dialog.getByText('文字已复制',{exact:true});
+    await phoneCopy.tap();await phoneToast.waitFor();
+    assert.ok(await noCopyShadow(phoneCopy),'a tap does not leave a highlighted copy button');
+    await snapshot(phone,'mobile-note-copied');
+    await phoneToast.waitFor({state:'hidden',timeout:2400});
+    assert.ok(await noCopyShadow(phoneCopy));
     await returnToNotes(phone).tap();
     assert.ok(await noteButton(phone,'ab笔').evaluate(el=>el===document.activeElement));
     assert.ok(await addNote(phone).isVisible(),'returning from the detail shows the same plus');
@@ -583,34 +597,54 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       await desk.page.evaluate(()=>{window.testNativeNoteClipboard=true;});
     }
     await copy.click();
+    const toast=desk.dialog.getByText('文字已复制',{exact:true});
+    await toast.waitFor();
+    assert.ok(await noCopyShadow(copy),'the mouse can stay over the button without leaving a background after release');
     await desk.page.waitForFunction(()=>window.copiedNoteRich);
     const {'text/plain':copied,'text/html':html}=await desk.page.evaluate(()=>window.copiedNoteRich);
     assert.ok(copied.startsWith(literal.replace('**信心**','信心')+'\n\n'),'copy preserves the whole note above quotations');
     const expectedPsalm=await desk.page.evaluate(()=>[...BIBLE_SOURCE.books.find(b=>b.code==='PSA').chapters[0].verses.map(([,text])=>text).join('')].slice(0,49).join('')+'…');
-    assert.equal(copied.match(/诗篇 1章\n([^\n]+)/u)?.[1],expectedPsalm);
+    assert.equal(copied.match(/诗篇 1章\n> ([^\n]+)/u)?.[1],expectedPsalm);
     const shortVerse=await desk.page.evaluate(()=>BIBLE_SOURCE.books.find(b=>b.code==='PSA').chapters[22].verses[0][1]);
-    assert.equal(copied.match(/诗篇 23:1\n([^\n]+)/u)?.[1],shortVerse);
+    assert.equal(copied.match(/诗篇 23:1\n> ([^\n]+)/u)?.[1],shortVerse);
     assert.match(html,/<strong>信心<\/strong>/);
     assert.ok(html.includes('&lt;em&gt;原样保留&lt;/em&gt;')&&!html.includes('<em>原样保留</em>'));
     const htmlPsalm=async source=>desk.page.evaluate(source=>{
       const parsed=new DOMParser().parseFromString(source,'text/html');
       const label=[...parsed.querySelectorAll('strong')].find(el=>el.textContent==='诗篇 1章');
       const quote=label?.parentElement.nextElementSibling;
-      return quote?.matches('blockquote')?quote.textContent:null;
+      return quote?.matches('blockquote')?[quote.textContent,quote.querySelector('p')?.style.color]:null;
     },source);
-    assert.equal(await htmlPsalm(html),expectedPsalm,'the rich payload puts the excerpt in a quote under the bold reference');
+    assert.deepEqual(await htmlPsalm(html),[expectedPsalm,'rgb(138, 49, 43)'],'rich paste has a quote and warm red text under the bold address');
     if(process.env.V25_NOTES_NATIVE_CLIPBOARD==='1'){
       const native=await desk.page.evaluate(async()=>{
         const [item]=await navigator.clipboard.readNative();
         return Object.fromEntries(await Promise.all(item.types.map(async type=>[type,await (await item.getType(type)).text()])));
       });
       assert.equal(native['text/plain'].replace(/\r\n/g,'\n'),copied);
-      assert.equal(await htmlPsalm(native['text/html']),expectedPsalm,'the browser clipboard round-trip retains both reference and quote');
+      assert.deepEqual(await htmlPsalm(native['text/html']),[expectedPsalm,'rgb(138, 49, 43)'],'the system clipboard retains the reference, quote and color');
     }
+    await toast.waitFor({state:'hidden',timeout:2400});
+    assert.ok(await noCopyShadow(copy));
     await desk.page.evaluate(()=>{window.denyRichNoteCopy=true;});
-    await copy.click();
+    await editNote(desk).focus();await desk.page.keyboard.press('Tab');
+    assert.ok(await copy.evaluate(el=>el===document.activeElement&&el.matches(':focus-visible')),'keyboard access retains its focus ring');
+    await desk.page.keyboard.press('Enter');
+    await toast.waitFor();
     await desk.page.waitForFunction(()=>window.copiedNotePlain);
-    assert.equal(await desk.page.evaluate(()=>window.copiedNotePlain),copied,'blocked rich copy falls back to the same readable text');
+    assert.equal(await desk.page.evaluate(()=>window.copiedNotePlain),copied,'blocked rich copy falls back to the Markdown quote text');
+    await desk.page.evaluate(()=>{
+      window.denyPlainNoteCopy=true;
+      document.execCommand=()=>false;
+    });
+    await desk.page.keyboard.press('Enter');
+    const manual=desk.dialog.getByRole('textbox',{name:'已选文字，可手动复制'});
+    await manual.waitFor();
+    assert.equal(await manual.inputValue(),copied);
+    assert.ok(!await toast.isVisible(),'no success indication when automatic copy fails');
+    await desk.page.evaluate(()=>{delete document.execCommand;window.denyPlainNoteCopy=false;});
+    await copy.click();await manual.waitFor({state:'hidden'});await toast.waitFor();
+    await toast.waitFor({state:'hidden',timeout:2400});
     assert.equal(writes.length,beforeReading,'copy does not write');
     const showNote=readNote(desk),psalm=showNote.locator('.study-notes__passage').filter({has:desk.page.getByRole('heading',{name:'诗篇 1章',exact:true})});
     assert.equal(await showNote.locator('.study-notes__view-text').textContent(),literal);
