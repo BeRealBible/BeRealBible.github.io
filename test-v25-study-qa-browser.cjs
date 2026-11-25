@@ -71,6 +71,41 @@ async function run(browser,width){
       await settings.getByRole('button',{name:'关闭阅读设置'}).click();
       await page.evaluate(()=>PaperImmersion.hideChrome());
     }
+    async function zoomBadgeSmoke(){
+      // Match the reported chapter and zoom without relying on private notes
+      // from a real account. The public count uses the same focusable group.
+      const reported=new URL(takeURL);reported.searchParams.set('ref','1KI.16:1');
+      await page.goto(reported.href,{waitUntil:'domcontentloaded',timeout:90000});await ready();
+      await $('#stage[data-v25-opening]').waitFor({state:'detached',timeout:12000});
+      await page.evaluate(()=>document.getElementById('fit-book').click());
+      const reportedBadge=$('#stage [data-chapter-total="1KI.16"]'),hit=reportedBadge.locator('[data-chapter-badge-hit]');
+      await hit.waitFor();
+      const at=await point(hit),scale=()=>$('#stage').getAttribute('data-scale').then(Number),fit=await scale();
+      await page.evaluate(at=>window.dispatchEvent(new CustomEvent('v25-paper-zoom',{detail:{...at,factor:4.8}})),at);
+      // The compositor needs the new transform before it can route a touch.
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      assert.ok(await scale()>fit*2.5,'reproduce the badge at high book zoom');
+      await page.evaluate(()=>{
+        window.zoomBadgeFocuses=0;
+        document.addEventListener('focusin',e=>{
+          if(e.target.matches('[data-chapter-total="1KI.16"]'))window.zoomBadgeFocuses++;
+        });
+      });
+      const p=await point(hit);
+      await page.touchscreen.tap(p.x,p.y);await rendered();
+      assert.match(await title.textContent(),/王上 16章/);
+      await close();
+      assert.equal(await page.evaluate(()=>window.zoomBadgeFocuses),0,'the zoomed badge never receives pointer focus');
+      assert.equal(await reportedBadge.evaluate(el=>getComputedStyle(el).outlineStyle),'none');
+    }
+
+    if(process.env.V25_BADGE_ZOOM_ONLY==='1'){
+      if(!mobile)throw Error('The chapter zoom smoke needs a touch viewport');
+      await zoomBadgeSmoke();
+      assert.deepEqual(errors,[]);
+      console.log(width,'PASS zoomed 1 Kings 16 chapter badge opens, closes and never takes touch focus');
+      return;
+    }
     const chapterCue=paperCue('chapter','3:1');
     await page.goto(takeURL,{waitUntil:'domcontentloaded',timeout:90000});await ready();
     await page.evaluate(()=>document.getElementById('fit-book').click());
@@ -364,6 +399,8 @@ async function run(browser,width){
         first:svg.querySelector('text[data-role="body"][data-ref="33:1"]')?.textContent};
     });
     assert.deepEqual(sourceInk,{exists:true,drawn:false,first:'雅'},'hide the raw Jacob rule without removing the source or moving verse text');
+
+    if(mobile)await zoomBadgeSmoke();
 
     assert.deepEqual(errors,[]);
     console.log(width,'PASS QAP windows, citations, scripture-only controls, and Genesis 4 section caption without marks');

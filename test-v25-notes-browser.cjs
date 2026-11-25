@@ -349,6 +349,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const phoneCopy=phone.dialog.getByRole('button',{name:'复制笔记和引用经文',exact:true}),
       phoneToast=phone.dialog.getByText('文字已复制',{exact:true});
     await phoneCopy.tap();await phoneToast.waitFor();
+    // The compositor can retain the valid press state briefly after a tap.
+    await phoneCopy.and(phone.dialog.locator('button:not(:active)')).waitFor({timeout:650});
     assert.ok(await noCopyShadow(phoneCopy),'a tap does not leave a highlighted copy button');
     await snapshot(phone,'mobile-note-copied');
     await phoneToast.waitFor({state:'hidden',timeout:2400});
