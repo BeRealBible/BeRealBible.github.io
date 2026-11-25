@@ -2,7 +2,7 @@
 (function(win){
   'use strict';
   win.V25NoteRefEditor=({doc,parser,books,editable,spansEnabled,preview,closePreview,openSearch,closeSearch,excerpt,browse,change})=>{
-    const {key,label,covers,MAX_PLACES,allowsPlaces,ending}=win.V25NoteRefs,names=new Map(books.map(b=>[b.code,b]));
+    const {key,label,covers,MAX_PLACES,allowsPlaces,ending,bindCompletion}=win.V25NoteRefs,names=new Map(books.map(b=>[b.code,b]));
     const limitText='每条笔记最多关联 '+MAX_PLACES+' 处经文';
     const title=(ref,short=false)=>label(names.get(ref.code)?.[short?'short':'name']||ref.code,ref);
     const make=(tag,cls,text)=>{
@@ -27,11 +27,10 @@
     const tally=make('span','study-notes__tally');
     head.append(make('strong','','关联经文'),tally);root.append(head,chips,chooser);
 
-    const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input'),
-      search=button('按关键词搜索','study-notes__keyword-result');
-    search.setAttribute('aria-controls','verse-finder');
-    input.rows=1;input.maxLength=24000;input.spellcheck=false;input.autocomplete='off';
+    const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input');
+    input.rows=1;input.wrap='off';input.maxLength=24000;input.spellcheck=false;input.autocomplete='off';
     field.append(input);
+    const paintCompletion=bindCompletion(input,parser.completion);
     const feedback=make('p','study-notes__ref-feedback'),chipFeedback=make('p','study-notes__ref-feedback');
     feedback.id=nonce+'-feedback';
     for(const el of [feedback,chipFeedback])el.setAttribute('aria-live','polite');
@@ -40,7 +39,7 @@
       results=make('div','study-notes__results'),more=button('更多结果','study-notes__link');
     results.setAttribute('role','region');results.setAttribute('aria-label','可选经文');
     output.setAttribute('role','group');output.setAttribute('aria-label','关联搜索结果');
-    output.append(search,status,context,special,results,more);
+    output.append(status,context,special,results,more);
     const footer=make('div','study-notes__pick-footer'),chosen=button('','study-notes__pick-count'),
       done=button('确定','study-notes__pick-confirm'),pickedList=make('div','study-notes__picked'),
       limit=make('span','study-notes__pick-limit',limitText);
@@ -81,11 +80,12 @@
       return parser.mergeSelection(rows.filter(row=>!refs.some(ref=>covers(ref,row))),{crossChapter:spansEnabled})
         .map(({code,ch,lo,hi,endCh})=>endCh?{code,ch,lo,hi,endCh}:{code,ch,lo,hi});
     }
-    search.onclick=()=>{
-      if(editing||refs.length>=MAX_PLACES){message(limitText,true);return;}
+    function search(){
+      const query=input.value.trim();if(!query)return;
+      if(refs.length>=MAX_PLACES){message(limitText,true);return;}
       clearIdle();entered=true;
       input.blur();closePreview(root);
-      openSearch({owner:root,anchor:search,query:input.value.trim(),picker:{
+      openSearch({owner:root,anchor:input,query,picker:{
         has:row=>refs.some(ref=>covers(ref,row)),
         review(rows){
           const count=freshTargets(rows).length;
@@ -99,7 +99,7 @@
           return true;
         }
       }});
-    };
+    }
     function previewButton(text,ref,cls,aria){
       const el=button(text,'scripture-cite '+cls,aria);
       el.setAttribute('aria-expanded','false');
@@ -194,7 +194,11 @@
     }
     done.onclick=confirm;
     const parsed=()=>parser.parse(input.value,{pasted});
-    const suggested=()=>parser.suggest(input.value,{pasted,editing:!!editing});
+    function suggested(){
+      const value=input.value,found=parser.suggest(value,{pasted,editing:!!editing});
+      const suffix=!found.length&&parser.completion(value);
+      return suffix?parser.suggest(value+suffix,{editing:!!editing}):found;
+    }
     // A malformed address should not quietly become a text search. Ordinary
     // keywords (including ones ending in punctuation) still use text lookup.
     function looksLikeAddress(text){
@@ -312,18 +316,20 @@
       // Keyboard address entry only picks a passage; the final confirmation
       // below the results is shared with touch and pointer users.
       if(found?.length&&(editing||punctuation||found.length>1||found[0].lo!=null)){run();stagePicks(found);return;}
-      const picks=suggested();
+      const picks=parser.suggest(input.value,{pasted,editing:!!editing});
       if(picks.length===1&&!picks[0].partial){run();stagePicks(picks[0].anchors);return;}
       if(editing||looksLikeAddress(raw.replace(ending,''))||raw.length>160||pasted&&/[\r\n]/u.test(raw)){
         clearResults();showInvalid();return;
       }
       run();
-      if(!punctuation)(results.querySelector('button,[role=button]')||(!search.hidden&&search))?.focus?.({preventScroll:true});
     }
     input.addEventListener('paste',()=>{pasted=true;});
     input.addEventListener('input',e=>{
       if(input.value||e.isComposing){entered=true;clearIdle();}
       if(e.isComposing||composing)return;
+      if(['insertLineBreak','insertParagraph'].includes(e.inputType)){
+        input.value=input.value.replace(/\r?\n$/u,'');if(editing)endInput();else search();return;
+      }
       message();if(!input.value.trim())pasted=false;
       if(e.inputType!=='insertFromPaste'&&e.inputType?.startsWith('insert')&&
         input.selectionEnd===input.value.length&&ending.test(e.data||input.value)&&ending.test(input.value)){
@@ -336,10 +342,12 @@
       composing=false;if(input.value){entered=true;clearIdle();}else armIdle();message();
       if(ending.test(e.data||'')&&ending.test(input.value))endInput(true);else run();
     });
+    const submit=e=>{if(e.isComposing||composing||e.keyCode===229)return;e.preventDefault();if(editing)endInput();else search();};
     input.addEventListener('keydown',e=>{
-      if(e.isComposing||composing||e.keyCode===229)return;
-      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();endInput();}
+      if(e.key!=='Enter'||e.isComposing||composing||e.keyCode===229)return;
+      if(e.shiftKey)e.preventDefault();else submit(e);
     });
+    input.addEventListener('beforeinput',e=>{if(['insertLineBreak','insertParagraph'].includes(e.inputType))submit(e);});
     chooser.addEventListener('keydown',e=>{
       if(e.key!=='Escape'||e.isComposing||composing)return;
       e.preventDefault();e.stopPropagation();
@@ -349,6 +357,7 @@
     function close(focus=false){
       clearIdle();closeSearch(root);closePreview(chooser);
       chooser.hidden=true;editing=null;input.value='';pasted=false;composing=false;entered=false;
+      paintCompletion();
       pending=[];pickedList.hidden=true;pickedList.replaceChildren();clearResults();message();
       plus.setAttribute('aria-expanded','false');setLabel(plus,'添加关联经文');
       if(focus)(restore?.isConnected?restore:plus).focus({preventScroll:true});
@@ -360,11 +369,10 @@
       closePreview(chips);editing=ref?key(ref):null;restore=source;
       pending=[];pickedList.hidden=true;pickedList.replaceChildren();
       input.value=ref?title(ref,true):'';pasted=false;composing=false;chooser.hidden=false;message();
-      search.hidden=!!ref;
       input.setAttribute('aria-label',ref?'修改关联经文':'经文关键词或地址');
       plus.setAttribute('aria-expanded','true');setLabel(plus,'收起关联选择');
-      input.placeholder=ref?'输入新的经文地址':'输入书卷、章、节';
-      input.setAttribute('enterkeyhint','done');run();
+      input.placeholder=ref?'输入新的经文地址':'输入经文坐标或搜索关键词';
+      input.setAttribute('enterkeyhint',ref?'done':'search');run();
       if(ref||!win.matchMedia('(pointer:coarse)').matches){
         input.focus({preventScroll:true});if(ref)input.select();
       }else plus.focus({preventScroll:true});
@@ -377,6 +385,6 @@
     };
     function reset(){close();closePreview(chips);}
     plus.hidden=!editable;reset();
-    return {root,setRefs,reset,suspend(){closeSearch(root);closePreview(root);}};
+    return {root,setRefs,reset,dispose(){reset();paintCompletion.dispose();},suspend(){closeSearch(root);closePreview(root);}};
   };
 })(window);

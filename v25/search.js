@@ -40,7 +40,7 @@
   }
   if(typeof module==='object'&&module.exports){module.exports={catalogue,groups};return;}
   root.V25BookGroups=groups;
-  root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,windows})=>{
+  root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,citationLinks,windows})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more');
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
     const key='paper:v25:slip:1',clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
@@ -48,7 +48,10 @@
     trigger.append(tab.querySelector('svg').cloneNode(true));
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
-    let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',timer,saveTimer,geom='',wide=false;
+    const {create,label,bindCompletion}=root.V25NoteRefs;
+    const addresses=create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
+    let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',queryKind='locate',saveTimer,geom='',wide=false;
+    const paintCompletion=bindCompletion(input,value=>queryKind==='locate'?addresses.completion(value):'');
     let scope='all',trails={},note=null,facet=null;
     const groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),bookButton=$('vf-book'),pickBook=$('vf-pick-book'),
       bookNames=new Map(root.BIBLE_SOURCE.books.map(b=>[b.code,b.name]));
@@ -95,7 +98,6 @@
       anchor=results[t.anchor?.i]?t.anchor:null;restoreRow();
     }
     function switchScope(next){
-      if(q!==input.value.trim())refresh();
       if(scope===next)return;
       remember();trails[scope]=trail();scope=next;mode='browse';refresh(true);applyTrail(trails[next]);scopeUI();layout();persist();
     }
@@ -118,7 +120,7 @@
     function persist(){
       clearTimeout(saveTimer);
       if(note)return;
-      try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({mode,start,q,scope,trails,...trail()}));}catch{}
+      try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({mode,start,q,queryKind,scope,trails,...trail()}));}catch{}
     }
     let mount=null;
     function layout(){
@@ -203,7 +205,7 @@
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
     trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=()=>note?closeNote(note.owner,true):tuck();
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
-    $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true);stage.focus({preventScroll:true});};
+    $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true,'locate');stage.focus({preventScroll:true});};
     root.V25PaperDock.onTap(stage,()=>{if(note)return;if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
@@ -226,7 +228,6 @@
     function noteUI(){
       panel.toggleAttribute('data-note-search',!!note);
       panel.setAttribute('aria-label',note?'笔记经文检索笺':'经文检索笺');
-      input.setAttribute('aria-label',note?'搜索经文关键词':'经文内容或章节地址');
       $('vf-close').title=note?'关闭检索笺':'收起检索笺';
       $('vf-close').setAttribute('aria-label',$('vf-close').title);
       pickBook.hidden=!note;bookButton.hidden=!!note;
@@ -236,10 +237,10 @@
       if(!options.owner?.isConnected||!options.anchor?.isConnected)return false;
       if(note)closeNote(note.owner);
       closeGroups();remember();
-      const saved={mode,start,scope,mount,trails,trail:trail(),query:input.value};
+      const saved={mode,start,scope,mount,trails,trail:trail(),query:input.value,queryKind};
       if(windows.preview.is('search'))windows.preview.close('screen');
       note={...options,saved};mode='browse';scope='all';mount=null;trails={};
-      noteUI();scopeUI();input.value=options.query;refresh(true);
+      noteUI();scopeUI();input.value=options.query;refresh(true,'keyword');
       if(input.value.trim())(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
       else input.focus({preventScroll:true});
       return true;
@@ -251,7 +252,7 @@
       closeGroups();note=null;noteUI();
       mode=saved.mode==='preview'?'browse':saved.mode;
       start=saved.start;scope=saved.scope;mount=saved.mount;trails=saved.trails;input.value=saved.query;
-      refresh(true);trails=saved.trails;applyTrail(saved.trail);scopeUI();layout();persist();
+      refresh(true,saved.queryKind);trails=saved.trails;applyTrail(saved.trail);scopeUI();layout();persist();
       if(saved.mode==='preview'&&current>=0&&focus)previewResult(current,false);
       else if(focus&&entry.isConnected)entry.focus({preventScroll:true});
       return true;
@@ -263,14 +264,15 @@
       const keywords=results.terms;
       if(note){
         const session=note;
-        windows.openNotePick({code:r.code,ref:r.ref},{owner:session.owner,picker:session.picker,keywords,
+        windows.openNotePick(r.locations||{code:r.code,ref:r.ref},{owner:session.owner,picker:session.picker,keywords,
           onClose(reason,refocus){
             if(note===session&&refocus&&reason!=='screen'&&b.isConnected)landOnResult();
           }});
         return;
       }
-      const opened=windows.openPreview([{code:r.code,ref:r.ref}],{
+      const opened=windows.openPreview(r.locations||[{code:r.code,ref:r.ref}],{
         kind:'search',label:'搜索命中经文',ariaLabel:'搜索结果经文浮窗',keywords,focus,onBack:true,
+        highlightRows:r.locations&&scripture.from(r.locations.filter(loc=>!loc.whole)),
         onClose:reason=>{
           if(mode!=='preview'||reason==='screen')return;
           if(reason==='back'||reason==='dismiss')backToResults();
@@ -290,7 +292,7 @@
       for(let i=from;i<Math.min(results.length,from+count);i++){
         const r=results[i],b=document.createElement('button'),hit=document.createElement('span'),
           ref=document.createElement('strong'),excerpt=document.createElement('span');
-        b.type='button';b.dataset.i=i;ref.textContent=r.book+' '+(r.display||r.ref);
+        b.type='button';b.dataset.i=i;ref.textContent=r.heading||(r.book+' '+(r.display||r.ref));
         words.paint(excerpt,r.text,results.terms);
         hit.className='vf-hit';hit.append(ref,document.createTextNode('　'),excerpt);
         b.append(hit);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
@@ -301,16 +303,36 @@
       if(!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r),scripture);
       return lookup(raw,within,options);
     }
-    function refresh(force=false){
-      clearTimeout(timer);const next=input.value.trim();if(next===q&&!force)return;
-      if(q!==next)trails={};q=next;current=-1;seen.clear();anchor=null;
-      results=q?find(q,scope,{keywordsOnly:!!note}):[];list.replaceChildren();scroll.scrollTop=0;append();
-      $('vf-status').textContent=q?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
+    function locate(raw){
+      let suggestions=addresses.suggest(raw,{pasted:true});
+      const suffix=!suggestions.length&&addresses.completion(raw);
+      if(suffix)suggestions=addresses.suggest(raw+suffix);
+      return suggestions.flatMap(({anchors})=>anchors.flatMap(ref=>{
+        const locations=addresses.locations(ref),first=scripture.resolve(locations[0])[0];
+        return first?[{...first,locations,heading:label(first.name,ref)}]:[];
+      }));
+    }
+    function refresh(force=false,nextKind=queryKind){
+      const next=input.value.trim();if(next===q&&queryKind===nextKind&&!force)return;
+      if(q!==next||queryKind!==nextKind)trails={};q=next;queryKind=nextKind;current=-1;seen.clear();anchor=null;
+      results=q?(queryKind==='keyword'?find(q,scope,{keywordsOnly:true}):locate(q)):[];
+      list.replaceChildren();scroll.scrollTop=0;append();
+      $('vf-status').textContent=q&&queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
+      paintCompletion();
       layout();persist();
     }
-    input.addEventListener('input',e=>{clearTimeout(timer);if(!e.isComposing)timer=setTimeout(()=>refresh(),100);});
-    input.addEventListener('compositionend',()=>{clearTimeout(timer);timer=setTimeout(()=>refresh(),100);});
-    $('vf-form').onsubmit=e=>{e.preventDefault();refresh();input.blur();list.firstElementChild?.focus();};
+    let composing=false;
+    const locateInput=()=>{closeGroups();refresh(false,'locate');};
+    input.addEventListener('compositionstart',()=>{composing=true;});
+    input.addEventListener('input',e=>{if(!composing&&!e.isComposing)locateInput();});
+    input.addEventListener('compositionend',()=>{composing=false;locateInput();});
+    function submit(e){
+      e.preventDefault();if(composing||e.isComposing||e.keyCode===229||!input.value.trim())return;
+      closeGroups();refresh(false,'keyword');input.blur();(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
+    }
+    input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)submit(e);});
+    input.addEventListener('beforeinput',e=>{if(['insertLineBreak','insertParagraph'].includes(e.inputType)&&!composing&&!e.isComposing)submit(e);});
+    $('vf-form').onsubmit=submit;
     more.onclick=()=>{append();persist();};
     // Browsing is intentional even if a previous result is still marked.
     panel.addEventListener('pointerdown',()=>{if(mode==='read')setMode('browse');});
@@ -323,7 +345,7 @@
     let stored;try{stored=JSON.parse(sessionStorage.getItem(key));}catch{}
     refresh(true);
     if(stored?.start&&['browse','preview','read','tucked'].includes(stored.mode)){
-      start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true);trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
+      start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true,stored.queryKind==='locate'?'locate':'keyword');trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
       if(mode==='preview'){if(current>=0)previewResult(current,false);else setMode('browse');}
     }
     return {layout,openNote,closeNote};

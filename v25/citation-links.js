@@ -52,7 +52,7 @@
       for(const name of [b.name,b.short,b.code,english[i]])alias(name,b.code);
     }
     for(const [name,code] of Object.entries({
-      撒母耳上:'1SA',撒母耳下:'2SA',撒母耳纪上:'1SA',撒母耳纪下:'2SA',列王上:'1KI',列王下:'2KI',
+      创世纪:'GEN',撒母耳上:'1SA',撒母耳下:'2SA',撒母耳纪上:'1SA',撒母耳纪下:'2SA',列王上:'1KI',列王下:'2KI',
       历上:'1CH',历下:'2CH',希:'HEB',雅各:'JAS',Psalm:'PSA',Jn:'JHN',Rom:'ROM',Matt:'MAT'
     }))if(books.has(code))alias(name,code);
     const names=[...aliases.keys()].sort((a,b)=>b.length-a.length).map(esc).join('|');

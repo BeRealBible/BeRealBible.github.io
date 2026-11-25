@@ -2,7 +2,7 @@
 #verse-finder{display:flex;flex-direction:column;transform-origin:0 0;background:linear-gradient(100deg,#e6d7b8 0,#faf2dc 9px,#f8f0de 77%,#efe3c9);border:1px solid #a9916866;border-radius:2px 6px 5px 2px;box-shadow:1px 4px 10px #46301933,inset 3px 0 #b7a17b60;overflow:hidden}
 #verse-finder[hidden],#vf-tab[hidden]{display:none}
 .vf-foot{display:flex;align-items:center;justify-content:space-between}.vf-foot button{min-height:32px;font:12px var(--ui);color:#755938}
-#vf-form{display:flex;border-bottom:1px solid #aa916c;background:#fff9eb6b}#vf-input{width:0;flex:1;min-width:0;border:0;background:none;font:16px var(--serif);padding:6px;color:inherit}#vf-form button{padding:5px;font:13px var(--ui)}
+#vf-form{display:flex;border-bottom:1px solid #aa916c;background:#fff9eb6b}#vf-input{width:0;flex:1;min-width:0;border:0;background:none;font:16px/1.25 var(--serif);padding:6px;color:inherit}
 #vf-status{margin:8px 0 6px;color:#78684e;font:11px/1.35 var(--ui)}#vf-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;padding:0 13px;scrollbar-width:thin;scrollbar-color:#baaa8e transparent}
 #vf-list button{text-align:left;display:block;width:100%;padding:9px 5px;border-top:1px dotted #baa888;color:inherit}
 #vf-list strong,#vf-list span{display:block}#vf-list strong{font:600 12px var(--ui);margin-bottom:3px;color:#775733;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#vf-list span{font:15px/1.58 var(--serif)}
@@ -31,8 +31,13 @@
 #vf-tab{min-width:24px;min-height:53px;font-size:10px}
 }
 #verse-finder[data-layout=narrow] #vf-list span{font:10.5px/1.34 var(--serif)}#verse-finder[data-layout=narrow] #vf-list strong{font-size:9px;margin-bottom:2px}
-#verse-finder[data-layout=narrow] #vf-list button{padding:5px 2px}#verse-finder[data-layout=narrow] #vf-scroll{padding:0 8px}#verse-finder[data-layout=narrow] #vf-status{font-size:9px}#verse-finder[data-layout=narrow] #vf-form button,#verse-finder[data-layout=narrow] #vf-more,#verse-finder[data-layout=narrow] .vf-foot button{font-size:10px;min-height:22px}
-#vf-form .vf-field{min-width:0;flex:1;display:flex;position:relative}
+#verse-finder[data-layout=narrow] #vf-list button{padding:5px 2px}#verse-finder[data-layout=narrow] #vf-scroll{padding:0 8px}#verse-finder[data-layout=narrow] #vf-status{font-size:9px}#verse-finder[data-layout=narrow] #vf-more,#verse-finder[data-layout=narrow] .vf-foot button{font-size:10px;min-height:22px}
+#vf-form .vf-field{min-width:0;flex:1;display:flex;position:relative;overflow:hidden}
+.scripture-ghost{position:absolute;z-index:1;box-sizing:border-box;overflow:hidden;white-space:pre;pointer-events:none;user-select:none}
+.scripture-ghost[hidden]{display:none}
+.scripture-ghost>span{display:block}
+.scripture-ghost__typed{visibility:hidden}
+.scripture-ghost__suffix{color:#8a7864;pointer-events:auto;cursor:pointer}
 /* Keep a native 16px editing surface without enlarging the printed text
    on focus. Its painted box (including caret and clear button) fills the slot. */
 #verse-finder[data-layout=narrow] .vf-field{min-height:25px}
@@ -73,13 +78,12 @@
 #vf-pick-book[data-current]{color:#70482c;box-shadow:inset 0 -1px #99754f}
 #verse-finder #vf-groups[data-kind=books]:not([hidden]){grid-template-columns:repeat(4,minmax(0,1fr));max-height:min(250px,40dvh)}
 #verse-finder #vf-groups[data-kind=books] button{text-align:center}
-#vf-form button,#vf-close{display:grid;place-items:center;flex:none;width:27px;padding:0}
-#vf-form button svg{width:13px;height:13px;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;fill:none}
+#vf-close{display:grid;place-items:center;flex:none;width:27px;padding:0}
 #verse-finder[data-note-search] #vf-input{position:static;transform:none;width:auto;height:27px;padding:3px 5px;font-size:12px}
 #verse-finder[data-note-search] #vf-scroll{padding-bottom:5px}
 @media(max-width:639px){
   #verse-finder[data-note-search] #vf-input{position:absolute;left:0;top:50%;height:32px;width:123.076923%;font-size:16px;transform:translateY(-50%) scale(.8125);transform-origin:left center}
-  #verse-finder[data-note-search] #vf-form button,#verse-finder[data-note-search] #vf-close{width:32px;min-height:32px}
+  #verse-finder[data-note-search] #vf-close{width:32px;min-height:32px}
   #verse-finder[data-note-search] #vf-scopes button{min-height:27px}
 }
 

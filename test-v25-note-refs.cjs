@@ -8,6 +8,12 @@ const keys=(s,options)=>parser.parse(s,options)?.map(key)??null;
 const suggestions=s=>parser.suggest(s).flatMap(row=>row.anchors.map(key));
 assert.deepEqual(suggestions('路'),['LUK.1:1-1']);
 assert.deepEqual(suggestions('路加'),['LUK.1:1-1']);
+assert.deepEqual(suggestions('创世纪'),['GEN.1:1-1']);
+for(const [value,suffix,ref] of [['创世纪',' 1:1','GEN.1:1-1'],['创世','记 1:1','GEN.1:1-1'],['创世纪 ','1:1','GEN.1:1-1'],
+  ['创世记 2',':1','GEN.2:1-1'],['创世记第2章','1节','GEN.2:1-1'],['路２：','1','LUK.2:1-1']]){
+  assert.equal(parser.completion(value),suffix);assert.deepEqual(keys(value+suffix),[ref]);
+}
+for(const value of ['撒母耳','路99','路99:','路2:31','王中2:3','爱是恒久忍耐','创1:2–'])assert.equal(parser.completion(value),'',value);
 assert.deepEqual(suggestions('《路加福音》'),['LUK.1:1-1']);
 assert.deepEqual(suggestions('路2'),['LUK.2:1-1']);
 assert.deepEqual(parser.suggest('路2')[0].chapter,{code:'LUK',ch:2});

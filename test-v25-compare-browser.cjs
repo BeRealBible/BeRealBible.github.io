@@ -304,7 +304,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       await float.locator('[aria-label="关闭经文浮窗"]').click();await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
       await mark('2:1',10,true);await page.keyboard.press('Control+k');await bar.waitFor({state:'detached'});
       assert.equal(await $('.paper-ink-mark--selected').count(),0);assert.ok(await $('#vf-input').isVisible());
-      await $('#vf-input').fill('创造');await $('#vf-list button mark').first().waitFor();
+      await $('#vf-input').fill('创造');await $('#vf-input').press('Enter');await $('#vf-list button mark').first().waitFor();
       await keywordInk($('#vf-list button mark').first());await $('#vf-list button').first().click();
       const note=$('#v25-scripture-preview');
       await note.waitFor();assert.equal(await note.getAttribute('data-kind'),'search');

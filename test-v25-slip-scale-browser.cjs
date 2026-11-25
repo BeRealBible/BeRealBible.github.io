@@ -96,7 +96,7 @@ const closeTo=(a,b,t=.85)=>assert.ok(Math.abs(a-b)<=t,`${a} is not close to ${b}
           await page.evaluate(()=>V25ScriptureWindows.preview.close());
         }
         await fit();
-        await page.keyboard.press('Control+k');await page.locator('#vf-input').fill('光');
+        await page.keyboard.press('Control+k');await page.locator('#vf-input').fill('光');await page.locator('#vf-input').press('Enter');
         await page.locator('#vf-list button').first().waitFor();
         await page.locator('#vf-close').click();
         const searchTab=page.locator('#vf-tab');await searchTab.waitFor();

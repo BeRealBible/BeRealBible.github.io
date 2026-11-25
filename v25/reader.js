@@ -935,7 +935,7 @@
     const {code,ref}=e.detail||{},page=window.V25OriginalData.lookup(code,ref);
     if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});
   });
-  finder=window.mountVerseFinder({scripture,windows:compare,
+  finder=window.mountVerseFinder({scripture,citationLinks,windows:compare,
     navigate:(page,requested)=>jump(page,null,null,requested),
     origin:()=>({...readingLocation(),pose:capturePose()}),
     restore:o=>jump(o.page,o.pose,null,{ref:o.ref,bookCode:o.bookCode}),

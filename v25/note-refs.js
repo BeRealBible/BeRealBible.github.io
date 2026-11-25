@@ -232,7 +232,70 @@
         return first?[{anchors:[first],partial:!book}]:[];
       });
     }
-    return {exact,parse,inspect,locations,segments,suggest,mergeSelection,subtractSelection};
+    function completion(value){
+      if(!value.trim()||value.length>40||/[\r\n]/u.test(value))return '';
+      const raw=normalize(value),name=raw.replace(/^[《〈]|[》〉]$/gu,'');
+      const known=bookCode(name),partial=known?[]:bookMatches(name);
+      const stamp=exact(raw),forms=[];
+      if(known||partial.length===1&&name===raw){
+        const book=scripture.index(known||partial[0]);
+        const {ch,lo}=book?.rows[0]||{},full=book?.book.name||'';
+        const tail=known?'':full.toLowerCase().startsWith(name.toLowerCase())?full.slice(name.length):null;
+        if(ch&&tail!==null)forms.push(tail+(/\s$/u.test(value)&&!tail?'':' ')+ch+':'+lo);
+      }
+      if(stamp&&stamp.lo==null){
+        const verse=scripture.index(stamp.code)?.chunks.find(c=>c.chapter===stamp.ch)?.rows[0]?.lo;
+        if(verse!=null)forms.push(/[章篇]$/u.test(raw)?verse+'节':':'+verse);
+      }
+      if(/:$/u.test(raw)){
+        const ch=exact(raw.slice(0,-1)),verse=ch?.lo==null&&scripture.index(ch?.code)?.chunks.find(c=>c.chapter===ch?.ch)?.rows[0]?.lo;
+        if(verse)forms.push(String(verse));
+      }
+      return forms.find(suffix=>exact(value+suffix)?.lo!=null)||'';
+    }
+    return {exact,parse,inspect,locations,segments,suggest,completion,mergeSelection,subtractSelection};
+  }
+  // Keep the suggested suffix out of the native input and clipboard until
+  // accepted. The mirror follows the real input's font and mobile transform.
+  function bindCompletion(input,complete){
+    const doc=input.ownerDocument,win=doc.defaultView,host=input.parentElement,make=()=>doc.createElement('span');
+    const ghost=make(),line=make(),typed=make(),hint=make();
+    ghost.className='scripture-ghost';hint.className='scripture-ghost__suffix';typed.className='scripture-ghost__typed';
+    ghost.setAttribute('aria-hidden','true');ghost.hidden=true;line.append(typed,hint);ghost.append(line);host.append(ghost);
+    let value='',suffix='',shift=false,composing=false;
+    function render(){
+      value=input.value;
+      suffix=!composing&&doc.activeElement===input&&input.selectionStart===value.length&&input.selectionEnd===value.length?complete(value):'';
+      ghost.hidden=!suffix;if(!suffix)return;
+      const css=win.getComputedStyle(input),num=k=>parseFloat(css[k])||0;
+      const top=input.tagName==='TEXTAREA'?num('paddingTop')+num('borderTopWidth'):
+        (input.offsetHeight-num('lineHeight'))/2;
+      Object.assign(ghost.style,{left:input.offsetLeft+'px',top:input.offsetTop+'px',width:input.offsetWidth+'px',height:input.offsetHeight+'px',
+        fontFamily:css.fontFamily,fontWeight:css.fontWeight,fontSize:css.fontSize,letterSpacing:css.letterSpacing,lineHeight:css.lineHeight,
+        transform:css.transform,transformOrigin:css.transformOrigin,paddingTop:top+'px',paddingLeft:(num('paddingLeft')+num('borderLeftWidth'))+'px'});
+      typed.textContent=value;hint.textContent=suffix;line.style.transform='translateX('+(-input.scrollLeft)+'px)';
+    }
+    function accept(){
+      if(!suffix||input.value!==value||input.selectionStart!==value.length||input.selectionEnd!==value.length||composing)return;
+      input.value=value+suffix;input.setSelectionRange(input.value.length,input.value.length);
+      input.dispatchEvent(new win.InputEvent('input',{bubbles:true,inputType:'insertReplacementText',data:suffix}));
+      render();
+    }
+    input.addEventListener('keydown',e=>{
+      if(e.key!=='Shift'){shift=false;return;}
+      if(!e.repeat)shift=!!suffix&&!e.isComposing&&!composing&&!e.ctrlKey&&!e.metaKey&&!e.altKey;
+    });
+    input.addEventListener('keyup',e=>{
+      if(e.key!=='Shift'){render();return;}
+      if(shift&&!e.isComposing&&!composing)accept();shift=false;
+    });
+    for(const type of ['focus','input','select','selectionchange','scroll','pointerup'])input.addEventListener(type,render);
+    input.addEventListener('blur',()=>{shift=false;render();});
+    input.addEventListener('compositionstart',()=>{composing=true;shift=false;render();});
+    input.addEventListener('compositionend',()=>{composing=false;render();});
+    hint.addEventListener('pointerdown',e=>e.preventDefault());hint.addEventListener('click',accept);
+    const observer=new win.ResizeObserver(render);observer.observe(host);render.dispose=()=>observer.disconnect();
+    return render;
   }
   function describe(objects,books,parser,plain){
     if(!objects.some(o=>o.endCh>o.ch))return plain(objects);
@@ -246,5 +309,5 @@
     return {objects:canonical,key:canonical.map(key).join('|'),title:title('short'),fullTitle:title('name'),refs,
       anchorObjects:canonical.map(encode)};
   }
-  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe};
+  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe,bindCompletion};
 });

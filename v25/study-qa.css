@@ -67,9 +67,6 @@
 .study-notes__lookup:has([aria-invalid=true]){border-color:#a54a35}
 .study-notes__ref-input{box-sizing:border-box;display:block;flex:1 1 0;min-width:0;width:100%;min-height:24px;padding:3px 1px;resize:none;color:#3b2c21;background:transparent;border:0;font:inherit;font-size:calc(12px * var(--note-ui-scale,1));line-height:1.3;white-space:pre-wrap;user-select:text;-webkit-user-select:text;touch-action:auto}
 .study-notes__lookup .study-notes__ref-input:focus-visible{outline:0}
-.study-notes__keyword-result{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:24px;padding:2px 3px;text-align:left;border-bottom:1px solid #d3c5ab75;color:#76583c;font:calc(11px * var(--note-ui-scale,1))/1.25 var(--ui,sans-serif)}
-.study-notes__keyword-result::after{content:"";width:5px;height:5px;border:solid currentColor;border-width:1px 1px 0 0;transform:rotate(45deg);margin-inline:3px}
-.study-notes__keyword-result:hover{background:#f0e6d4}
 .study-notes__ref-feedback,.study-notes__search-status{margin:4px 0 0;font-size:.74em;line-height:1.45;color:#685746;overflow-wrap:anywhere}
 .study-notes__ref-feedback:empty,.study-notes__search-status:empty{display:none}
 .study-notes__ref-feedback[data-error]{color:#8e2d20;background:#f9e8dd;border-radius:4px;padding:4px 6px}
@@ -164,5 +161,4 @@ html[data-study-marks] :where(.compare-slip__chunk) [data-qap-mark]{
   /* Keep the iOS editing surface at 16px without painting oversized text. */
   .study-notes__lookup{min-height:27px;overflow:hidden}
   .study-notes__lookup .study-notes__ref-input{position:absolute;top:50%;left:3px;width:calc((100% - 6px) * 1.230769);height:30px;font-size:16px;transform:translateY(-50%) scale(.8125);transform-origin:left center}
-  .study-notes__keyword-result{min-height:27px}
 }

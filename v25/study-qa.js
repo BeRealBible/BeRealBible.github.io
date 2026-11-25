@@ -538,7 +538,7 @@
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose(){swipeEvents.abort();refEditor.reset();off?.();}};
+      return {request,dispose(){swipeEvents.abort();refEditor.dispose();off?.();}};
     }
     function open(next,restore,mode='view'){
       // A contiguous reader selection starts as one range; only addresses

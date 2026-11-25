@@ -2,6 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const origin=process.env.V25_NOTES_TEST_ORIGIN||'http://127.0.0.1:37136',api='https://v25-note-test.supabase.co';
+const liveAssets=process.env.V25_NOTES_LIVE_ASSETS==='1';
 const target=origin+'/?v=index-25&curl=off&ref=2SA.3:1',enableLinks=process.env.V25_NOTES_LEGACY_API!=='1';
 const enableSpans=enableLinks&&process.env.V25_NOTES_NO_SPANS!=='1';
 const mime={'.js':'text/javascript','.html':'text/html','.css':'text/css','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.png':'image/png','.webp':'image/webp'};
@@ -57,6 +58,7 @@ async function visit(browser,width,holdNotes){
     if(u.origin!==origin)return route.abort();
     if(u.pathname==='/v25/account-config.js')return route.fulfill({contentType:'text/javascript',body:
       `window.V25_ACCOUNT_CONFIG=${JSON.stringify({url:api,publishableKey:'sb_publishable_demo',notesOrigin:origin,pagesIsolationVerified:true,noteReanchorEnabled:enableLinks,noteSpanEnabled:enableSpans})};`});
+    if(liveAssets)return route.continue(); // Still use the intercepted fake account service, never real notes.
     const f=path.resolve(__dirname,'.'+(u.pathname==='/'?'/index.html':decodeURIComponent(u.pathname)));
     if(!f.startsWith(__dirname+path.sep))return route.abort();
     try{await route.fulfill({status:200,body:await fs.readFile(f),contentType:mime[path.extname(f)]});}
@@ -199,8 +201,9 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       assert.ok(await phonePlus.evaluate(el=>el.previousElementSibling?.classList.contains('study-notes__chip')),'plus follows the last association');
       await phonePlus.tap();
       assert.ok(await query.isVisible(),'one visible input');
-      const firstResult=phone.dialog.getByRole('button',{name:'按关键词搜索',exact:true});
-      assert.ok(await firstResult.evaluate(el=>el.parentElement.firstElementChild===el&&!el.closest('.study-notes__lookup')),'keyword search is the first option, not an input button');
+      assert.equal(await query.getAttribute('placeholder'),'输入经文坐标或搜索关键词');
+      assert.equal(await query.getAttribute('enterkeyhint'),'search');
+      assert.equal(await phone.dialog.getByRole('button',{name:'按关键词搜索',exact:true}).count(),0);
       await query.waitFor({state:'hidden',timeout:7000});
       await phonePlus.waitFor();
       await phonePlus.tap();
@@ -215,12 +218,18 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       await phone.page.evaluate(()=>window.testKeyboard(null));
       const pick=(name)=>phone.dialog.getByRole('button',{name:'选择：'+name,exact:true});
       const region=phone.dialog.getByRole('region',{name:'可选经文'});
+      await query.fill('创世纪');await pick('创世记 1:1').waitFor();
+      const ghost=phone.dialog.locator('.study-notes__lookup .scripture-ghost__suffix');
+      await ghost.waitFor();assert.equal(await ghost.textContent(),' 1:1');assert.equal(await query.inputValue(),'创世纪');
+      assert.ok(await ghost.evaluate(el=>getComputedStyle(el).color!==getComputedStyle(el.closest('.study-notes__lookup').querySelector('textarea')).color));
+      await snapshot(phone,'phone-address-completion');
+      await ghost.tap();assert.equal(await query.inputValue(),'创世纪 1:1','tap the suggestion without a Shift key');
+      assert.equal(await phone.dialog.getByRole('button',{name:/已选 \d/}).count(),0,'accepting the suffix is not a pick');
       await query.fill('路');await pick('路加福音 1:1').waitFor();
-      assert.ok(await firstResult.isVisible(),'keyword search stays first with a matching address');
       await query.press('2');await pick('路加福音 2:1').waitFor();
       await pick('路加福音 2章').waitFor();
       await phone.page.keyboard.insertText(':');
-      assert.equal(await region.locator('[role=button],button').count(),0,'an incomplete address clears the previous chapter');
+      await pick('路加福音 2:1').waitFor();assert.equal(await ghost.textContent(),'1','a typed colon suggests the first valid verse');
       await query.press('3');await pick('路加福音 2:3').waitFor();
       await query.press('1');await pick('路加福音 2:31').waitFor();
       await query.fill('路2:99');
@@ -248,8 +257,9 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       assert.equal(writes.length,5,'tapping verses stages them without saving');
       await query.fill('拔示巴进入内室见王');
       assert.equal(await phone.dialog.locator('.study-notes__result').count(),0,'typing words does not search by default');
-      await firstResult.tap();
       const finder=phone.page.getByRole('complementary',{name:'笔记经文检索笺'}),chooseBook=finder.getByRole('group',{name:'指定书卷'});
+      assert.ok(!await finder.isVisible());
+      await query.evaluate(el=>el.dispatchEvent(new InputEvent('beforeinput',{inputType:'insertLineBreak',bubbles:true,cancelable:true})));
       assert.equal(await finder.getByRole('searchbox').inputValue(),'拔示巴进入内室见王');
       await finder.getByRole('button',{name:'指定书卷',exact:true}).tap();
       await chooseBook.getByRole('button',{name:'列王纪上',exact:true}).tap();
@@ -420,9 +430,23 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.equal(writes.length,beforePaste+1);assert.equal(await refInput.count(),0);
     assert.equal(await edit.inputValue(),'另一条独立笔记');
     const ordinaryFinder=desk.page.getByRole('complementary',{name:'经文检索笺',exact:true});
-    await desk.page.keyboard.press('Control+k');
-    await ordinaryFinder.getByRole('searchbox').fill('普通检索留在原处');
-    await ordinaryFinder.getByRole('searchbox').press('Enter');
+    await desk.page.evaluate(()=>PaperImmersion.showChrome());
+    await desk.page.getByRole('button',{name:'搜索经文',exact:true}).click();
+    const ordinaryQuery=ordinaryFinder.getByRole('searchbox'),ordinarySuffix=ordinaryFinder.locator('.scripture-ghost__suffix');
+    await ordinaryQuery.fill('创世纪');await ordinaryFinder.getByRole('button',{name:/创世记 1:1/}).waitFor();
+    assert.equal(await ordinarySuffix.textContent(),' 1:1');assert.equal(await ordinaryQuery.inputValue(),'创世纪');
+    await snapshot(desk,'desktop-address-completion');
+    await ordinaryQuery.press('Shift+ArrowLeft');assert.equal(await ordinaryQuery.inputValue(),'创世纪','Shift used as a modifier does not accept');
+    await ordinaryQuery.press('End');await ordinaryQuery.press('Shift');assert.equal(await ordinaryQuery.inputValue(),'创世纪 1:1');
+    await ordinaryQuery.fill('创世记 2');assert.equal(await ordinarySuffix.textContent(),':1');
+    await ordinaryQuery.press('Shift');assert.equal(await ordinaryQuery.inputValue(),'创世记 2:1');
+    await ordinaryQuery.fill('耶和华是我的牧者');
+    assert.equal(await ordinaryFinder.locator('#vf-list button').count(),0,'typing words never searches the whole Bible');
+    await ordinaryQuery.dispatchEvent('compositionstart',{data:'未确认'});
+    await ordinaryQuery.press('Enter');assert.equal(await ordinaryFinder.locator('#vf-list button').count(),0,'IME confirmation is not search');
+    await ordinaryQuery.dispatchEvent('compositionend',{data:'耶和华是我的牧者'});
+    await ordinaryQuery.press('Enter');await ordinaryFinder.getByRole('button',{name:/诗篇 23:1/}).waitFor();
+    await ordinaryQuery.fill('普通检索留在原处');await ordinaryQuery.press('Enter');
     await ordinaryFinder.getByRole('button',{name:'收起检索笺'}).click();
     await plus.click();
     const finder=desk.page.getByRole('complementary',{name:'笔记经文检索笺'}),
@@ -431,7 +455,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       readerConfirm=reader.getByRole('button',{name:'确定加入笔记'});
     await refInput.fill('爱是恒久忍耐');
     assert.equal(await desk.dialog.locator('.study-notes__result').count(),0);
-    await desk.dialog.getByRole('button',{name:'按关键词搜索',exact:true}).click();
+    await refInput.press('Enter');
     await finder.getByRole('button',{name:'分类',exact:true}).click();
     await cats.getByRole('button',{name:'四福音书',exact:true}).click();
     await finder.getByText('未找到经文',{exact:true}).waitFor();
@@ -450,6 +474,8 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.equal(await searchQuery.inputValue(),'爱是恒久忍耐','confirmation leaves the same finder in place');
     await finder.getByRole('button',{name:'全书',exact:true}).click();
     await searchQuery.fill('耶和华是我的牧者');
+    assert.equal(await finder.locator('#vf-list button').count(),0);
+    await searchQuery.press('Enter');
     await finder.getByRole('button',{name:/诗篇 23:1/}).click();
     await reader.getByRole('button',{name:'选择：诗篇 23:1',exact:true}).click();
     await readerConfirm.click();await stamp();

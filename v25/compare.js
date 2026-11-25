@@ -538,7 +538,7 @@
         onJump:settings.onJump||((row)=>{preview.close('jump');onJump?.(row);})});
     }
     function openNotePick(loc,{owner,picker,keywords,onClose}){
-      const rows=scripture.resolve(loc);if(!rows.length||!owner?.isConnected)return false;
+      const rows=Array.isArray(loc)?scripture.from(loc):scripture.resolve(loc);if(!rows.length||!owner?.isConnected)return false;
       if(preview.panel.hidden)makeRoom(sourcePin(owner));
       return preview.open({kind:'note-pick',label:'选取关联经文',ariaLabel:'选取关联经文浮窗',rows,keywords,picker,
         focus:true,onBack:true,onClose});
