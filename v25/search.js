@@ -232,11 +232,14 @@
       }
       more.hidden=list.children.length>=results.length;
     }
+    function find(raw,within='all'){
+      if(!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r),scripture);
+      return lookup(raw,within);
+    }
     function refresh(force=false){
       clearTimeout(timer);const next=input.value.trim();if(next===q&&!force)return;
       if(q!==next)trails={};q=next;current=-1;seen.clear();anchor=null;
-      if(q&&!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r),scripture);
-      results=q?lookup(q,scope):[];list.replaceChildren();scroll.scrollTop=0;append();
+      results=q?find(q,scope):[];list.replaceChildren();scroll.scrollTop=0;append();
       $('vf-status').textContent=q?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();
     }
@@ -258,6 +261,6 @@
       start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true);trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
       if(mode==='preview'){if(current>=0)previewResult(current,false);else setMode('browse');}
     }
-    return {layout};
+    return {layout,find};
   };
 })(typeof window!=='undefined'?window:globalThis);

@@ -124,7 +124,7 @@
     }
     return createReferenceIndex(data.items,(item,ref,key)=>(item.id.startsWith(key+'.')?2:0)+(ref.length===4?1:0));
   }
-  function describeSelection(next,books){
+  function describeSelection(next,books,{separate=false}={}){
     const order=new Map(books.map((book,i)=>[book.code,{...book,i}])),groups=new Map();
     for(const {code,ch,lo,hi=lo} of next){
       if(!order.has(code))continue;
@@ -144,9 +144,10 @@
         const last=volume.parts.at(-1);
         if(last?.end===ch-1)last.end=ch;
         else volume.parts.push({start:ch,end:ch});
-        continue;
+        if(!separate||!ranges.length)continue;
       }
-      const merged=mergeRanges(ranges);
+      // Notes retain each confirmed range as its own removable object.
+      const merged=separate?[...new Map(ranges.map(r=>[r.join(':'),r])).values()].sort((a,b)=>a[0]-b[0]||a[1]-b[1]):mergeRanges(ranges);
       const sections=merged.map(([lo,hi])=>{
         objects.push({code,ch,lo,hi});keys.push(addr(code,ch)+':'+lo+'-'+hi);
         return lo===hi?String(lo):lo+'–'+hi;
@@ -159,14 +160,14 @@
     }).join('；');
     return {objects,key:keys.join('|'),title:title('short'),fullTitle:title('name')};
   }
-  function mount({stage,paper,citationLinks,openWindow,openCitation}){
+  function mount({stage,paper,scripture,citationLinks,openWindow,openCitation,closeCitation,findVerses}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
     const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
     const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
     const root=doc.documentElement,marked=new WeakSet(),countedFaces=new WeakSet();
     const notesEnabled=!!win.V25Notes?.enabled(win.location,win.V25_ACCOUNT_CONFIG?.notesOrigin,
       win.V25_ACCOUNT_CONFIG?.pagesIsolationVerified),models=new Map();
-    const describe=objects=>describeSelection(objects,paper.books),scope=()=>win.V25Account?.notesScope||null;
+    const describe=objects=>describeSelection(objects,paper.books,{separate:true}),scope=()=>win.V25Account?.notesScope||null;
     let pendingWrite=null,countFrame=null;
     const notes=()=>{
       const id=scope();if(!notesEnabled||!id||!win.V25NoteSync)return null;
@@ -300,80 +301,33 @@
       });
       scroll.append(tabs,parts.notes.panel,parts.qa.panel);
       const listing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
-      const range=make('p','study-notes__address'),field=make('textarea','study-notes__field');
+      const field=make('textarea','study-notes__field');
       field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=8;
       field.spellcheck=false;field.autocomplete='off';field.maxLength=win.V25Notes.LIMIT;
       const hint=make('p','study-notes__sync-hint','输入会自动同步到当前账号。');
       const status=make('p','study-notes__status');status.setAttribute('role','status');
       const done=make('button','study-notes__link','返回笔记列表');done.type='button';
       const button=(label,cls='study-notes__link')=>{const el=make('button',cls,label);el.type='button';return el;};
-      const address=make('div','study-notes__item-head study-notes__address-head'),change=button('修改关联');
-      change.hidden=win.V25Account?.noteReanchorEnabled!==true;
-      const anchors=make('div','study-notes__anchors'),chips=make('div','study-notes__chips'),picker=make('div','study-notes__picker');
-      const bookField=make('select'),chapterField=make('select'),startField=make('select'),endField=make('select');
-      for(const [el,label] of [[bookField,'书卷'],[chapterField,'章'],[startField,'起始节（整章可不选）'],[endField,'结束节（可选）']])el.setAttribute('aria-label',label);
-      const addAnchor=button('添加关联'),apply=button('保存关联'),cancel=button('取消'),anchorHint=make('p','study-notes__sync-hint');
-      anchorHint.setAttribute('role','status');
-      const option=(value,label)=>{const el=make('option','',label);el.value=value;return el;};
-      const books=win.BIBLE_SOURCE.books,byCode=new Map(books.map(b=>[b.code,b]));
-      bookField.append(...books.map(({code,name})=>option(code,name)));
-      function setEnd(){
-        const old=endField.value,lo=+startField.value;
-        endField.replaceChildren(option('','单节'),...[...startField.options].filter(o=>lo>0&&+o.value>lo).map(o=>option(o.value,o.textContent)));
-        if([...endField.options].some(o=>o.value===old))endField.value=old;
-        endField.disabled=!lo;
-      }
-      function setVerses(){
-        const chapter=byCode.get(bookField.value)?.chapters.find(c=>+c.chapter===+chapterField.value);
-        startField.replaceChildren(option('','整章'),...(chapter?.verses||[]).map(([n])=>option(n,n+'节')));setEnd();
-      }
-      function setChapters(ch){
-        chapterField.replaceChildren(...byCode.get(bookField.value).chapters.map(c=>option(c.chapter,c.chapter+'章')));
-        if(ch!=null)chapterField.value=String(ch);
-        setVerses();
-      }
-      bookField.addEventListener('change',()=>setChapters());chapterField.addEventListener('change',setVerses);startField.addEventListener('change',setEnd);
-      address.append(range,change);picker.append(bookField,chapterField,startField,endField,addAnchor);
-      const actions=make('div','study-notes__anchor-actions');actions.append(apply,cancel);
-      anchors.append(chips,picker,anchorHint,actions);anchors.hidden=true;
-      compose.append(address,anchors,field,hint,status,done);parts.notes.panel.append(compose,listing);
-      let active=null,editing=null,qaRendered=false,seenText='',composing=false,draftRefs=null,draftBase='',awaitingInitialList=null;
+      const parser=win.V25NoteRefs.create({bookCode:citationLinks.bookCode,scripture});
+      const refEditor=win.V25NoteRefEditor({doc,parser,books:paper.books,editable:win.V25Account?.noteReanchorEnabled===true,
+        preview:openCitation,closePreview:closeCitation,find:query=>{
+          const anchor=parser.exact(query);
+          if(!anchor)return findVerses(query);
+          const loc=parser.locations(anchor)[0],first=scripture.resolve(loc)[0];
+          return first?[{anchor,book:first.name,ref:loc.ref,display:anchor.lo==null?anchor.ch+'章':loc.ref,text:first.text}]:[];
+        },change:nextRefs=>{
+          if(!editing||profile!==scope())return false;
+          const next=describe(nextRefs),{noteId:id,key}=editing;
+          if(!next.key||((model.descriptor(id)||model.get(id))&&!model.reanchor(id,next,compose,key)))return false;
+          awaitingInitialList=null;
+          editing={...next,noteId:id};refEditor.setRefs(editing.objects);statusText();return true;
+        }});
+      const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
+      compose.append(notebook,hint,status,done);parts.notes.panel.append(compose,listing);
+      let active=null,editing=null,qaRendered=false,seenText='',composing=false,awaitingInitialList=null;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
       const fromItem=item=>describe(item.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi}));
       const newNote=()=>startEditing(description,true,idForNew());
-      function showAnchors(message=''){
-        chips.replaceChildren(...draftRefs.map((ref,i)=>{
-          const chip=make('span','study-notes__chip'),label=describe([ref]).fullTitle;
-          const remove=button('×','study-notes__remove');remove.setAttribute('aria-label','移除关联：'+label);
-          remove.addEventListener('click',()=>{draftRefs=draftRefs.filter((_,n)=>n!==i);showAnchors();(chips.children[i]||chips.lastElementChild)?.lastElementChild?.focus();if(!chips.childElementCount)bookField.focus();});
-          chip.append(label,remove);return chip;
-        }));
-        apply.disabled=!draftRefs.length;
-        anchorHint.textContent=message||(!draftRefs.length?'笔记至少要关联一处经文或一章。':'可添加整章、单节或连续多节。');
-      }
-      function closeAnchors(){draftRefs=null;anchors.hidden=true;change.setAttribute('aria-expanded','false');}
-      change.setAttribute('aria-expanded','false');
-      change.addEventListener('click',()=>{
-        if(draftRefs){closeAnchors();return;}
-        draftRefs=editing.objects.slice();draftBase=editing.key;
-        const first=draftRefs[0];bookField.value=first.code;setChapters(first.ch);
-        anchors.hidden=false;change.setAttribute('aria-expanded','true');showAnchors();
-      });
-      addAnchor.addEventListener('click',()=>{
-        const code=bookField.value,ch=+chapterField.value,lo=+startField.value,hi=+endField.value||lo;
-        const next=describe([...draftRefs,lo?{code,ch,lo,hi}:{code,ch}]).objects;
-        if(next.length>256){showAnchors('一条笔记最多可关联 256 处。');return;}
-        draftRefs=next;showAnchors();
-      });
-      cancel.addEventListener('click',()=>{closeAnchors();change.focus();});
-      apply.addEventListener('click',()=>{
-        if(!draftRefs?.length||profile!==scope())return;
-        const next=describe(draftRefs),id=editing.noteId;
-        if(draftBase!==editing.key||((model.descriptor(id)||model.get(id))&&!model.reanchor(id,next,compose,draftBase))){
-          showAnchors('关联无法保存；可取消后重新打开，检查是否已在其他设备修改。');return;
-        }
-        editing={...next,noteId:id};range.textContent=next.fullTitle;closeAnchors();change.focus();statusText();
-      });
       function listNotes(){
         if(editing||active!=='notes')return;
         const matches=model?.query(description.objects)||[],frag=doc.createDocumentFragment();
@@ -393,6 +347,7 @@
       function show(key){
         if(active===key)return;
         if(active)parts[active].top=scroll.scrollTop;
+        if(key!=='notes')refEditor.closePreview();
         active=key;
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
@@ -409,10 +364,11 @@
       function startEditing(desc,focus,id){
         const keep=editing?.noteId===id;
         awaitingInitialList=null;
-        editing={...desc,noteId:id};compose.hidden=false;listing.hidden=true;closeAnchors();
-        range.textContent=desc.fullTitle;
-        if(!keep){field.value=seenText=model.body(id);statusText();}
+        editing={...desc,noteId:id};compose.hidden=false;listing.hidden=true;
+        if(!keep){refEditor.reset();field.value=seenText=model.body(id);statusText();}
+        refEditor.setRefs(desc.objects);
         show('notes');
+        if(!keep)scroll.scrollTop=0;
         if(focus){field.focus({preventScroll:true});field.setSelectionRange(field.value.length,field.value.length);}
       }
       function record(e){
@@ -426,10 +382,10 @@
       field.addEventListener('input',record);
       field.addEventListener('compositionstart',()=>{composing=true;});
       field.addEventListener('compositionend',e=>{composing=false;record(e);});
-      const returnToList=()=>{editing=null;awaitingInitialList=null;closeAnchors();compose.hidden=true;listing.hidden=false;listNotes();};
+      const returnToList=()=>{editing=null;awaitingInitialList=null;refEditor.reset();compose.hidden=true;listing.hidden=false;listNotes();};
       done.addEventListener('click',()=>{returnToList();parts.notes.button.focus({preventScroll:true});});
       const off=model?.listen((key,source)=>{
-        if(!key&&model.ready()&&awaitingInitialList===editing?.noteId&&!field.value&&!draftRefs&&editing.key===description.key){
+        if(!key&&model.ready()&&awaitingInitialList===editing?.noteId&&!field.value&&!refEditor.hasDraft()&&editing.key===description.key){
           awaitingInitialList=null;
           const exact=exactNotes();
           if(exact.length===1)startEditing(fromItem(exact[0]),field===doc.activeElement,exact[0].id);
@@ -437,7 +393,7 @@
         }
         if(editing&&key===editing.noteId){
           const latest=model.descriptor(key);
-          if(latest){editing=latest;range.textContent=latest.fullTitle;}
+          if(latest){editing=latest;refEditor.setRefs(latest.objects);}
           if(source==='cloud'&&!composing){
             const a=field.selectionStart,z=field.selectionEnd;
             field.value=seenText=model.body(key);field.setSelectionRange(a,z);
@@ -446,7 +402,7 @@
         }else listNotes();
       });
       compose.hidden=true;
-      const exactNotes=()=>model.query(description.objects).filter(item=>fromItem(item).key===description.key);
+      const exactNotes=()=>model.query(description.objects).filter(item=>describeSelection(fromItem(item).objects,paper.books).key===description.key);
       const request=mode=>{
         if(mode==='write'){
           const exact=exactNotes();
@@ -458,10 +414,12 @@
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose:()=>off?.()};
+      return {request,dispose(){refEditor.reset();off?.();}};
     }
     function open(next,restore,mode='view'){
-      const selection=describe(next),{objects,key,title,fullTitle}=selection,model=notes(),profile=scope();
+      // A contiguous reader selection starts as one range; only addresses
+      // confirmed individually inside a note stay separate.
+      const selection=describeSelection(next,paper.books),{objects,key,title,fullTitle}=selection,model=notes(),profile=scope();
       if(!key||mode==='write'&&!notesEnabled||mode!=='write'&&!availability.hasAny(objects)&&!model?.query(objects).length)return false;
       if(mode==='write'&&!model){
         if(win.V25Account?.openDialog){pendingWrite={next,restore};win.V25Account.openDialog();}

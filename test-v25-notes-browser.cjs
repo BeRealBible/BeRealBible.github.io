@@ -7,6 +7,12 @@ const mime={'.js':'text/javascript','.html':'text/html','.css':'text/css','.json
 const cors={'access-control-allow-origin':origin,'access-control-allow-headers':'apikey,authorization,content-type','access-control-allow-methods':'POST,OPTIONS'};
 const accounts={a:{id:'27426463-0000-0000-0000-000000000001',email:'a@example.test'},b:{id:'27426463-0000-0000-0000-000000000002',email:'b@example.test'}};
 const cloud=new Map(),writes=[];
+const shots=process.env.V25_NOTES_SCREENSHOTS;
+async function snapshot(reader,name){
+  if(!shots)return;
+  await fs.mkdir(shots,{recursive:true});
+  await reader.page.screenshot({path:path.join(shots,name+'.png')});
+}
 let releaseSend,hold=new Promise(r=>{releaseSend=r;});
 async function visit(browser,width){
   const mobile=width<550;
@@ -118,11 +124,12 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.deepEqual(desk.qaRequests,[],'writing a note does not load the QAP collection');
     await desk.dialog.getByRole('button',{name:'返回笔记列表'}).click();
     assert.equal(await desk.dialog.locator('.study-notes__text').textContent(),'ab笔');
-    const phone=await visit(browser,390),phoneBar=await phone.select('4:1');
+    const phone=await visit(browser,Number(process.env.V25_NOTES_MOBILE_WIDTH)||390),phoneBar=await phone.select('4:1');
     await phoneBar.getByRole('button',{name:'写笔记'}).tap();await phone.login('a');
     const field=phone.dialog.getByRole('textbox',{name:'笔记正文'});await field.waitFor();
     await phone.page.waitForFunction(()=>document.querySelector('.study-notes__field')?.value==='ab笔');
     const before=await phone.dialog.boundingBox();
+    await snapshot(phone,'phone-note');
     assert.ok(before.height>=400,'the initial material window has room to write');
     assert.ok((await field.boundingBox()).height>=215,'the initial editor displays roughly eight lines');
     assert.ok((await phone.dialog.getByRole('tablist').boundingBox()).height<=32,'tabs leave room for text');
@@ -151,6 +158,26 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const returned=await phone.dialog.boundingBox();
     assert.ok(Math.abs(returned.y-before.y)<1&&Math.abs(returned.height-before.height)<1,'dismissing the keyboard restores normal geometry');
     assert.equal(await field.evaluate(el=>el.style.getPropertyValue('--note-keyboard-inset')),'');
+    if(enableLinks){
+      const association=phone.dialog.getByRole('textbox',{name:'输入关联经文'});
+      await association.tap();
+      await phone.page.evaluate(()=>window.testKeyboard({height:252,offsetTop:27}));
+      await phone.dialog.locator('xpath=self::*[@data-note-keyboard]').waitFor();
+      const rect=await association.boundingBox();
+      assert.ok(rect.y+rect.height<=279,'the address input clears the keyboard');
+      await phone.page.evaluate(()=>window.testKeyboard(null));
+      await phone.dialog.getByRole('button',{name:'搜索经文以添加关联'}).tap();
+      const query=phone.dialog.getByRole('searchbox',{name:'搜索经文内容'});
+      await query.fill('王上1：15到20节');
+      await phone.dialog.getByRole('button',{name:'加入关联：列王纪上 1:15–20',exact:true}).waitFor();
+      await phone.page.evaluate(()=>window.testKeyboard({height:252,offsetTop:27}));
+      await phone.dialog.locator('xpath=self::*[@data-note-keyboard]').waitFor();
+      const searchRect=await query.boundingBox();
+      assert.ok(searchRect.y+searchRect.height<=279,'the search input clears the keyboard');
+      await phone.page.evaluate(()=>window.testKeyboard(null));
+      await snapshot(phone,'phone-search');
+      await phone.dialog.getByRole('button',{name:'返回关联经文'}).tap();
+    }
     assert.equal(writes.length,5,'viewport tracking must not write notes');
     await phone.dialog.getByRole('button',{name:'关闭资料浮窗'}).tap();
     const readBar=await phone.select('4:1');await readBar.getByRole('button',{name:'查看资料'}).tap();
@@ -171,18 +198,61 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.deepEqual(writes.at(-1).anchors,[['2SA',4,1,1]]);
     await desk.page.waitForFunction(()=>document.querySelector('#stage [data-chapter-total="2SA.4"] [data-chapter-count="notes"]')?.textContent==='2');
     if(!enableLinks){
-      assert.equal(await desk.dialog.getByRole('button',{name:'修改关联'}).count(),0);
+      assert.equal(await desk.dialog.getByRole('button',{name:/修改关联：/}).count(),0);
       await desk.dialog.getByRole('button',{name:'返回笔记列表'}).click();
       assert.equal(await desk.dialog.locator('.study-notes__text').count(),2);
       assert.deepEqual([...desk.err,...phone.err,...other.err],[]);
       console.log('PASS new notes and chapter totals over the existing production RPC, with move controls disabled');return;
     }
-    await desk.dialog.getByRole('button',{name:'修改关联'}).click();
-    await desk.dialog.getByRole('button',{name:/移除关联/}).click();
-    assert.ok(await desk.dialog.getByRole('button',{name:'保存关联'}).isDisabled());
-    await desk.dialog.getByRole('combobox',{name:'章',exact:true}).selectOption('3');
-    await desk.dialog.getByRole('button',{name:'添加关联'}).click();
-    await desk.dialog.getByRole('button',{name:'保存关联'}).click();
+    const refInput=desk.dialog.getByRole('textbox',{name:'输入关联经文'});
+    const remove=name=>desk.dialog.getByRole('button',{name:'移除关联：'+name,exact:true});
+    const chip=name=>desk.dialog.getByRole('button',{name:'查看关联经文：'+name,exact:true});
+    const stamp=()=>status.getByText('已同步',{exact:true}).waitFor();
+    const typeRef=async(value,punct)=>{await refInput.fill(value);await desk.page.keyboard.insertText(punct);};
+    assert.equal(await refInput.count(),1);
+    assert.ok(await remove('撒母耳记下 4:1').isDisabled());
+    await remove('撒母耳记下 4:1').evaluate(el=>el.click());
+    assert.equal(await chip('撒母耳记下 4:1').count(),1,'last link cannot be removed even on a forced click');
+    const beforeBad=writes.length;
+    await typeRef('王中1:15','；');
+    await desk.dialog.getByText(/经文不存在/).waitFor();
+    assert.equal(await refInput.getAttribute('aria-invalid'),'true');assert.equal(writes.length,beforeBad);
+    assert.equal(await refInput.inputValue(),'王中1:15；');
+    await typeRef('王上1:15','，');await stamp();
+    await chip('列王纪上 1:15').click();
+    const preview=desk.page.getByRole('complementary',{name:'引用经文浮窗'});
+    await preview.getByText(/拔示巴进入内室见王/).first().waitFor();
+    await preview.getByRole('button',{name:'关闭经文浮窗'}).click();
+    await typeRef('王上1:16',';');await stamp();
+    assert.deepEqual(writes.at(-1).anchors,[['2SA',4,1,1],['1KI',1,15,15],['1KI',1,16,16]],'adjacent confirmed objects remain independently editable');
+    await snapshot(desk,'desktop-note');
+    await refInput.evaluate(el=>{
+      el.dispatchEvent(new Event('paste',{bubbles:true}));
+      el.value='哈拿回答说：“主啊，不是这样。”\n( 撒母耳记上 1:15 和合本 )';
+      el.setSelectionRange(el.value.length,el.value.length);
+      el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste'}));
+    });
+    const beforePaste=writes.length;assert.equal(await chip('撒母耳记上 1:15').count(),0);
+    await refInput.focus();await desk.page.keyboard.insertText('。');await stamp();
+    assert.equal(writes.length,beforePaste+1);assert.equal(await refInput.inputValue(),'');
+    assert.equal(await edit.inputValue(),'另一条独立笔记');
+    await desk.dialog.getByRole('button',{name:'搜索经文以添加关联'}).click();
+    await desk.dialog.getByRole('searchbox',{name:'搜索经文内容'}).fill('爱是恒久忍耐');
+    await desk.dialog.getByRole('button',{name:'加入关联：哥林多前书 13:4',exact:true}).click();await stamp();
+    assert.ok(await desk.dialog.getByRole('button',{name:'已关联：哥林多前书 13:4',exact:true}).isDisabled());
+    await desk.dialog.getByRole('button',{name:'返回关联经文'}).click();
+    await desk.dialog.getByRole('button',{name:'修改关联：撒母耳记下 4:1',exact:true}).click();
+    const modify=desk.dialog.getByRole('textbox',{name:'修改关联经文'});
+    const beforeEdit=writes.length;
+    await modify.fill('撒下3:99');await desk.page.keyboard.insertText('.');
+    assert.equal(await modify.getAttribute('aria-invalid'),'true');assert.equal(writes.length,beforeEdit);
+    assert.equal(await chip('撒母耳记下 4:1').count(),1,'invalid replacements leave the verified address alone');
+    await modify.fill('撒下3');await modify.press('Enter');await stamp();
+    assert.deepEqual(writes.at(-1).anchors.find(r=>r[0]==='2SA'),['2SA',3]);
+    for(const name of ['列王纪上 1:15','列王纪上 1:16','撒母耳记上 1:15','哥林多前书 13:4']){
+      await remove(name).click();await stamp();
+    }
+    assert.ok(await remove('撒母耳记下 3章').isDisabled());
     await status.getByText('已同步',{exact:true}).waitFor();
     assert.equal(writes.at(-1).anchor_key,second);assert.deepEqual(writes.at(-1).anchors,[['2SA',3]]);
     assert.equal(writes.at(-1).note_body,'另一条独立笔记');assert.equal(cloud.size,2);
@@ -191,6 +261,6 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await desk.page.waitForFunction(()=>document.querySelector('#stage [data-chapter-total="2SA.4"] [data-chapter-count="notes"]')?.textContent==='1');
     assert.equal(await count(other,4,'notes').textContent(),'0');
     assert.deepEqual([...desk.err,...phone.err,...other.err],[]);
-    console.log('PASS note editor, chapter counters, new and moved notes, keyboard layout, per-input sync, and account isolation');
+    console.log('PASS typed and copied references, preview, lookup, replace and remove, keyboard layout, ordered sync, and account isolation');
   }finally{releaseSend();await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

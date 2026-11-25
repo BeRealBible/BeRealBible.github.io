@@ -538,9 +538,11 @@
   const bookFrame=()=>{const r=stage.getBoundingClientRect();return {x:r.left+x,y:r.top+y,scale};};
   const paper=window.V25OriginalData,scripture=window.V25Scripture.create(window.BIBLE_SOURCE,paper);
   const citationLinks=window.V25CitationLinks.create(window.BIBLE_SOURCE);
-  const study=window.V25StudyQA?.mount({stage,paper,citationLinks,
+  const study=window.V25StudyQA?.mount({stage,paper,scripture,citationLinks,
     openWindow:options=>compare.openStudy(options),
     openCitation:(ref,options)=>compare.openCitation(ref,options),
+    closeCitation:container=>compare.closeCitation(container),
+    findVerses:query=>finder?.find(query)||[],
   });
   const studyObjects=(locations,chapters)=>[...scripture.from(locations,true),...chapters];
   const openStudy=study&&((locations,chapters,focus)=>study.open(studyObjects(locations,chapters),focus));

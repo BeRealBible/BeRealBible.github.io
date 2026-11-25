@@ -173,7 +173,11 @@
       }
       emit(host,offset,text.length);
     }
-    return {scan,append};
+    function bookCode(name){
+      const key=normalized(name).value.trim().toLowerCase();
+      return aliases.get(key.replace(/^列王记([上下])$/u,'列王纪$1'));
+    }
+    return {scan,append,bookCode};
   }
   return {create};
 });

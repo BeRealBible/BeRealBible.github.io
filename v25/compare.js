@@ -41,7 +41,7 @@
     const doc=stage.ownerDocument,win=doc.defaultView;
     let config=null,stream=null,lo=0,hi=0,activeRow=null,rows=[],manual=null,adjust=null,placed=null,foldedMark=null;
     let lastTop=0,lastChapter=null,collapsed=false,loadedAt=0;
-    let editor=null,resting=null,keyboardFrame=0;
+    let editor=null,resting=null,keyboardFrame=0,keyboardSettle=0;
     function node(tag,cls,text){
       const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
     }
@@ -140,6 +140,7 @@
     }
     function clearKeyboard(){
       panel.removeAttribute('data-note-keyboard');editor?.style.removeProperty('--note-keyboard-inset');
+      win.clearTimeout(keyboardSettle);keyboardSettle=0;
     }
     function releaseEditor(){
       clearKeyboard();editor=null;
@@ -152,12 +153,15 @@
       let rect=editor.getBoundingClientRect();
       const room=Math.min(78,Math.max(0,bottom-top-5)),lift=rect.top+room-bottom;
       if(lift>0&&rect.top>top){scroll.scrollTop+=Math.min(lift,rect.top-top)/z;rect=editor.getBoundingClientRect();}
+      if(!editor.matches('.study-notes__field'))return; // Single-row association/search controls only need to be visible.
       const cover=clamp(Math.ceil((rect.bottom-bottom+6)/z),0,editor.clientHeight-33);
       const padding=cover+'px';
       if(editor.style.getPropertyValue('--note-keyboard-inset')!==padding){
         editor.style.setProperty('--note-keyboard-inset',padding);
-        // Check again after the browser's own viewport/caret adjustments.
+        // Chromium may update the textarea's internal scroll height after
+        // the visual viewport resize has painted, not in this layout pass.
         scheduleKeyboard();
+        win.clearTimeout(keyboardSettle);keyboardSettle=win.setTimeout(scheduleKeyboard,65);
       }
       const line=caretLine(editor,win),y=rect.top+editor.clientTop*z;
       const upper=Math.max(0,(top+3-y)/z),lower=Math.min(editor.clientHeight,(bottom-3-y)/z);
@@ -170,7 +174,7 @@
       keyboardFrame=win.requestAnimationFrame(()=>{keyboardFrame=0;reflow();});
     }
     panel.addEventListener('focusin',e=>{
-      if(e.target.matches?.('.study-notes__field')){editor=e.target;scheduleKeyboard();}
+      if(e.target.matches?.('.study-notes__field,.study-notes__ref-input,.study-notes__search-input')){editor=e.target;scheduleKeyboard();}
     });
     panel.addEventListener('focusout',e=>{
       if(editor&&e.target===editor){releaseEditor();if(!panel.hidden&&!collapsed)reflow();}
