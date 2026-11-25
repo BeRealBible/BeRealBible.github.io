@@ -67,3 +67,11 @@ html.paper-immersive,.paper-immersive body{background:#211e1a}
   box-shadow:0 1px 5px #442f2424;touch-action:manipulation;white-space:nowrap;
 }
 .stage>.spread-start-shortcut:is(:hover,:focus-visible):not([hidden]){background:#fbf4e5;color:#503b28}
+.stage>#spread-start-shortcut[data-corner]:not([hidden]){
+  inset:var(--return-y,0px) auto auto var(--return-x,0px);
+  min-height:42px;padding:0 10px;border-color:#b79a6e45;
+  background:#fcf7e9f5;color:#7a6249;box-shadow:0 1px 2px #55402712;
+}
+.stage>#spread-start-shortcut[data-corner]:is(:hover,:focus-visible):not([hidden]){
+  border-color:#a3855f74;background:#fffaf0;color:#664e36;
+}

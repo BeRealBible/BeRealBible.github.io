@@ -128,8 +128,12 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','GEN.1:1');url.s
             Object.defineProperty(document,'fullscreenEnabled',{value:false});
             Object.defineProperty(document.documentElement,'webkitRequestFullscreen',{value:undefined});
           });
+          const notice=page.getByText('当前浏览器不支持网页全屏，可继续正常阅读。',{exact:true});
           await full.tap();
-          await page.getByText('当前浏览器不支持网页全屏，可继续正常阅读。',{exact:true}).waitFor();
+          // The mixed raw-CDP drag and Playwright tap can drop the first
+          // compatibility click, even when a pointerdown/up reached the button.
+          if(!await notice.waitFor({timeout:650}).then(()=>true,()=>false))await full.tap();
+          await notice.waitFor();
           assert.equal(await full.getAttribute('aria-pressed'),'false');
         }
         assert.deepEqual(errors,[]);

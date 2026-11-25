@@ -26,12 +26,13 @@
   const TEXT_HOLD_MS=360,MOVE_SLOP=8,SWIPE_MIN=30,MAX_SCALE=3.2,PAN_PAD=18,MAX_SPREAD=Math.min(LAST_PAGE&~1,(D.pages.length-2)&~1);
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   let spread=0,scale=1,fitScale=1,x=0,y=0,focus='fit',view={w:0,h:0};
-  let fold=null,foldFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
+  let fold=null,foldFrame=0,foldDragFrame=0,holdTimer=null,feedbackTimer=null,gesture=null,chapters=null,jumpState=null;
   let finder=null,searchAnchor=null,compare=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null,controllerReady=false;
   const pointers=new Map();
   let suppressBandClick=null, coverZoom=null, opening=null;
   let startShortcut=null,startShortcutTimer=0,startShortcutSpread=null,startPanFrame=0,startPanKind=null;
+  let panPaintFrame=0,coastFrame=0;
   let columnShortcut=null,columnShortcutTimer=0,columnOffer=null,columnGeometry=null,columnReading=null;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
   if(saved&&Number.isFinite(saved.spread))spread=clamp(saved.spread&~1,0,MAX_SPREAD);
@@ -157,7 +158,7 @@
     else x=clamp(x,view.w-pad-e.right*scale,pad-e.left*scale);
     const [minY,maxY]=verticalLimits(e.bottom*scale);y=clamp(y,minY,maxY);
   }
-  function transform(){
+  function transform(panOnly=false){
     if(flatTouch&&CSS.supports('zoom','1')){
       // CSS zoom affects the layout coordinate system, so divide offsets by
       // zoom to retain exactly the same hit-test and pan coordinates.
@@ -170,7 +171,10 @@
     stage.dataset.scale=scale.toFixed(4);stage.dataset.x=x.toFixed(2);stage.dataset.y=y.toFixed(2);
     ['fit-book','focus-left','focus-right'].forEach((id,i)=>$(id).classList.toggle('active',focus===['fit','left','right'][i]));
     $('surface-caption').style.opacity=scale>fitScale*1.2?'0':'1';
-    updateIndex();chapters?.reposition?.();finder?.layout();window.dispatchEvent(new Event('v25-camera-changed'));
+    // A translation moves the mounted paper, its cuts and its ink together.
+    // Only scale, selection of the current book or a new spread needs the index repainted.
+    if(!panOnly)updateIndex();
+    positionStartShortcut();chapters?.reposition?.();finder?.layout();window.dispatchEvent(new Event('v25-camera-changed'));
   }
   function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
   function fit(){interrupt(true);focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
@@ -291,7 +295,7 @@
       const t=clamp((now-started)/460,0,1);
       if(t===1){complete();return;}
       const eased=(1-Math.cos(t*Math.PI))/2;
-      x=fromX+(toX-fromX)*eased;y=fromY+(toY-fromY)*eased;transform();
+      x=fromX+(toX-fromX)*eased;y=fromY+(toY-fromY)*eased;transform(true);
       startPanFrame=requestAnimationFrame(frame);
     }
     startPanFrame=requestAnimationFrame(frame);
@@ -301,6 +305,53 @@
     slideCamera(cameraTarget(targetX,targetY),kind,()=>{
       readingSide=side;onCommit?.();render({reusePages:true});transform();save();advanceHistory();
     });
+  }
+  function bindPaperAction(button,activate,dismiss){
+    // A real touch tap can follow a captured swipe before the browser resumes
+    // synthetic clicks. Use the short, in-bounds release and suppress its duplicate.
+    let contact=null,fence=0;
+    button.addEventListener('click',e=>{
+      if(e.pointerType!=='touch'&&(e.detail===0||e.pointerType==='mouse'||performance.now()>fence))activate();
+    });
+    button.addEventListener('pointerdown',e=>{
+      if(e.pointerType!=='touch'||!e.isPrimary)return;
+      fence=performance.now()+700;contact={id:e.pointerId,x:e.clientX,y:e.clientY};
+      try{button.setPointerCapture(e.pointerId);}catch{}
+    });
+    const moved=e=>contact?.id===e.pointerId&&Math.hypot(e.clientX-contact.x,e.clientY-contact.y)>8;
+    button.addEventListener('pointermove',e=>{if(moved(e))contact=null;});
+    button.addEventListener('pointerup',e=>{
+      if(e.pointerType==='touch')fence=performance.now()+700;
+      if(contact?.id!==e.pointerId)return;
+      const short=!moved(e);contact=null;const r=button.getBoundingClientRect();
+      if(short&&!button.hidden&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
+        e.preventDefault();activate();
+      }
+    });
+    for(const type of ['pointercancel','lostpointercapture'])button.addEventListener(type,e=>{if(contact?.id===e.pointerId)contact=null;});
+    button.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dismiss();}});
+  }
+  function positionStartShortcut(){
+    if(!startShortcut||startShortcut.hidden)return;
+    const rect=stage.getBoundingClientRect(),vv=window.visualViewport;
+    const left=Math.max(rect.left,(vv?.offsetLeft||0)+8),right=Math.min(rect.right,(vv?.offsetLeft||0)+(vv?.width||innerWidth)-8);
+    const top=Math.max(rect.top,(vv?.offsetTop||0)+8);
+    let bottom=Math.min(rect.bottom,(vv?.offsetTop||0)+(vv?.height||innerHeight)-8);
+    if(document.documentElement.dataset.readerChrome==='visible'){
+      const shelf=$('reading-history')?.getBoundingClientRect();if(shelf?.height)bottom=Math.min(bottom,shelf.top-6);
+    }
+    const forward=startShortcut.dataset.corner==='lower-right',w=startShortcut.offsetWidth,h=startShortcut.offsetHeight;
+    // Treat each visible paper face separately: never land over the gutter,
+    // the book tabs, the reading shelf or a clipped part of a page.
+    for(const paper of (forward?[papers[1],papers[0]]:papers)){
+      const p=paper.getBoundingClientRect(),l=Math.max(left,p.left+8),r=Math.min(right,p.right-8),t=Math.max(top,p.top+8),b=Math.min(bottom,p.bottom-8);
+      if(r-l<w||b-t<h)continue;
+      const inset=Math.min(34,Math.max(0,(b-t-h)*.18));
+      startShortcut.style.setProperty('--return-x',((forward?r-w:l)-rect.left)+'px');
+      startShortcut.style.setProperty('--return-y',((forward?b-h-inset:t+inset)-rect.top)+'px');
+      startShortcut.style.visibility='';return;
+    }
+    startShortcut.style.visibility='hidden';
   }
   function offerStartShortcut(direction){
     const forward=direction>0,pad=18;
@@ -313,20 +364,23 @@
       startShortcut=document.createElement('button');startShortcut.type='button';
       startShortcut.id='spread-start-shortcut';startShortcut.className='spread-start-shortcut';
       startShortcut.hidden=true;stage.append(startShortcut);
-      startShortcut.addEventListener('keydown',e=>{
-        if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hideStartShortcut();}
-      });
+      bindPaperAction(startShortcut,()=>startShortcut.activate?.(),hideStartShortcut);
+      new MutationObserver(positionStartShortcut).observe(document.documentElement,{attributes:true,attributeFilter:['data-reader-chrome']});
+      window.visualViewport?.addEventListener('resize',positionStartShortcut);
+      window.visualViewport?.addEventListener('scroll',positionStartShortcut);
     }
     hideStartShortcut();startShortcutSpread=spread;startShortcut.hidden=false;
-    startShortcut.textContent=forward?'↖ 回左上':'↘ 到右下';
-    startShortcut.setAttribute('aria-label',forward?'从当前跨页左上角开始阅读':'回到上一跨页的右下角');
-    startShortcut.onclick=()=>{
+    startShortcut.dataset.corner=forward?'lower-right':'upper-left';
+    startShortcut.textContent=forward?'↖ 回左上':'↘ 回右下';
+    startShortcut.setAttribute('aria-label',forward?'回到左上角，从新跨页开始阅读':'回到上一跨页的右下角');
+    startShortcut.activate=()=>{
       if(startShortcutSpread!==spread||startShortcut.hidden||fold||jumpState||!needsPan()){
         hideStartShortcut();return;
       }
       hideStartShortcut();columnReading=null;
       panToReadingPoint(targetX(),targetY(),forward?0:1,'spreadStartPan');
     };
+    positionStartShortcut();
     startShortcutTimer=setTimeout(hideStartShortcut,4000);
   }
   // Cache actual ink extents per displayed spread, in the same physical
@@ -393,33 +447,7 @@
           columnReading={spread,id:next.id,x,scale};
         });
       };
-      columnShortcut.addEventListener('click',e=>{if(e.pointerType!=='touch'&&
-        (e.detail===0||e.pointerType==='mouse'||performance.now()>touchClickFence))activate();});
-      // Immediately after a pan, Chrome may dispatch touch pointer events
-      // but suppress the synthetic click. Confirm the short tap directly.
-      let contact=null,touchClickFence=0;
-      columnShortcut.addEventListener('pointerdown',e=>{
-        if(e.pointerType!=='touch'||!e.isPrimary)return;
-        touchClickFence=performance.now()+700;contact={id:e.pointerId,x:e.clientX,y:e.clientY};
-        try{columnShortcut.setPointerCapture(e.pointerId);}catch{}
-      });
-      columnShortcut.addEventListener('pointermove',e=>{
-        if(contact?.id===e.pointerId&&Math.hypot(e.clientX-contact.x,e.clientY-contact.y)>8)contact=null;
-      });
-      columnShortcut.addEventListener('pointerup',e=>{
-        if(e.pointerType==='touch')touchClickFence=performance.now()+700;
-        if(contact?.id!==e.pointerId)return;
-        const start=contact;contact=null;
-        const r=columnShortcut.getBoundingClientRect();
-        if(!columnShortcut.hidden&&Math.hypot(e.clientX-start.x,e.clientY-start.y)<=8&&
-          e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){e.preventDefault();activate();}
-      });
-      for(const name of ['pointercancel','lostpointercapture'])columnShortcut.addEventListener(name,e=>{
-        if(contact?.id===e.pointerId)contact=null;
-      });
-      columnShortcut.addEventListener('keydown',e=>{
-        if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hideColumnShortcut();}
-      });
+      bindPaperAction(columnShortcut,activate,hideColumnShortcut);
     }
     hideStartShortcut();hideColumnShortcut();columnOffer={spread,next};
     columnShortcut.hidden=false;columnShortcutTimer=setTimeout(hideColumnShortcut,2000);
@@ -428,7 +456,7 @@
   function clearHold(){clearTimeout(holdTimer);holdTimer=null;}
   function startFold(direction,count=1,source='control',contact=null){
     if(fold||jumpState)return false;
-    hideStartShortcut();hideColumnShortcut();cancelStartPan();
+    stopCoast();hideStartShortcut();hideColumnShortcut();cancelStartPan();
     const target=clamp(spread+direction*count*2,0,MAX_SPREAD);
     if(target===spread){feedback(direction>0?'已经到最后一页':'已经到第一页');return false;}
     const side=direction>0?1:0;
@@ -462,6 +490,7 @@
   }
   function finishFold(commit){
     if(!fold)return;const f=fold;cancelAnimationFrame(foldFrame);foldFrame=0;
+    cancelAnimationFrame(foldDragFrame);foldDragFrame=0;
     renderer.hide();book.classList.remove('curl-active');papers[f.side].classList.remove('under-curl');papers[f.side].style.removeProperty('--under-sheet-clip');fold=null;
     if(commit){preciseRef=null;spread=f.target;readingSide=focus==='left'||(focus==='custom'&&(view.w/2-x)/scale<480)?0:1;render({preserveSelection:selection?.isActive()});fitScale=measureFit();if(focus==='fit')scale=fitScale;constrain();transform();save();advanceHistory();}
     else{if(f.animate){papers[f.side].innerHTML=f.original;applyMaterial();updateIndex();}selection?.refresh?.();}
@@ -471,6 +500,7 @@
   }
   function settleFold(commit=true){
     if(!fold||fold.settling)return;const f=fold;f.settling=true;f.commit=commit;
+    flushFoldDrag();
     stage.dataset.foldState=commit?'settling-forward':'settling-back';
     const start=f.progress,target=commit?1:0,vertical=f.vertical,remaining=Math.abs(target-start);
     if(!f.animate||remaining<.0001||reduceMotion()){finishFold(commit);return;}
@@ -490,7 +520,7 @@
     if(startFold(direction,count,source))settleFold();
   }
   function interrupt(keepSelection=false){
-    hideStartShortcut();hideColumnShortcut();cancelStartPan();desk?.cancel();columnReading=null;
+    stopCoast();hideStartShortcut();hideColumnShortcut();cancelStartPan();desk?.cancel();columnReading=null;
     clearHold();queuedTurns=[];if(keepSelection!==true){selection?.reset({keepFocus:true});compare?.clearSelection();}
     pointers.clear();gesture=null;stage.classList.remove('dragging','curl-dragging');
     chapters?.close();
@@ -661,10 +691,52 @@
     const margin=24;
     return by<=margin?1:by>=704-margin?-1:0;
   }
-  function panTo(px,py){
+  function flushPanPaint(){
+    if(!panPaintFrame)return;
+    cancelAnimationFrame(panPaintFrame);panPaintFrame=0;transform(true);
+  }
+  function panTo(px,py,batch=false){
     const oldX=x,oldY=y;x=px;y=py;constrain();
     if(Math.abs(x-oldX)<.00001&&Math.abs(y-oldY)<.00001)return false;
-    searchAnchor=null;hideStartShortcut();hideColumnShortcut();focus='custom';transform();return true;
+    searchAnchor=null;hideStartShortcut();hideColumnShortcut();focus='custom';
+    if(batch){
+      if(!panPaintFrame)panPaintFrame=requestAnimationFrame(()=>{panPaintFrame=0;transform(true);});
+    }else if(panPaintFrame)flushPanPaint();else transform(true);
+    return true;
+  }
+  function samplePan(g,c,e){
+    if(!g.samples)return;
+    const add=({x,y,t})=>{
+      const last=g.samples.at(-1);
+      if(last&&(t<last.t||Math.hypot(x-last.x,y-last.y)<1))return;
+      g.samples.push({x,y,t});
+      while(g.samples.length>2&&t-g.samples[0].t>110)g.samples.shift();
+    };
+    for(const p of e.getCoalescedEvents?.()||[])add({x:c.x+p.clientX-e.clientX,y:c.y+p.clientY-e.clientY,t:p.timeStamp});
+    add(c);
+  }
+  function stopCoast(){
+    flushPanPaint();if(!coastFrame)return;
+    cancelAnimationFrame(coastFrame);coastFrame=0;delete stage.dataset.panCoasting;save();
+  }
+  function coast(g,end,done){
+    if(!g.panned||!g.samples||reduceMotion())return false;
+    const last=g.samples.at(-1),first=g.samples.find(p=>last.t-p.t<=100);
+    if(!first||end.t-last.t>72||last.t-first.t<12)return false;
+    const dt=last.t-first.t;let vx=(last.x-first.x)/dt,vy=(last.y-first.y)/dt;
+    if(Math.abs(vx)>2.2*Math.abs(vy))vy=0;else if(Math.abs(vy)>2.2*Math.abs(vx))vx=0;
+    const speed=Math.hypot(vx,vy);if(speed<.38)return false;
+    const duration=clamp(210+speed*58,230,390),travel=duration/2.8,fromX=x,fromY=y;
+    const to=cameraTarget(x+clamp(vx*travel,-view.w*.8,view.w*.8),y+clamp(vy*travel,-view.h*.85,view.h*.85));
+    if(Math.hypot(to.x-x,to.y-y)<12)return false;
+    const started=performance.now();stage.dataset.panCoasting='true';
+    function frame(now){
+      const t=clamp((now-started)/duration,0,1),p=1-(1-t)**3;
+      panTo(fromX+(to.x-fromX)*p,fromY+(to.y-fromY)*p);
+      if(t<1)coastFrame=requestAnimationFrame(frame);
+      else{coastFrame=0;delete stage.dataset.panCoasting;done();}
+    }
+    coastFrame=requestAnimationFrame(frame);return true;
   }
   function revealAtVerticalEnd(dy){
     if(!v25||fold||jumpState||chapters?.isOpen()||!dy)return false;
@@ -673,6 +745,7 @@
     window.PaperImmersion?.showAtReadingBoundary();return true;
   }
   function pointerDown(e){
+    if(!pointers.size&&e.button<=0)stopCoast();
     let target=e.target;
     if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact]')){
       // A nearby button may win the browser's touch adjustment even when
@@ -715,7 +788,7 @@
       fromPaper:onPaper(bx,by),
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
       contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
-      direction:0,trend:1,extreme:0};
+      direction:0,trend:1,extreme:0,samples:flatTouch&&e.pointerType==='touch'&&!pressTarget&&onPaper(bx,by)?[start]:null};
     if(token&&!selection.isActive())holdTimer=setTimeout(()=>{
       holdTimer=null;if(gesture!==g||pointers.size!==1||g.kind!=='pending'||g.pinched)return;
       g.kind='held';selection.hold(token);stage.dataset.lastGesture='text-hold';
@@ -732,6 +805,11 @@
   }
   function curlTravel(g,dx,dy){
     return g.verticalTurn?g.rim*dy:-g.edge*dx;
+  }
+  function flushFoldDrag(){
+    cancelAnimationFrame(foldDragFrame);foldDragFrame=0;
+    if(!fold?.pendingPose)return;
+    const {progress,vertical}=fold.pendingPose;fold.pendingPose=null;updateFold(progress,vertical);
   }
   function trackCurl(g,c,e){
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
@@ -751,7 +829,10 @@
     rememberStroke(g,out);
     const progress=clamp(out/Math.max(1,2*fold.radius*g.baseScale),0,1),
       vertical=!g.verticalTurn&&!smoothTurn&&out?clamp((c.y-g.start.y)/g.baseScale,-210,210):0;
-    if(fold.progress!==progress||fold.vertical!==vertical)updateFold(progress,vertical);
+    if(fold.progress===progress&&fold.vertical===vertical&&!fold.pendingPose)return;
+    if(flatTouch&&fold.animate){
+      fold.pendingPose={progress,vertical};if(!foldDragFrame)foldDragFrame=requestAnimationFrame(flushFoldDrag);
+    }else updateFold(progress,vertical);
   }
   function releaseCurl(g,end){
     const out=curlTravel(g,end.x-g.start.x,end.y-g.start.y);
@@ -786,13 +867,16 @@
       if(g.kind==='pan')stage.classList.add('dragging');
     }
     if(g.kind==='swipe')trackCurl(g,c,e);
-    else if(g.kind==='pan'&&!fold){if(panTo(g.baseX+dx,g.baseY+dy))g.panned=true;}
+    else if(g.kind==='pan'&&!fold){
+      samplePan(g,c,e);if(panTo(g.baseX+dx,g.baseY+dy,flatTouch&&e.pointerType==='touch'))g.panned=true;
+    }
   }
   function pointerUp(e,cancelled=false){
     if(!pointers.has(e.pointerId))return;
     // Browsers can coalesce the last move into pointerup. The final contact,
     // especially a last-moment reversal, must decide the release, not stale ink.
     if(!cancelled)pointerMove(e);
+    flushPanPaint();
     clearHold();const g=gesture;
     const end=relative(e);pointers.delete(e.pointerId);
     if(cancelled&&g)g.cancelled=true;
@@ -828,13 +912,17 @@
       const commit=releaseCurl(g,end);stage.dataset.lastGesture=commit?'swipe-turn':'swipe-return';settleFold(commit);return;
     }
     if(g.kind==='pan'){
-      stage.dataset.lastGesture='pan';if(g.panned)save();
+      stage.dataset.lastGesture='pan';
       const dx=end.x-g.start.x,dy=end.y-g.start.y;
-      if(!g.band&&(g.fromPaper||g.panned)&&Math.abs(dy)>=SWIPE_MIN&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
-      if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)){
-        const column=mobileReadingColumn(e.pointerType);
-        if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
-      }
+      const done=()=>{
+        if(g.panned)save();
+        if(!g.band&&(g.fromPaper||g.panned)&&Math.abs(dy)>=SWIPE_MIN&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
+        if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)){
+          const column=mobileReadingColumn(e.pointerType);
+          if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
+        }
+      };
+      if(!coast(g,end,done))done();
     }
   }
   // Capture before a compact tab handles its native click; drags starting on
@@ -882,7 +970,7 @@
       return;
     }
     e.preventDefault();if(pointers.size){wheelBurst=null;return;}
-    hideColumnShortcut();cancelStartPan();
+    stopCoast();hideColumnShortcut();cancelStartPan();
     if(scale>fitScale+.00001){
       if(fold){wheelBurst=null;return;}
       if(panTo(x-dx,y-dy))save();wheelStroke(e,dx,dy);return;
