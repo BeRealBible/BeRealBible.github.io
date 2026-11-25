@@ -65,6 +65,52 @@
       if(hi<lo)return null;
       return scripture.resolve(loc(ref)).length?ref:null;
     }
+    function neighbor(code,pos,step){
+      const book=scripture.index(code),ch=Math.floor(pos/1000),verse=pos%1000,row=book?.byRef.get(ch+':'+verse);
+      if(!row)return null;
+      if(verse+step>=row.lo&&verse+step<=row.hi)return pos+step;
+      const next=book.rows[row.order+step];
+      return next?next.ch*1000+(step<0?next.hi:next.lo):null;
+    }
+    const between=(code,from,to)=>from!=null&&to!=null&&from<=to?
+      checked(code,Math.floor(from/1000),from%1000,to%1000,Math.floor(to/1000)):null;
+    const inOrder=(a,b)=>scripture.index(a.code).book.index-scripture.index(b.code).book.index||
+      a.ch-b.ch||(a.lo??0)-(b.lo??0);
+    function mergePicks(refs,crossChapter){
+      const unique=[...new Map(refs.map(ref=>[key(ref),ref])).values()].sort(inOrder);
+      const whole=unique.filter(ref=>ref.lo==null),ranges=[];
+      for(const ref of unique){
+        if(ref.lo==null)continue;
+        const last=ranges.at(-1),from=startOf(ref),to=endOf(ref);
+        if(last?.code===ref.code){
+          const end=endOf(last);
+          if(from<=end||neighbor(ref.code,end,1)===from){
+            if(to<=end)continue;
+            const combined=(crossChapter||last.ch===Math.floor(to/1000))&&between(ref.code,startOf(last),to);
+            if(combined){ranges[ranges.length-1]=combined;continue;}
+          }
+        }
+        ranges.push(ref);
+      }
+      return [...whole,...ranges].sort(inOrder);
+    }
+    function subtractPick(ref,part){
+      if(ref.code!==part.code)return [ref];
+      if(ref.lo==null||part.lo==null)return key(ref)===key(part)?[]:[ref];
+      const from=startOf(ref),to=endOf(ref),lo=startOf(part),hi=endOf(part);
+      if(to<lo||hi<from)return [ref];
+      return [lo>from&&between(ref.code,from,neighbor(ref.code,lo,-1)),
+        hi<to&&between(ref.code,neighbor(ref.code,hi,1),to)].filter(Boolean);
+    }
+    function togglePick(picks,option,{crossChapter=true}={}){
+      // Whole chapters remain explicit chapter objects; only staged verse
+      // ranges are joined or split. Never regroup the note's saved anchors.
+      const ref=decode(encode(option));
+      if(!ref)return picks;
+      return picks.some(item=>covers(item,ref))
+        ?picks.flatMap(item=>subtractPick(item,ref)).sort(inOrder)
+        :mergePicks([...picks,ref],crossChapter);
+    }
     function start(value,defaultCode,resolve=bookCode){
       const text=value.trim();
       const local=defaultCode&&localAddress.exec(text);
@@ -232,7 +278,7 @@
       // book-name match without a valid completion is only a candidate.
       return suffix?suggest(value+suffix,options):single;
     }
-    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion};
+    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion,togglePick};
   }
   function describe(objects,books,parser,plain){
     if(!objects.some(o=>o.endCh>o.ch))return plain(objects);

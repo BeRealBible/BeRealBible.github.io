@@ -99,6 +99,14 @@ for(const raw of ['王上2:3-1:53','王上1:54至2:3','王上1:53至2:999','王�
   assert.equal(keys(raw),null,raw);
 }
 const span=parser.exact('1:53~2:3','1KI');
+const toggle=(picks,raw,options)=>parser.togglePick(picks,parser.exact(raw),options);
+let picks=toggle(toggle([], '路2:12'), '路2:14');
+assert.deepEqual(picks.map(key),['LUK.2:12-12','LUK.2:14-14'],'gaps are not added');
+picks=toggle(picks,'路2:13');
+assert.deepEqual(picks.map(key),['LUK.2:12-14'],'adjacent picks make one range');
+assert.deepEqual(toggle(picks,'路2:13').map(key),['LUK.2:12-12','LUK.2:14-14'],'deselecting splits an existing range');
+assert.deepEqual(toggle(toggle([], '路2'), '路2'),[]);
+assert.deepEqual(toggle([span],'王上2:1').map(key),['1KI.1:53-53','1KI.2:2-3']);
 assert.deepEqual(encode(span),['1KI',1,53,2,3]);
 assert.deepEqual(decode(encode(span)),span);
 assert.deepEqual(parser.locations(span),[{code:'1KI',ref:'1:53'},{code:'1KI',ref:'2:1-3'}]);

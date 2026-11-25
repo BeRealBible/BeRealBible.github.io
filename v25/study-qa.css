@@ -85,6 +85,15 @@
 .study-notes__lookup:has([aria-invalid=true]){border-color:#a54a35}
 .study-notes__ref-input{box-sizing:border-box;display:block;flex:1 1 0;min-width:0;width:100%;min-height:24px;padding:3px 1px;resize:none;color:#3b2c21;background:transparent;border:0;font:inherit;font-size:calc(12px * var(--note-ui-scale,1));line-height:1.3;white-space:pre-wrap;user-select:text;-webkit-user-select:text;touch-action:auto}
 .study-notes__lookup .study-notes__ref-input:focus-visible{outline:0}
+.study-notes__lookup[data-picked]{border-color:#aa7d58;background:#f0e5d2}
+.study-notes__lookup[data-picked] .study-notes__ref-input{position:static;transform:none;width:0;height:auto;min-height:29px;max-height:5.4em;
+  padding:3px 2px;color:#753f30;font-size:calc(12px * var(--note-ui-scale,1));line-height:1.42;white-space:pre-wrap}
+.study-notes__pick-actions{display:flex;flex:none;align-self:flex-start;margin-inline-start:auto}
+.study-notes__pick-action{display:grid;place-items:center;width:30px;height:32px;padding:0;border:0;border-radius:4px;color:#634632}
+.study-notes__pick-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.study-notes__pick-action:hover:not(:disabled){background:#aa81592e}
+.study-notes__pick-action:disabled{opacity:.45;cursor:default}
+@media(pointer:coarse){.study-notes__pick-action{width:34px;height:36px}}
 .study-notes__ref-feedback,.study-notes__search-status{margin:4px 0 0;font-size:.74em;line-height:1.45;color:#685746;overflow-wrap:anywhere}
 .study-notes__ref-feedback:empty,.study-notes__search-status:empty{display:none}
 .study-notes__ref-feedback[data-error]{color:#8e2d20;background:#f9e8dd;border-radius:4px;padding:4px 6px}
@@ -107,6 +116,7 @@
 .study-notes__result-text{display:grid;min-width:0;gap:2px;justify-items:start}
 .study-notes__result-ref{color:#69412d;font-weight:650;text-align:left}
 .study-notes__result-excerpt{line-height:1.45;overflow-wrap:anywhere}
+.study-notes__result[aria-pressed=true],.study-notes__address-option[aria-pressed=true]{background:#eadcc4;color:#753f30}
 .study-notes__result[aria-disabled=true],.study-notes__address-option[aria-disabled=true]{opacity:.68;cursor:default}
 .study-notes__anchors :where(button,input,textarea,[role=button]):focus-visible{outline:2px solid #86613c;outline-offset:-1px}
 .study-notes__add-slot{display:flex;flex:0 0 32px}

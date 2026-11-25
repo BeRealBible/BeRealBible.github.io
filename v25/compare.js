@@ -69,11 +69,11 @@
     const back=action('back','返回搜索结果','M20 12H4m7-7-7 7 7 7',()=>close('back',true));
     const jump=action('jump','在主书查看','M13 5h6v6m0-6-8 8m7 0v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',()=>{if(activeRow)config?.onJump?.(activeRow);});
     const pin=action('pin','固定经文浮窗','m15 4 5 5-3 1-3 4 .5 2.5L13 18l-7-7 1.5-1.5 2.5.5 4-3 1-3ZM9.5 14.5 4 20',()=>config?.onPin?.(config.rows,activeRow));
-    let notePicked=null;
+    let notePicked=[];
     const noteOptions=new WeakMap();
     const noteFooter=node('footer','compare-slip__note-footer'),noteStatus=node('span');
     const noteConfirm=btn('compare-slip__note-confirm','确定插入','确定插入',()=>{
-      if(notePicked&&config?.picker?.confirm(notePicked))close('confirmed',true);
+      if(notePicked.length&&config?.picker?.confirm(notePicked))close('confirmed',true);
       else updateNotePicks();
     });
     noteStatus.setAttribute('role','status');noteFooter.append(noteStatus,noteConfirm);
@@ -254,7 +254,7 @@
     function close(reason='dismiss',restore=false){
       if(!config)return;
       releaseEditor();picking?.close();onHide?.();
-      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;notePicked=null;noteFooter.remove();
+      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;notePicked=[];noteFooter.remove();
       rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
@@ -263,21 +263,23 @@
     function updateNotePicks(){
       const picker=config?.picker;if(!picker)return;
       for(const el of scroll.querySelectorAll('[data-note-pick-option]')){
-        const ref=noteOptions.get(el),pressed=notePicked?.id===ref.id,used=!!picker.has?.(ref);
+        const ref=noteOptions.get(el),pressed=picker.selected(notePicked,ref),used=!!picker.has?.(ref);
         el.setAttribute('aria-pressed',String(pressed));el.setAttribute('aria-disabled',String(used));
         if(ref.lo!=null)el.toggleAttribute('data-selected-verse',pressed);
       }
-      const error=notePicked&&picker.error(notePicked);
-      noteStatus.textContent=error||(notePicked?'已选：'+notePicked.short+' '+notePicked.display:'轻点经节或章标题');
+      const count=notePicked.length,error=count&&picker.error(notePicked),label=notePicked.map(picker.label).join('；');
+      noteStatus.textContent=error||(count===1?'已选：'+label:count?'已选 '+count+' 处':'轻点经节或章标题');
+      noteStatus.title=label;
       noteStatus.toggleAttribute('data-error',!!error);
-      noteConfirm.disabled=!notePicked||!!error;
+      noteConfirm.disabled=!count||!!error;
     }
     function bindNoteOption(el,ref){
       noteOptions.set(el,ref);el.dataset.notePickOption='';
       el.setAttribute('aria-label','选择：'+ref.name+' '+ref.display);
       el.addEventListener('click',()=>{
-        if(!config?.picker||config.picker.has?.(ref))return;
-        notePicked=ref;updateNotePicks();
+        const picker=config?.picker;
+        if(!picker||!picker.selected(notePicked,ref)&&picker.has?.(ref))return;
+        notePicked=picker.toggle(notePicked,ref);updateNotePicks();
       });
       if(el.tagName!=='BUTTON'){
         el.tabIndex=0;el.setAttribute('role','button');

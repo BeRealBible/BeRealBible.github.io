@@ -29,7 +29,11 @@
 
     const field=make('div','study-notes__lookup'),input=make('textarea','study-notes__ref-input');
     input.rows=1;input.wrap='off';input.maxLength=24000;input.spellcheck=false;input.autocomplete='off';
-    field.append(input);
+    const actions=make('span','study-notes__pick-actions'),
+      cancel=button('','study-notes__pick-action','取消预选'),
+      done=button('','study-notes__pick-action','确认插入经文');
+    icon(cancel,'m6 6 12 12M18 6 6 18');icon(done,'m5 12 4 4 10-10');
+    actions.hidden=true;actions.append(cancel,done);field.append(input,actions);
     const feedback=make('p','study-notes__ref-feedback'),chipFeedback=make('p','study-notes__ref-feedback');
     feedback.id=nonce+'-feedback';
     for(const el of [feedback,chipFeedback])el.setAttribute('aria-live','polite');
@@ -43,7 +47,9 @@
     chooser.append(field,feedback,output);root.append(chipFeedback);
 
     let refs=[],shown='',editing=null,restore=null,pasted=false,composing=false,idle=0,entered=false,
-      matches=[],rendered=[],listed=0,browseTarget=null;
+      matches=[],rendered=[],listed=0,browseTarget=null,picks=[],guide=null;
+    const toggle=(items,ref)=>parser.togglePick(items,ref,{crossChapter:spansEnabled});
+    const selected=(items,ref)=>items.some(item=>covers(item,ref));
     const browseStream=win.V25AddressStream.create({viewport:results,renderVerse:rowOption,renderChapter:chapterOption,onExtend:decorateResults});
     function message(text='',error=false){
       for(const el of [feedback,chipFeedback]){
@@ -74,11 +80,12 @@
       input.blur();closePreview(root);
       openSearch({owner:root,anchor:input,query,picker:{
         has:row=>refs.some(ref=>covers(ref,row)),
-        error:row=>pickProblem(row,refs),
-        confirm(row){
-          if(!root.isConnected||chooser.hidden||editing||!row||pickProblem(row,refs))return false;
-          const {code,ch,lo,hi}=row;
-          return apply([...refs,{code,ch,lo,hi}]);
+        selected,toggle,
+        label:row=>title(row,true),
+        error:items=>pickProblem(items,refs),
+        confirm(items){
+          if(!root.isConnected||chooser.hidden||editing||!items.length||pickProblem(items,refs))return false;
+          return apply([...refs,...items]);
         }
       }});
     }
@@ -115,7 +122,7 @@
       tally.textContent=refs.length+' / '+MAX_PLACES;
       tally.title=limitText;
       plus.toggleAttribute('data-at-limit',refs.length>=MAX_PLACES);
-      decorateResults();
+      decorateResults();updateAction();
     }
     function apply(next){
       if(!editable||!next.length)return false;
@@ -128,30 +135,68 @@
       const existing=refs.filter(ref=>key(ref)!==editing);
       for(const {ref,el,name} of rendered){
         const used=existing.some(other=>covers(other,ref));
+        const active=selected(picks,ref);
         el.setAttribute('aria-disabled',String(used));
         el.setAttribute('aria-label',(used?'已关联：':'选择：')+name);
+        if(!editing)el.setAttribute('aria-pressed',String(active));
+        if(el.classList.contains('study-notes__verse'))el.toggleAttribute('data-selected-verse',active);
       }
     }
-    function pickProblem(ref,base){
-      if(base.some(other=>covers(other,ref)))return '这处经文已关联。';
-      if(!allowsPlaces(base.length+1,refs.length))return limitText;
-      if(!spansEnabled&&ref.endCh>ref.ch)return '此版本的账号服务还不支持保存跨章关联。';
+    function pickProblem(items,base){
+      if(items.some(ref=>base.some(other=>covers(other,ref))))return '这处经文已关联。';
+      if(!allowsPlaces(base.length+items.length,refs.length))return limitText;
+      if(!spansEnabled&&items.some(ref=>ref.endCh>ref.ch))return '此版本的账号服务还不支持保存跨章关联。';
       return '';
     }
-    function insert(ref){
-      if(!ref||!root.isConnected||chooser.hidden||composing)return;
+    function updateAction(){
+      const active=picks.length>0;
+      field.toggleAttribute('data-picked',active);input.readOnly=active;actions.hidden=!active;
+      input.rows=active?Math.min(picks.length,3):1;input.wrap=active?'soft':'off';
+      done.disabled=!active||!!pickProblem(picks,refs);
+    }
+    function resetPicks(){
+      picks=[];guide=null;updateAction();
+    }
+    function cancelPicks(focusInput=false){
+      if(!guide)return;
+      const {value,start,end,pasted:wasPasted,top,spot}=guide;
+      resetPicks();input.value=value;pasted=wasPasted;input.setSelectionRange(start,end);
+      decorateResults();message();
+      if(!browseStream.restore(spot))results.scrollTop=top;
+      if(focusInput){
+        if(win.matchMedia('(pointer:coarse)').matches)plus.focus({preventScroll:true});
+        else input.focus({preventScroll:true});
+      }
+    }
+    function pick(ref){
+      if(composing||chooser.hidden)return;
+      if(editing){insert([ref]);return;}
+      if(!selected(picks,ref)&&selected(refs,ref))return;
+      if(!guide)guide={value:input.value,start:input.selectionStart,end:input.selectionEnd,pasted,
+        top:results.scrollTop,spot:browseStream.snapshot()};
+      picks=toggle(picks,ref);
+      if(!picks.length){cancelPicks();return;}
+      if(input===doc.activeElement)input.blur();
+      const summary=picks.map(ref=>title(ref)).join('；\n');
+      updateAction();input.value=summary;input.scrollTop=0;decorateResults();
+      const error=pickProblem(picks,refs);message(error,!!error);
+    }
+    function insert(items){
+      if(!items.length||!root.isConnected||chooser.hidden||composing)return;
       if(editing&&!refs.some(ref=>key(ref)===editing)){
         message('原关联已变更，请重新选择要修改的经文。',true);return;
       }
-      const base=refs.filter(ref=>key(ref)!==editing),error=pickProblem(ref,base);
+      const base=refs.filter(ref=>key(ref)!==editing),error=pickProblem(items,base);
       if(error){message(error,true);return;}
-      if(!apply([...base,ref]))return;
+      if(!apply([...base,...items]))return;
       if(editing){close(true);return;}
-      clearIdle();entered=true;input.value='';pasted=false;message();clearResults();
+      resetPicks();clearIdle();entered=true;input.value='';pasted=false;message();clearResults();
       // Do not raise the phone keyboard merely because a link was inserted.
       if(win.matchMedia('(pointer:coarse)').matches)plus.focus({preventScroll:true});
       else input.focus({preventScroll:true});
     }
+    cancel.onclick=()=>cancelPicks(true);
+    done.onclick=()=>insert(picks);
     const parsed=()=>parser.parse(input.value,{pasted});
     const suggested=()=>parser.locateOne(input.value,{pasted,editing:!!editing});
     function unique(found){
@@ -165,7 +210,7 @@
     }
     function bindOption(el,ref){
       const name=title(ref);
-      el.onclick=()=>{if(el.getAttribute('aria-disabled')!=='true')insert(ref);};
+      el.onclick=()=>pick(ref);
       rendered.push({ref,el,name});
       return name;
     }
@@ -217,7 +262,7 @@
       decorateResults();return true;
     }
     function run(){
-      if(chooser.hidden||composing)return;
+      if(chooser.hidden||composing||picks.length)return;
       clearResults();
       const raw=input.value.trim();if(!raw)return;
       const found=suggested(),only=unique(found)?found[0]:null;
@@ -231,18 +276,18 @@
       appendResults();
     }
     function enter(){
-      if(!input.value.trim())return;
+      if(picks.length||!input.value.trim())return;
       if(!editing){search();return;}
       // The pencil field is address-only; Enter is equivalent to picking
       // its exact address, never an inferred/ambiguous candidate.
       const found=parsed();
-      if(found?.length===1)insert(found[0]);
+      if(found?.length===1)insert(found);
       else if(!suggested().length)showInvalid();
     }
     input.addEventListener('paste',()=>{pasted=true;});
     input.addEventListener('input',e=>{
       if(input.value||e.isComposing){entered=true;clearIdle();}
-      if(e.isComposing||composing)return;
+      if(e.isComposing||composing||picks.length)return;
       if(['insertLineBreak','insertParagraph'].includes(e.inputType)){
         input.value=input.value.replace(/\r?\n$/u,'');enter();return;
       }
@@ -263,13 +308,13 @@
     chooser.addEventListener('keydown',e=>{
       if(e.key!=='Escape'||e.isComposing||composing)return;
       e.preventDefault();e.stopPropagation();
-      close(true);
+      if(picks.length)cancelPicks(true);else close(true);
     });
     more.onclick=appendResults;
     function close(focus=false){
       clearIdle();closeSearch(root);closePreview(chooser);
       chooser.hidden=true;editing=null;input.value='';pasted=false;composing=false;entered=false;
-      clearResults();message();
+      resetPicks();clearResults();message();
       plus.setAttribute('aria-expanded','false');setLabel(plus,'添加关联经文');plusInk.setAttribute('d',addIcon);
       if(focus)(restore?.isConnected?restore:plus).focus({preventScroll:true});
       restore=null;
@@ -279,7 +324,7 @@
       closeSearch(root);
       closePreview(chips);editing=ref?key(ref):null;restore=source;
       input.value=ref?title(ref,true):'';pasted=false;composing=false;chooser.hidden=false;
-      message();
+      resetPicks();message();
       input.setAttribute('aria-label',ref?'修改关联经文':'经文关键词或地址');
       plus.setAttribute('aria-expanded','true');setLabel(plus,'收起关联选择');plusInk.setAttribute('d','m5 15 7-7 7 7');
       input.placeholder=ref?'输入新的经文地址':'输入经文坐标或搜索关键词';

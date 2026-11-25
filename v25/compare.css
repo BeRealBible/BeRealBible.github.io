@@ -125,8 +125,10 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
    highlight paints the paper; only selection mounts the tools. */
 .compare-slip__verse,.compare-slip__chapter-title{transition-property:none}
 .compare-slip__verse[data-saved-verse]{background:#f5d99a;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
-.compare-slip__verse:is([data-focused-verse],[data-selected-verse]),.compare-slip__chapter-title[data-selected-chapter]{color:var(--paper-active-ink);-webkit-text-stroke:.09em currentColor;paint-order:stroke fill}
-.compare-slip__verse:is([data-focused-verse],[data-selected-verse]) :is(.compare-slip__ref,mark){-webkit-text-stroke:0}
+.compare-slip__verse:is([data-focused-verse],[data-selected-verse]),.compare-slip__chapter-title[data-selected-chapter],
+.study-notes__verse[data-selected-verse]{color:var(--paper-active-ink);-webkit-text-stroke:.09em currentColor;paint-order:stroke fill}
+.compare-slip__verse:is([data-focused-verse],[data-selected-verse]) :is(.compare-slip__ref,mark),
+.study-notes__verse[data-selected-verse] .compare-slip__ref{-webkit-text-stroke:0}
 .compare-slip__scroll[data-verse-picking] .compare-slip__verse{-webkit-touch-callout:none}
 .compare-slip[data-selecting]{grid-template-rows:auto auto minmax(0,1fr)}
 .compare-slip[data-selecting] .compare-slip__scroll{grid-row:3;user-select:none}
