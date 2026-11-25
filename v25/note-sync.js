@@ -1,7 +1,8 @@
 /* Ordered, per-input sync journal. No debounce; server acknowledgements are distinct from local persistence. */
 (function(root,factory){
-  const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.V25NoteSync=api;
-})(typeof window==='undefined'?globalThis:window,function(){
+  const api=factory(typeof module==='object'&&module.exports?require('./note-refs.js'):root.V25NoteRefs);
+  if(typeof module==='object'&&module.exports)module.exports=api;else root.V25NoteSync=api;
+})(typeof window==='undefined'?globalThis:window,function(grammar){
   'use strict';
   const PREFIX='paper:v25:note-journal:',TEXT_LIMIT=100000;
   // A contiguous replacement handles insertion, paste, deletion and IME
@@ -16,15 +17,19 @@
   const validEdit=e=>typeof e?.id==='string'&&Array.isArray(e.change)&&e.change.length===3&&
     Number.isSafeInteger(e.change[0])&&Number.isSafeInteger(e.change[1])&&e.change[0]>=0&&e.change[1]>=e.change[0]&&typeof e.change[2]==='string';
   function create({model,describe,storage,sessionStorage,scope,active=()=>true,transport,
-    online=()=>true,id=()=>globalThis.crypto.randomUUID(),retrySoon=()=>{}}){
+    online=()=>true,id=()=>globalThis.crypto.randomUUID(),retrySoon=()=>{},spansEnabled=false}){
     let journalId;
     try{const tag='paper:v25:note-writer';journalId=sessionStorage?.getItem(tag)||id();sessionStorage?.setItem(tag,journalId);}catch{journalId=id();}
     journalId??=id();
-    const legacyKey=PREFIX+encodeURIComponent(scope)+':'+journalId,storageKey=legacyKey+':links',states=new Map(),listeners=new Set();
-    const descriptor=refs=>describe(Array.isArray(refs)?refs.filter(Array.isArray).map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi}):[]);
-    const refsOf=desc=>desc.objects.map(({code,ch,lo,hi})=>lo==null?[code,ch]:[code,ch,lo,hi]);
+    const legacyKey=PREFIX+encodeURIComponent(scope)+':'+journalId,linksKey=legacyKey+':links',
+      storageKey=spansEnabled?legacyKey+':spans':linksKey,states=new Map(),listeners=new Set();
+    const descriptor=refs=>{
+      const objects=Array.isArray(refs)?refs.map(grammar.decode):[];
+      return describe(objects.every(Boolean)?objects:[]);
+    };
+    const refsOf=desc=>desc.objects.map(grammar.encode);
     const validId=key=>typeof key==='string'&&key.length<=4096&&/^[A-Z0-9.:-]+(?:\|[A-Z0-9.:-]+)*$/.test(key);
-    const validDesc=desc=>desc.key&&desc.objects.length<=256;
+    const validDesc=desc=>desc.key&&desc.objects.length<=256&&!(desc.refs?.length>256);
     const identified=(desc,noteId)=>({...desc,noteId});
     let durable=true,refreshing=null,loaded=false;
     function persist(){
@@ -33,12 +38,13 @@
         const journal=[...states.values()].filter(s=>s.pending.length).map(({baseDesc,revision,base,pending,blocked})=>({noteId:baseDesc.noteId,refs:refsOf(baseDesc),revision,base,pending,blocked}));
         if(journal.length)storage.setItem(storageKey,JSON.stringify(journal));
         storage.removeItem(legacyKey);
+        if(spansEnabled)storage.removeItem(linksKey);
         if(!journal.length)storage.removeItem(storageKey);
         durable=true;
       }catch{durable=false;}
     }
     try{
-      const data=JSON.parse(storage?.getItem(storageKey)??storage?.getItem(legacyKey)??'[]');
+      const data=JSON.parse(storage?.getItem(storageKey)??storage?.getItem(linksKey)??storage?.getItem(legacyKey)??'[]');
       for(const e of Array.isArray(data)?data:[]){
         if(typeof e.base!=='string'||e.base.length>TEXT_LIMIT||!Number.isSafeInteger(e.revision)||e.revision<0||!Array.isArray(e.pending)||!e.pending.length||!e.pending.every(validEdit))continue;
         const initial=descriptor(e.refs),key=e.noteId??initial.key;
@@ -61,13 +67,13 @@
         try{
           while(active()&&online()&&s.pending.length&&!s.blocked){
             const e=s.pending[0],body=apply(s.base,e.change),target=e.refs?identified(descriptor(e.refs),key):s.baseDesc;
-            const reply=await transport.write({noteKey:key,refs:refsOf(target),text:body,revision:s.revision,id:e.id,
+            const reply=await transport.write({noteKey:key,refs:target.refs??refsOf(target),anchorObjects:target.anchorObjects,text:body,revision:s.revision,id:e.id,
               changesRefs:!!e.refs});
             if(reply?.ok===false){
               // A refresh may not have arrived yet. Rebase only when the
               // server confirms the exact same prior text; never overwrite a
               // different edit from another reader.
-              const sameRefs=reply.refs===undefined?!e.refs&&key===s.baseDesc.key:descriptor(reply.refs).key===s.baseDesc.key;
+              const sameRefs=reply.refs===undefined?!e.refs&&key===s.baseDesc.key:descriptor(reply.anchor_objects??reply.refs).key===s.baseDesc.key;
               if(reply.body===s.base&&sameRefs&&Number.isSafeInteger(reply.revision)&&reply.revision>s.revision){
                 s.revision=reply.revision;persist();continue;
               }
@@ -85,7 +91,7 @@
       if(!Array.isArray(remote))throw Error('Invalid note collection');
       for(const r of remote){
         if(typeof r.body!=='string'||r.body.length>TEXT_LIMIT||!Number.isSafeInteger(r.revision)||r.revision<1)continue;
-        const desc=identified(descriptor(r.refs),r.note_key),key=desc.noteId;
+        const desc=identified(descriptor(r.anchor_objects??r.refs),r.note_key),key=desc.noteId;
         if(!validDesc(desc)||!validId(key))continue;
         const old=states.get(key);if(old?.pending.length||old&&old.revision>=r.revision)continue;
         states.set(key,{desc,baseDesc:desc,revision:r.revision,base:r.body,text:r.body,pending:[],blocked:false,running:false,failed:false});
@@ -102,7 +108,7 @@
     }
     function init(desc,key){
       if(states.has(key))return states.get(key);
-      const cached=model.get(key),base=cached?.text||'',start=identified(cached?descriptor(cached.refs):desc,key);
+      const cached=model.get(key),base=cached?.text||'',start=identified(cached?descriptor(cached.anchorObjects??cached.refs):desc,key);
       const s={desc:start,baseDesc:start,base,text:base,revision:0,pending:[],running:false,blocked:false,failed:false};states.set(key,s);return s;
     }
     function write(desc,text,source,seen){
@@ -118,7 +124,7 @@
     }
     function reanchor(key,next,source,expected){
       if(!active()||!validId(key)||!validDesc(next))return false;
-      const cached=model.get(key),s=states.get(key)??(cached?init(descriptor(cached.refs),key):null);
+      const cached=model.get(key),s=states.get(key)??(cached?init(descriptor(cached.anchorObjects??cached.refs),key):null);
       if(!s||s.blocked||(expected!==undefined&&s.desc.key!==expected))return false;
       if(next.key===s.desc.key)return true;
       s.desc=identified(next,key);

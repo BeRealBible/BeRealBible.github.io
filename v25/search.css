@@ -56,6 +56,33 @@
 #vf-tab:not([hidden]){display:grid;place-items:center;writing-mode:horizontal-tb;padding:0;min-width:0;min-height:0;width:29px;height:35px}
 #vf-tab svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;fill:none}
 
+/* The paper slip may follow the book's geometry without inflating the
+   result text and controls. Lead with the address inline, not on a new row. */
+#verse-finder{--vf-density:1}
+#verse-finder [hidden]{display:none!important}
+#verse-finder .vf-head{padding:5px 7px 0}
+#verse-finder #vf-scroll{padding:0 7px}
+#verse-finder #vf-list button{padding:3px 3px;font-size:calc(11px * var(--vf-density))}
+#verse-finder #vf-list .vf-hit{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;line-height:1.38;overflow-wrap:anywhere}
+#verse-finder #vf-list .vf-hit :is(strong,span){display:inline;overflow:visible;font:inherit;margin:0}
+#verse-finder #vf-list .vf-hit strong{font-size:.91em;font-weight:650;color:#775338;white-space:normal}
+#verse-finder #vf-list button[data-seen] strong:after{font-size:.80em}
+#verse-finder #vf-status,#verse-finder #vf-scopes button,#verse-finder #vf-groups button{font-size:calc(11px * var(--vf-density))}
+#verse-finder #vf-scopes{margin:2px 0 1px;gap:4px;flex-wrap:wrap}
+#verse-finder #vf-scopes button{max-width:none;padding:2px 5px}
+#vf-pick-book[data-current]{color:#70482c;box-shadow:inset 0 -1px #99754f}
+#verse-finder #vf-groups[data-kind=books]:not([hidden]){grid-template-columns:repeat(4,minmax(0,1fr));max-height:min(250px,40dvh)}
+#verse-finder #vf-groups[data-kind=books] button{text-align:center}
+#vf-form button,#vf-close{display:grid;place-items:center;flex:none;width:27px;padding:0}
+#vf-form button svg{width:13px;height:13px;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;fill:none}
+#verse-finder[data-note-search] #vf-input{position:static;transform:none;width:auto;height:27px;padding:3px 5px;font-size:12px}
+#verse-finder[data-note-search] #vf-scroll{padding-bottom:5px}
+@media(max-width:639px){
+  #verse-finder[data-note-search] #vf-input{position:absolute;left:0;top:50%;height:32px;width:123.076923%;font-size:16px;transform:translateY(-50%) scale(.8125);transform-origin:left center}
+  #verse-finder[data-note-search] #vf-form button,#verse-finder[data-note-search] #vf-close{width:32px;min-height:32px}
+  #verse-finder[data-note-search] #vf-scopes button{min-height:27px}
+}
+
 /* No right-hand menu in the minimal reader. Give its former reserve (and the
    desktop max-width gutter) back to the scrollable history strip. */
 .paper-immersive body[data-minimal-reader] #reading-history{

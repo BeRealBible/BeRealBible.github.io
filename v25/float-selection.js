@@ -1,7 +1,7 @@
 /* The floating reader selects canonical verses, never line breaks or SVG ink. */
 (() => {
   'use strict';
-  function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy,hasStudy,onWriteNote}){
+  function mount({panel,scroll,scripture,marks,current,begin,onFloat,onStudy,hasStudy,onWriteNote,active=()=>true}){
     const doc=panel.ownerDocument,win=doc.defaultView,tools=win.PaperTextSelection;
     const picked=new Map();
     let bar=null,form=null,contact=null,suppress=false,tapRow=null,focusId=null,serial=0,noticeTimer=0;
@@ -109,13 +109,13 @@
     function study(){if(picked.size&&onStudy(locs(),chapterObjects(),scroll))reset();}
     function writeNote(){if(picked.size&&onWriteNote(locs(),chapterObjects(),scroll))reset();}
     panel.addEventListener('copy',event=>{
-      if(!picked.size||chapterObjects().length||form||!event.clipboardData||event.target?.closest?.('input,textarea,[contenteditable]'))return;
+      if(!active()||!picked.size||chapterObjects().length||form||!event.clipboardData||event.target?.closest?.('input,textarea,[contenteditable]'))return;
       const text=quote();if(!text)return;
       try{event.clipboardData.setData('text/plain',text);}catch{return;}
       event.preventDefault();reset(true);tell('已复制经文');
     });
     panel.addEventListener('keydown',event=>{
-      if(event.isComposing||event.keyCode===229)return;
+      if(!active()||event.isComposing||event.keyCode===229)return;
       if(event.key==='Escape'&&bar){
         event.preventDefault();event.stopImmediatePropagation();reset(true);
       }else if(event.target?.matches?.('[data-study-chapter]')&&(event.key==='Enter'||event.key===' ')){
@@ -127,7 +127,7 @@
     },true);
     panel.addEventListener('pointerdown',()=>{suppress=false;tapRow=null;},true);
     panel.addEventListener('click',event=>{
-      if(event.detail===0)return;
+      if(!active()||event.detail===0)return;
       // A touch's compatibility click may be retargeted to a nearby
       // actionable button after the toolbar has appeared under the finger.
       // Only a fresh pointerdown on the toolbar may activate that button.
@@ -139,7 +139,7 @@
     },true);
     scroll.addEventListener('pointerdown',event=>{
       cancelContact();
-      if(event.button!==0||event.isPrimary===false||form)return;
+      if(!active()||event.button!==0||event.isPrimary===false||form)return;
       const el=targetAt(event.target),row=itemOf(el);if(!row)return;
       if(event.shiftKey&&event.pointerType==='mouse'){
         event.preventDefault();suppress=true;pick([row],true);return;
@@ -178,9 +178,10 @@
     });
     for(const event of ['pointercancel','pointerleave'])scroll.addEventListener(event,cancelContact);
     scroll.addEventListener('contextmenu',event=>{
-      if(targetAt(event.target)&&(event.pointerType==='touch'||contact?.held||bar))event.preventDefault();
+      if(active()&&targetAt(event.target)&&(event.pointerType==='touch'||contact?.held||bar))event.preventDefault();
     });
     scroll.addEventListener('click',event=>{
+      if(!active())return;
       const row=itemOf(targetAt(event.target));
       const pickedRow=tapRow||row;tapRow=null;
       if(bar&&pickedRow)pick([pickedRow],true);

@@ -21,7 +21,8 @@
       config.notesOrigin===location.origin&&/^\/(?:index\.html)?$/.test(location.pathname)))return null;
     if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(config.url)||!/^sb_publishable_[\w-]+$/.test(config.publishableKey))return null;
     return {url:config.url.replace(/\/$/,''),publishableKey:config.publishableKey,
-      ...(config.noteReanchorEnabled===true?{noteReanchorEnabled:true}:{})};
+      ...(config.noteReanchorEnabled===true?{noteReanchorEnabled:true}:{}),
+      ...(config.noteReanchorEnabled===true&&config.noteSpanEnabled===true?{noteSpanEnabled:true}:{})};
   }
   function eligible(key,edition){
     return typeof key==='string'&&key.length<=240&&/^[a-zA-Z0-9:~_@.–\-]+$/.test(key)&&key.endsWith(':'+edition)&&KIND.test(key);
@@ -129,11 +130,13 @@
       refresh:async s=>unpack(await request('/auth/v1/token?grant_type=refresh_token',{body:{refresh_token:s.refresh}})),
       logout:access=>request('/auth/v1/logout?scope=local',{access}),
       exchange:(access,edition,patch,imports)=>request('/rest/v1/rpc/paper_v25_sync',{access,body:{edition_key:edition,changes:patch,guest_import:imports}}),
-      listNotes:access=>request('/rest/v1/rpc/paper_v25_note_list',{access,body:{}}),
+      listNotes:access=>request('/rest/v1/rpc/paper_v25_note_list'+(config.noteSpanEnabled?'_v2':''),{access,body:{}}),
       writeNote:(access,note)=>{
         if(note.changesRefs&&!config.noteReanchorEnabled)throw Error('暂时无法同步经文关联。');
-        return request('/rest/v1/rpc/paper_v25_note_write'+(config.noteReanchorEnabled?'_v2':''),{access,body:{
-          anchor_key:note.noteKey,anchors:note.refs,note_body:note.text,expected_revision:note.revision,mutation_id:note.id}});
+        if(note.anchorObjects&&!config.noteSpanEnabled)throw Error('暂时无法同步跨章关联。');
+        return request('/rest/v1/rpc/paper_v25_note_write'+(config.noteSpanEnabled?'_v3':config.noteReanchorEnabled?'_v2':''),{access,body:{
+          anchor_key:note.noteKey,anchors:note.refs,note_body:note.text,expected_revision:note.revision,mutation_id:note.id,
+          ...(config.noteSpanEnabled?{anchor_objects:note.anchorObjects??null}:{})}});
       },
     };
   }
@@ -334,7 +337,7 @@
       if(!reconcile()||epoch!==stamp||noteScope()!==scope)throw Error('登录账号已切换。');
       return callback(access);
     }
-    return {readerStorage,readerReady,openDialog,noteReanchorEnabled:config.noteReanchorEnabled===true,get usingProfile(){return enabled&&!!profile;},get notesScope(){return noteScope();},
+    return {readerStorage,readerReady,openDialog,noteReanchorEnabled:config.noteReanchorEnabled===true,noteSpanEnabled:config.noteSpanEnabled===true,get usingProfile(){return enabled&&!!profile;},get notesScope(){return noteScope();},
       noteTransport(scope){return {list:()=>notesCall(scope,client.listNotes),write:note=>notesCall(scope,access=>client.writeNote(access,note))};}};
   }
   return {configFor,createClient,createProfile,mount,eligible,rememberLogin,sessionVault};

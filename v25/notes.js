@@ -1,8 +1,8 @@
 /* Plain private notes. Never a QAP question/answer or a cloud-sync storage key. */
 (function(root,factory){
-  const api=factory();
+  const api=factory(typeof module==='object'&&module.exports?require('./note-refs.js'):root.V25NoteRefs);
   if(typeof module==='object'&&module.exports)module.exports=api;else root.V25Notes=api;
-})(typeof window==='undefined'?globalThis:window,function(){
+})(typeof window==='undefined'?globalThis:window,function(grammar){
   'use strict';
   const PREFIX='paper-bible-v25-private-notes-v1:';
   const LIMIT=100000;
@@ -20,15 +20,15 @@
     const prefix=PREFIX+encodeURIComponent(scope)+':', keyFor=id=>prefix+encodeURIComponent(id);
     const drafts=new Map(), listeners=new Set();
     let snapshot=null;
-    const refsFor=objects=>objects.map(o=>o.lo==null?[o.code,o.ch]:[o.code,o.ch,o.lo,o.hi]);
-    const validRef=r=>Array.isArray(r)&&(r.length===2||r.length===4)&&typeof r[0]==='string'&&
-      r.slice(1).every(n=>Number.isSafeInteger(n)&&n>0)&&(r.length===2||r[2]<=r[3]);
+    const links=desc=>({refs:desc.refs??desc.objects.map(grammar.encode),
+      ...(desc.anchorObjects?{anchorObjects:desc.anchorObjects}:{})});
     function decode(key,value){
       try{
         const raw=JSON.parse(value);
-        if(!raw||typeof raw.text!=='string'||!raw.text.trim()||raw.text.length>LIMIT||!Array.isArray(raw.refs)||!raw.refs.every(validRef))return null;
-        const desc=describe(raw.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi})),id=raw.id??desc.key;
-        return desc.key&&validId(id)&&keyFor(id)===key?{id,refs:refsFor(desc.objects),label:desc.fullTitle,text:raw.text}:null;
+        if(!raw||typeof raw.text!=='string'||!raw.text.trim()||raw.text.length>LIMIT||!Array.isArray(raw.refs))return null;
+        const objects=(raw.anchorObjects??raw.refs).map(grammar.decode);if(!objects.every(Boolean))return null;
+        const desc=describe(objects),id=raw.id??desc.key;
+        return desc.key&&validId(id)&&keyFor(id)===key?{id,...links(desc),label:desc.fullTitle,text:raw.text}:null;
       }catch{return null;}
     }
     function load(){
@@ -44,15 +44,15 @@
     function notify(id,source){for(const listener of listeners)listener(id,source);}
     function write(desc,text,source){
       const id=desc.noteId??desc.key;
-      if(!desc.key||!validId(id)||desc.objects.length>256||typeof text!=='string'||text.length>LIMIT)return false;
+      if(!desc.key||!validId(id)||desc.objects.length>256||desc.refs?.length>256||typeof text!=='string'||text.length>LIMIT)return false;
       const data=load(),was=data.items.get(id),key=keyFor(id);
-      const item=text.trim()?{id,refs:refsFor(desc.objects),label:desc.fullTitle,text}:null;
+      const item=text.trim()?{id,...links(desc),label:desc.fullTitle,text}:null;
       if(!item&&!was&&!drafts.has(id))return true;
-      if(item&&was?.text===text&&JSON.stringify(was.refs)===JSON.stringify(item.refs)&&!drafts.has(id))return true;
+      if(item&&was?.text===text&&JSON.stringify(was.anchorObjects??was.refs)===JSON.stringify(item.anchorObjects??item.refs)&&!drafts.has(id))return true;
       let durable=false;
       try{
         if(!storage)throw Error();
-        if(item)storage.setItem(key,JSON.stringify({...(id===desc.key?{}:{id}),refs:item.refs,text:item.text}));else storage.removeItem(key);
+        if(item)storage.setItem(key,JSON.stringify({...(id===desc.key?{}:{id}),...links(desc),text:item.text}));else storage.removeItem(key);
         drafts.delete(id);durable=true;
       }catch{drafts.set(id,item);}
       if(item)data.items.set(id,item);else data.items.delete(id);

@@ -23,15 +23,15 @@
         rows.push({book:b.name,code:b.code,ref,page,text,key:norm(text)});
       }
     }
-    return (raw,scope="all")=>{
+    return (raw,scope="all",{keywordsOnly=false}={})=>{
       const q=norm(raw);
       if(!q)return [];
-      const addr=/^(.+?)(\d+)(?:章|:)(\d+)节?$/.exec(q);
+      const addr=!keywordsOnly&&/^(.+?)(\d+)(?:章|:)(\d+)节?$/.exec(q);
       const book=addr&&byBook.get(addr[1]),ref=book&&(+addr[2]+':'+(+addr[3]));
       const target=book&&(scripture?.resolve({code:book,ref})[0]?.ref||ref);
-      const result=[],need=book?[]:words.terms(raw);
+      const result=[],need=book?[]:words.terms(raw),allowed=Array.isArray(scope)?new Set(scope):null;
       for(const r of rows){
-        if(scope!=='all'&&scope!=='book:'+r.code&&scope!==category.get(r.code))continue;
+        if(allowed?!allowed.has(r.code):scope!=='all'&&scope!=='book:'+r.code&&scope!==category.get(r.code))continue;
         if(book?!(r.code===book&&r.ref===target):!words.ordered(r.key,need))continue;
         if(result.length===limit){result.truncated=true;break;}result.push(r);
       }
@@ -49,24 +49,33 @@
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',timer,saveTimer,geom='',wide=false;
-    let scope='all',trails={};
-    const groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),bookButton=$('vf-book'),bookNames=new Map(root.BIBLE_SOURCE.books.map(b=>[b.code,b.name]));
-    for(const name of Object.keys(groups)){
-      const b=document.createElement('button');b.type='button';b.textContent=name;
-      b.onclick=()=>{closeGroups(true);switchScope(name);};choices.append(b);
-    }
+    let scope='all',trails={},note=null,facet=null;
+    const groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),bookButton=$('vf-book'),pickBook=$('vf-pick-book'),
+      bookNames=new Map(root.BIBLE_SOURCE.books.map(b=>[b.code,b.name]));
     function closeGroups(focus=false){
       if(choices.hidden)return;
-      choices.hidden=true;scroll.hidden=false;groupButton.setAttribute('aria-expanded','false');
-      layout();restoreRow();if(focus)groupButton.focus({preventScroll:true});
+      const opener=facet==='books'?pickBook:groupButton;facet=null;
+      choices.hidden=true;scroll.hidden=false;opener.setAttribute('aria-expanded','false');
+      layout();restoreRow();if(focus)opener.focus({preventScroll:true});
     }
-    groupButton.onclick=()=>{
-      if(!choices.hidden){closeGroups(true);return;}
-      remember();choices.hidden=false;scroll.hidden=true;groupButton.setAttribute('aria-expanded','true');layout();
+    function openFacet(type){
+      if(!choices.hidden){const same=facet===type;closeGroups(same);if(same)return;}
+      const opener=type==='books'?pickBook:groupButton;facet=type;
+      choices.dataset.kind=type;choices.setAttribute('aria-label',type==='books'?'指定书卷':'书卷分类');
+      const options=type==='books'?root.BIBLE_SOURCE.books.map(b=>[b.short,'book:'+b.code,b.name]):
+        Object.keys(groups).map(name=>[name,name,name]);
+      choices.replaceChildren(...options.map(([text,value,name])=>{
+        const b=document.createElement('button');b.type='button';b.textContent=text;b.setAttribute('aria-label',name);b.title=name;
+        b.setAttribute('aria-pressed',String(value===scope));
+        b.onclick=()=>{closeGroups(true);switchScope(value);};return b;
+      }));
+      remember();choices.hidden=false;scroll.hidden=true;opener.setAttribute('aria-expanded','true');layout();
       (choices.querySelector('[aria-pressed=true]')||choices.firstChild).focus({preventScroll:true});
-    };
+    }
+    groupButton.onclick=()=>openFacet('groups');
+    pickBook.onclick=()=>openFacet('books');
     choices.addEventListener('keydown',e=>{
-      const keys={ArrowRight:1,ArrowLeft:-1,ArrowDown:2,ArrowUp:-2},items=[...choices.children];
+      const cols=facet==='books'?4:2,keys={ArrowRight:1,ArrowLeft:-1,ArrowDown:cols,ArrowUp:-cols},items=[...choices.children];
       if(Object.hasOwn(keys,e.key)){e.preventDefault();items[(items.indexOf(e.target)+keys[e.key]+items.length)%items.length].focus();}
     });
     input.addEventListener('focus',()=>closeGroups());
@@ -76,7 +85,8 @@
       bookButton.textContent=local?(bookNames.get(code)||'本卷'):'本卷';
       bookButton.title='只搜'+(bookNames.get(code)||'当前书卷');bookButton.setAttribute('aria-label',bookButton.title);
       const grouped=Object.hasOwn(groups,scope);groupButton.textContent=grouped?scope:'分类';groupButton.toggleAttribute('data-current',grouped);
-      for(const b of choices.children)b.setAttribute('aria-pressed',String(b.textContent===scope));
+      pickBook.textContent=local?(bookNames.get(code)||'书卷'):'书卷';pickBook.setAttribute('aria-label',local?'指定书卷：'+bookNames.get(code):'指定书卷');
+      pickBook.toggleAttribute('data-current',local);
     }
     const trail=()=>({current,seen:[...seen],anchor,count:list.children.length});
     function applyTrail(t){
@@ -107,6 +117,7 @@
     new ResizeObserver(()=>{if(!panel.hidden)restoreRow();}).observe(list);
     function persist(){
       clearTimeout(saveTimer);
+      if(note)return;
       try{if(mode==='off')sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify({mode,start,q,scope,trails,...trail()}));}catch{}
     }
     let mount=null;
@@ -123,6 +134,15 @@
           clamp(vv?vv.offsetTop+vv.height-stageTop:c.h,visibleTop,c.h),
         avail=visibleBottom-visibleTop;
       if(avail<=2*margin)return;
+      if(note){
+        const top=clamp((vv?.offsetTop||0)-stage.getBoundingClientRect().top,0,c.h)+8;
+        const h=Math.max(70,Math.min(480,(vv?.height||c.h)-20));
+        panel.hidden=false;tab.hidden=true;panel.dataset.layout=next?'wide':'narrow';
+        panel.removeAttribute('data-compact');panel.style.setProperty('--vf-density','1');
+        Object.assign(panel.style,{transform:'none',left:'8px',top:top+'px',
+          width:Math.min(c.w-16,next?348:290)+'px',maxHeight:h+'px'});
+        wide=next;return;
+      }
       if(mode==='off')mount=null;
       else if(!mount||mount.side!==side||mount.wide!==next){
         // Pick a point on visible paper once. Store it in book units, never
@@ -152,6 +172,7 @@
         node.style.top=(bounded?clamp(top,visibleTop+margin,visibleBottom-margin-node.offsetHeight):top)+'px';
       }
       if(show){
+        panel.style.setProperty('--vf-density',String(Math.min(1,1.15/z)));
         panel.style.width=w+'px';panel.style.maxHeight=height+'px';panel.toggleAttribute('data-compact',height<242||w<155);place(panel,z);
         if(g!==geom||wasHidden)restoreRow();
       }else if(!tab.hidden){
@@ -170,6 +191,7 @@
     }
     function open(edit=false){
       if(document.querySelector('dialog[open]'))return;
+      if(note){input.focus({preventScroll:true});return;}
       if(mode==='off'){start=origin();edit=true;}
       else if(mount&&trigger===document.activeElement){
         const c=camera(),hx=c.x+mount.bx*c.scale,hy=c.y+mount.by*c.scale;
@@ -179,13 +201,13 @@
       if(edit)input.focus({preventScroll:true});else if(current>=0&&anchor?.i===current)landOnResult();else $('vf-close').focus({preventScroll:true});
     }
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
-    trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=tuck;
+    trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=()=>note?closeNote(note.owner,true):tuck();
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
     $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true);stage.focus({preventScroll:true});};
-    root.V25PaperDock.onTap(stage,()=>{if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
+    root.V25PaperDock.onTap(stage,()=>{if(note)return;if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
-      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();if(mode==='preview')backToResults();else if(!choices.hidden)closeGroups(true);else tuck();}
+      else if(e.key==='Escape'&&!panel.hidden){e.preventDefault();if(mode==='preview')backToResults();else if(!choices.hidden)closeGroups(true);else if(note)closeNote(note.owner,true);else tuck();}
     });
     scroll.addEventListener('scroll',()=>{if(!panel.hidden&&restoredBox&&boxKey()!==restoredBox){restoreRow();return;}if(!panel.hidden&&wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}});
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
@@ -201,11 +223,52 @@
       }
     }
     function backToResults(){setMode('browse');landOnResult();persist();}
+    function noteUI(){
+      panel.toggleAttribute('data-note-search',!!note);
+      panel.setAttribute('aria-label',note?'笔记经文检索笺':'经文检索笺');
+      input.setAttribute('aria-label',note?'搜索经文关键词':'经文内容或章节地址');
+      $('vf-close').title=note?'关闭检索笺':'收起检索笺';
+      $('vf-close').setAttribute('aria-label',$('vf-close').title);
+      pickBook.hidden=!note;bookButton.hidden=!!note;
+      panel.querySelector('.vf-foot').hidden=!!note;
+    }
+    function openNote(options){
+      if(!options.owner?.isConnected||!options.anchor?.isConnected)return false;
+      if(note)closeNote(note.owner);
+      closeGroups();remember();
+      const saved={mode,start,scope,mount,trails,trail:trail(),query:input.value};
+      if(windows.preview.is('search'))windows.preview.close('screen');
+      note={...options,saved};mode='browse';scope='all';mount=null;trails={};
+      noteUI();scopeUI();input.value=options.query;refresh(true);
+      if(input.value.trim())(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
+      else input.focus({preventScroll:true});
+      return true;
+    }
+    function closeNote(owner,focus=false){
+      if(!note||owner&&owner!==note.owner&&!owner.contains(note.owner))return false;
+      const {anchor:entry,saved}=note;
+      if(windows.preview.is('note-pick'))windows.preview.close('screen');
+      closeGroups();note=null;noteUI();
+      mode=saved.mode==='preview'?'browse':saved.mode;
+      start=saved.start;scope=saved.scope;mount=saved.mount;trails=saved.trails;input.value=saved.query;
+      refresh(true);trails=saved.trails;applyTrail(saved.trail);scopeUI();layout();persist();
+      if(saved.mode==='preview'&&current>=0&&focus)previewResult(current,false);
+      else if(focus&&entry.isConnected)entry.focus({preventScroll:true});
+      return true;
+    }
     function previewResult(i,focus=true){
       const r=results[i],b=list.children[i];if(!r||!b)return;
       const prev=current;current=i;seen.add(i);if(list.children[prev])decorate(list.children[prev],prev);decorate(b,i);
       if(focus){input.blur();remember(i);}
       const keywords=results.terms;
+      if(note){
+        const session=note;
+        windows.openNotePick({code:r.code,ref:r.ref},{owner:session.owner,picker:session.picker,keywords,
+          onClose(reason,refocus){
+            if(note===session&&refocus&&reason!=='screen'&&b.isConnected)landOnResult();
+          }});
+        return;
+      }
       const opened=windows.openPreview([{code:r.code,ref:r.ref}],{
         kind:'search',label:'搜索命中经文',ariaLabel:'搜索结果经文浮窗',keywords,focus,onBack:true,
         onClose:reason=>{
@@ -225,21 +288,23 @@
     function append(count=24){
       const from=list.children.length;
       for(let i=from;i<Math.min(results.length,from+count);i++){
-        const r=results[i],b=document.createElement('button'),ref=document.createElement('strong'),excerpt=document.createElement('span');
+        const r=results[i],b=document.createElement('button'),hit=document.createElement('span'),
+          ref=document.createElement('strong'),excerpt=document.createElement('span');
         b.type='button';b.dataset.i=i;ref.textContent=r.book+' '+(r.display||r.ref);
         words.paint(excerpt,r.text,results.terms);
-        b.append(ref,excerpt);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
+        hit.className='vf-hit';hit.append(ref,document.createTextNode('　'),excerpt);
+        b.append(hit);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
       }
       more.hidden=list.children.length>=results.length;
     }
-    function find(raw,within='all'){
+    function find(raw,within='all',options){
       if(!lookup)lookup=catalogue(root.BIBLE_SOURCE,(c,r)=>root.V25OriginalData.lookup(c,r),scripture);
-      return lookup(raw,within);
+      return lookup(raw,within,options);
     }
     function refresh(force=false){
       clearTimeout(timer);const next=input.value.trim();if(next===q&&!force)return;
       if(q!==next)trails={};q=next;current=-1;seen.clear();anchor=null;
-      results=q?find(q,scope):[];list.replaceChildren();scroll.scrollTop=0;append();
+      results=q?find(q,scope,{keywordsOnly:!!note}):[];list.replaceChildren();scroll.scrollTop=0;append();
       $('vf-status').textContent=q?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
       layout();persist();
     }
@@ -261,6 +326,6 @@
       start=stored.start;scope=stored.scope||'all';input.value=stored.q;refresh(true);trails=stored.trails||{};applyTrail(stored);mode=stored.mode;scopeUI();layout();persist();
       if(mode==='preview'){if(current>=0)previewResult(current,false);else setMode('browse');}
     }
-    return {layout,find};
+    return {layout,openNote,closeNote};
   };
 })(typeof window!=='undefined'?window:globalThis);

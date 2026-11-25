@@ -39,6 +39,17 @@
 }
 #v25-compare-tabs .compare-slip[data-collapsed]{position:relative;inset:auto!important;pointer-events:auto}
 .compare-slip[data-role=preview]{z-index:49}
+.compare-slip[data-kind=note-pick]{grid-template-rows:auto minmax(0,1fr) auto;font-size:13px}
+.compare-slip[data-kind=note-pick] .compare-slip__head{min-height:34px}
+.compare-slip[data-kind=note-pick] .compare-slip__scroll{-webkit-user-select:none;user-select:none;touch-action:pan-y}
+.compare-slip[data-kind=note-pick] .compare-slip__paragraph{font-size:13px;line-height:1.55}
+.compare-slip[data-kind=note-pick] .compare-slip__verse{cursor:pointer;-webkit-touch-callout:none}
+.compare-slip[data-kind=note-pick] .compare-slip__verse[aria-disabled=true]{cursor:default}
+.compare-slip[data-kind=note-pick] .compare-slip__verse:focus-visible{outline:1px solid #89694d}
+.compare-slip__note-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px;padding:2px 23px 3px 14px;border-top:1px solid var(--slip-hairline);color:#725b47;font:11px/1.35 var(--ui,sans-serif)}
+.compare-slip__note-footer [data-error]{color:#8e342a}
+.compare-slip__note-confirm{min-height:26px;padding:2px 10px;border:1px solid #7c624063;border-radius:4px;color:#62452d;background:#efe3c9;font:600 12px/1.25 var(--ui,sans-serif)}
+.compare-slip__note-confirm:disabled{opacity:.44}
 /* The active navigation tools take priority if paper slips overlap. */
 body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
 .paper-immersive body:has(.compare-slip:not([hidden])) #reading-history{z-index:47}
@@ -108,8 +119,10 @@ body:has(.compare-slip:not([hidden])) #verse-finder:not([hidden]){z-index:48}
    highlight paints the paper; only selection mounts the tools. */
 .compare-slip__verse,.compare-slip__chapter-title{transition-property:none}
 .compare-slip__verse[data-saved-verse]{background:#f5d99a;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
-.compare-slip__verse:is([data-focused-verse],[data-selected-verse]),.compare-slip__chapter-title[data-selected-chapter]{color:var(--paper-active-ink);-webkit-text-stroke:.09em currentColor;paint-order:stroke fill}
-.compare-slip__verse:is([data-focused-verse],[data-selected-verse]) :is(.compare-slip__ref,mark){-webkit-text-stroke:0}
+.compare-slip__verse:is([data-focused-verse],[data-selected-verse]),.compare-slip__chapter-title[data-selected-chapter],
+.study-notes__verse[data-selected-verse]{color:var(--paper-active-ink);-webkit-text-stroke:.09em currentColor;paint-order:stroke fill}
+.compare-slip__verse:is([data-focused-verse],[data-selected-verse]) :is(.compare-slip__ref,mark),
+.study-notes__verse[data-selected-verse] .compare-slip__ref{-webkit-text-stroke:0}
 .compare-slip__scroll[data-verse-picking] .compare-slip__verse{-webkit-touch-callout:none}
 .compare-slip[data-selecting]{grid-template-rows:auto auto minmax(0,1fr)}
 .compare-slip[data-selecting] .compare-slip__scroll{grid-row:3;user-select:none}

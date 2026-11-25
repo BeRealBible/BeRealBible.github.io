@@ -173,11 +173,15 @@
       }
       emit(host,offset,text.length);
     }
-    function bookCode(name){
-      const key=normalized(name).value.trim().toLowerCase();
-      return aliases.get(key.replace(/^列王记([上下])$/u,'列王纪$1'));
+    const bookKey=name=>normalized(name).value.trim().toLowerCase().replace(/^列王记/u,'列王纪')
+      .replace(/[壹]/gu,'一').replace(/[贰貳]/gu,'二').replace(/[叁參]/gu,'三');
+    const bookCode=name=>aliases.get(bookKey(name));
+    function bookMatches(prefix){
+      const key=bookKey(prefix);
+      if(!key)return [];
+      return [...new Set([...aliases].filter(([name])=>name.startsWith(key)).map(([,code])=>code))];
     }
-    return {scan,append,bookCode};
+    return {scan,append,bookCode,bookMatches};
   }
   return {create};
 });

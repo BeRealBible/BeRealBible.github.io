@@ -542,14 +542,16 @@
     openWindow:options=>compare.openStudy(options),
     openCitation:(ref,options)=>compare.openCitation(ref,options),
     closeCitation:container=>compare.closeCitation(container),
-    findVerses:query=>finder?.find(query)||[],
+    openNoteSearch:options=>finder?.openNote(options),
+    closeNoteSearch:container=>finder?.closeNote(container),
+    feedback,
   });
   const studyObjects=(locations,chapters)=>[...scripture.from(locations,true),...chapters];
   const openStudy=study&&((locations,chapters,focus)=>study.open(studyObjects(locations,chapters),focus));
   const hasStudy=study&&((locations,chapters)=>study.hasAny(studyObjects(locations,chapters)));
   const onWriteNote=study?.notesEnabled&&((locations,chapters,focus)=>study.open(studyObjects(locations,chapters),focus,'write'));
   compare=window.V25ScriptureWindows=window.V25Compare.mount({stage,scripture,feedback,
-    onStudy:openStudy,hasStudy,onWriteNote,
+    onStudy:openStudy,hasStudy,onWriteNote,onHide:container=>finder?.closeNote(container),
     marks:()=>selection?.verseHighlights,onBegin:()=>selection?.reset({keepFocus:true}),
     onRead:loc=>history?.visitFloat(loc),onJump:({page,code,ref})=>{
       if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});

@@ -160,14 +160,16 @@
     }).join('；');
     return {objects,key:keys.join('|'),title:title('short'),fullTitle:title('name')};
   }
-  function mount({stage,paper,scripture,citationLinks,openWindow,openCitation,closeCitation,findVerses}){
+  function mount({stage,paper,scripture,citationLinks,openWindow,openCitation,closeCitation,openNoteSearch,closeNoteSearch,feedback=()=>{}}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
     const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
     const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
     const root=doc.documentElement,marked=new WeakSet(),countedFaces=new WeakSet();
     const notesEnabled=!!win.V25Notes?.enabled(win.location,win.V25_ACCOUNT_CONFIG?.notesOrigin,
       win.V25_ACCOUNT_CONFIG?.pagesIsolationVerified),models=new Map();
-    const describe=objects=>describeSelection(objects,paper.books,{separate:true}),scope=()=>win.V25Account?.notesScope||null;
+    const grammar=win.V25NoteRefs,parser=grammar.create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
+    const plain=objects=>describeSelection(objects,paper.books,{separate:true});
+    const describe=objects=>grammar.describe(objects,paper.books,parser,plain),scope=()=>win.V25Account?.notesScope||null;
     let pendingWrite=null,countFrame=null;
     const notes=()=>{
       const id=scope();if(!notesEnabled||!id||!win.V25NoteSync)return null;
@@ -176,6 +178,7 @@
       const local=win.V25Notes.createStore({storage,scope:id,describe,createIndex:createReferenceIndex});
       const model=win.V25NoteSync.create({model:local,describe,storage,sessionStorage,scope:id,
         active:()=>scope()===id,online:()=>win.navigator.onLine!==false,transport:win.V25Account.noteTransport(id),
+        spansEnabled:win.V25Account.noteSpanEnabled,
         retrySoon(){if(!timer)timer=win.setTimeout(()=>{timer=0;if(scope()===id)model.refresh();},2500);}});
       models.set(id,model);model.listen(scheduleCounts);model.refresh();return model;
     };
@@ -308,26 +311,31 @@
       const status=make('p','study-notes__status');status.setAttribute('role','status');
       const done=make('button','study-notes__link','返回笔记列表');done.type='button';
       const button=(label,cls='study-notes__link')=>{const el=make('button',cls,label);el.type='button';return el;};
-      const parser=win.V25NoteRefs.create({bookCode:citationLinks.bookCode,scripture});
       const refEditor=win.V25NoteRefEditor({doc,parser,books:paper.books,editable:win.V25Account?.noteReanchorEnabled===true,
-        preview:openCitation,closePreview:closeCitation,find:query=>{
-          const anchor=parser.exact(query);
-          if(!anchor)return findVerses(query);
+        spansEnabled:win.V25Account?.noteSpanEnabled===true,
+        preview:openCitation,closePreview:closeCitation,openSearch:openNoteSearch,closeSearch:closeNoteSearch,excerpt:anchor=>{
           const loc=parser.locations(anchor)[0],first=scripture.resolve(loc)[0];
-          return first?[{anchor,book:first.name,ref:loc.ref,display:anchor.lo==null?anchor.ch+'章':loc.ref,text:first.text}]:[];
+          return first?.text||'';
+        },browse:anchor=>{
+          const book=scripture.index(anchor.code);
+          const first=book?.byRef.get(anchor.ch+':'+(anchor.lo??1));
+          return first?{rows:book.rows,at:first.order}:null;
         },change:nextRefs=>{
           if(!editing||profile!==scope())return false;
           const next=describe(nextRefs),{noteId:id,key}=editing;
-          if(!next.key||((model.descriptor(id)||model.get(id))&&!model.reanchor(id,next,compose,key)))return false;
-          awaitingInitialList=null;
+          if(!next.key||!grammar.allowsPlaces(next.objects.length,editing.objects.length)||
+            next.refs?.length>grammar.MAX||((model.descriptor(id)||model.get(id))&&!model.reanchor(id,next,compose,key)))return false;
           editing={...next,noteId:id};refEditor.setRefs(editing.objects);statusText();return true;
         }});
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
       compose.append(notebook,hint,status,done);parts.notes.panel.append(compose,listing);
-      let active=null,editing=null,qaRendered=false,seenText='',composing=false,awaitingInitialList=null;
+      let active=null,editing=null,qaRendered=false,seenText='',composing=false;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
-      const fromItem=item=>describe(item.refs.map(([code,ch,lo,hi])=>lo==null?{code,ch}:{code,ch,lo,hi}));
-      const newNote=()=>startEditing(description,true,idForNew());
+      const fromItem=item=>describe((item.anchorObjects||item.refs).map(grammar.decode));
+      const newNote=()=>{
+        if(description.objects.length>grammar.MAX_PLACES){feedback('所选超过 '+grammar.MAX_PLACES+' 处，请减少后再写笔记。');return;}
+        startEditing(description,idForNew());
+      };
       function listNotes(){
         if(editing||active!=='notes')return;
         const matches=model?.query(description.objects)||[],frag=doc.createDocumentFragment();
@@ -338,7 +346,7 @@
           const article=make('article','study-notes__item'),header=make('div','study-notes__item-head');
           const label=make('span','study-notes__address',item.label),edit=make('button','study-notes__link','编辑');edit.type='button';
           edit.setAttribute('aria-label','编辑笔记：'+item.label);
-          edit.addEventListener('click',()=>startEditing(fromItem(item),true,item.id));
+          edit.addEventListener('click',()=>startEditing(fromItem(item),item.id));
           header.append(label,edit);
           article.append(header,make('p','study-notes__text',item.text));frag.append(article);
         }
@@ -347,7 +355,7 @@
       function show(key){
         if(active===key)return;
         if(active)parts[active].top=scroll.scrollTop;
-        if(key!=='notes')refEditor.closePreview();
+        if(key!=='notes')refEditor.suspend();
         active=key;
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
@@ -356,24 +364,64 @@
         else if(!qaRendered){qaRendered=true;renderQA(parts.qa.panel,description.objects);}
         scroll.scrollTop=parts[key].top;
       }
+      const swipeEvents=new win.AbortController(),signal=swipeEvents.signal;
+      let swipe=null,ignoreTabClick=false;
+      const tabTarget=target=>!!target.closest?.('.study-material__tabs');
+      function travel(event){
+        const x=event.clientX-swipe.x,y=event.clientY-swipe.y;
+        if(!swipe.horizontal&&Math.hypot(x,y)>=13){
+          if(Math.abs(x)<Math.abs(y)*1.35||win.performance.now()-swipe.time>420){swipe=null;return null;}
+          swipe.horizontal=true;
+        }
+        return {x,y};
+      }
+      doc.addEventListener('pointerdown',event=>{
+        ignoreTabClick=false;
+        if(swipe&&event.pointerId!==swipe.id)swipe=null;
+      },{capture:true,passive:true,signal});
+      scroll.addEventListener('pointerdown',event=>{
+        const target=event.target;
+        if(event.pointerType!=='touch'||!event.isPrimary||!active||
+          (!tabTarget(target)&&target.closest?.('button,[role=button],a,summary,textarea,input,select,[contenteditable]')))return;
+        swipe={id:event.pointerId,x:event.clientX,y:event.clientY,time:win.performance.now(),from:active,horizontal:false};
+      },{passive:true,signal});
+      scroll.addEventListener('pointermove',event=>{
+        if(swipe?.id===event.pointerId)travel(event);
+      },{passive:true,signal});
+      scroll.addEventListener('pointerup',event=>{
+        if(swipe?.id!==event.pointerId)return;
+        const start=swipe,offset=travel(event);
+        swipe=null;
+        if(!offset||active!==start.from||Math.abs(offset.x)<48||Math.abs(offset.x)<Math.abs(offset.y)*1.5)return;
+        const next=offset.x<0?'qa':'notes';
+        ignoreTabClick=tabTarget(event.target);
+        if(next===active)return;
+        const focus=scroll.contains(doc.activeElement)&&doc.activeElement!==scroll;
+        show(next);
+        if(focus)parts[next].button.focus({preventScroll:true});
+      },{passive:true,signal});
+      scroll.addEventListener('pointercancel',event=>{if(swipe?.id===event.pointerId)swipe=null;},{passive:true,signal});
+      tabs.addEventListener('click',event=>{
+        if(!ignoreTabClick||!event.detail)return;
+        // Suppress only a compatibility click from this swipe; a new pointer
+        // down (including a quick next tap) already cleared the flag.
+        ignoreTabClick=false;event.preventDefault();event.stopPropagation();
+      },{capture:true,signal});
       function statusText(){
         if(!editing)return;
         const {text,warn}=model.status(editing.noteId);
         status.dataset.unsaved=warn?'true':'false';if(status.textContent!==text)status.textContent=text;
       }
-      function startEditing(desc,focus,id){
-        const keep=editing?.noteId===id;
-        awaitingInitialList=null;
+      function startEditing(desc,id){
         editing={...desc,noteId:id};compose.hidden=false;listing.hidden=true;
-        if(!keep){refEditor.reset();field.value=seenText=model.body(id);statusText();}
+        refEditor.reset();field.value=seenText=model.body(id);statusText();
         refEditor.setRefs(desc.objects);
         show('notes');
-        if(!keep)scroll.scrollTop=0;
-        if(focus){field.focus({preventScroll:true});field.setSelectionRange(field.value.length,field.value.length);}
+        scroll.scrollTop=0;
+        field.focus({preventScroll:true});field.setSelectionRange(field.value.length,field.value.length);
       }
       function record(e){
         if(editing&&profile===scope()&&!e.isComposing&&!composing){
-          awaitingInitialList=null;
           const text=field.value;model.write(editing,text,compose,seenText);seenText=text;statusText();
         }
       }
@@ -382,15 +430,9 @@
       field.addEventListener('input',record);
       field.addEventListener('compositionstart',()=>{composing=true;});
       field.addEventListener('compositionend',e=>{composing=false;record(e);});
-      const returnToList=()=>{editing=null;awaitingInitialList=null;refEditor.reset();compose.hidden=true;listing.hidden=false;listNotes();};
+      const returnToList=()=>{editing=null;refEditor.reset();compose.hidden=true;listing.hidden=false;listNotes();};
       done.addEventListener('click',()=>{returnToList();parts.notes.button.focus({preventScroll:true});});
       const off=model?.listen((key,source)=>{
-        if(!key&&model.ready()&&awaitingInitialList===editing?.noteId&&!field.value&&!refEditor.hasDraft()&&editing.key===description.key){
-          awaitingInitialList=null;
-          const exact=exactNotes();
-          if(exact.length===1)startEditing(fromItem(exact[0]),field===doc.activeElement,exact[0].id);
-          else if(exact.length>1)returnToList();
-        }
         if(editing&&key===editing.noteId){
           const latest=model.descriptor(key);
           if(latest){editing=latest;refEditor.setRefs(latest.objects);}
@@ -402,25 +444,21 @@
         }else listNotes();
       });
       compose.hidden=true;
-      const exactNotes=()=>model.query(description.objects).filter(item=>describeSelection(fromItem(item).objects,paper.books).key===description.key);
       const request=mode=>{
-        if(mode==='write'){
-          const exact=exactNotes();
-          if(exact.length===1)startEditing(fromItem(exact[0]),true,exact[0].id);
-          else if(exact.length>1){show('notes');returnToList();}
-          else{newNote();if(!model.ready())awaitingInitialList=editing.noteId;}
-        }
+        // A scripture address is a shared association, never a note identity.
+        if(mode==='write')newNote();
         else if(!active)show(availability.hasAny(description.objects)?'qa':'notes');
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose(){refEditor.reset();off?.();}};
+      return {request,dispose(){swipeEvents.abort();refEditor.reset();off?.();}};
     }
     function open(next,restore,mode='view'){
       // A contiguous reader selection starts as one range; only addresses
       // confirmed individually inside a note stay separate.
       const selection=describeSelection(next,paper.books),{objects,key,title,fullTitle}=selection,model=notes(),profile=scope();
       if(!key||mode==='write'&&!notesEnabled||mode!=='write'&&!availability.hasAny(objects)&&!model?.query(objects).length)return false;
+      if(mode==='write'&&objects.length>grammar.MAX_PLACES){feedback('所选超过 '+grammar.MAX_PLACES+' 处，请减少后再写笔记。');return false;}
       if(mode==='write'&&!model){
         if(win.V25Account?.openDialog){pendingWrite={next,restore};win.V25Account.openDialog();}
         else stage.dispatchEvent(new win.CustomEvent('paper-note-login-required',{bubbles:true}));

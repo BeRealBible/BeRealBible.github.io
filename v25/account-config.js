@@ -6,4 +6,5 @@ window.V25_ACCOUNT_CONFIG=Object.freeze({
   notesOrigin:'https://berealbible.github.io',
   pagesIsolationVerified:true,
   noteReanchorEnabled:true,
+  noteSpanEnabled:true,
 });

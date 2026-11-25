@@ -73,11 +73,17 @@ const wait=()=>new Promise(r=>setImmediate(r));
       insert into auth.users values ('${a}'), ('${b}');`);
     await db.exec(fs.readFileSync(path.join(__dirname,'supabase/migrations/20261124000100_v25_notes.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'supabase/migrations/20261125000100_v25_note_reanchor.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'supabase/migrations/20261125000200_v25_note_spans.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'supabase/migrations/20261125000300_v25_note_place_limit.sql'),'utf8'));
     const list=async()=>(await db.query('select public.paper_v25_note_list() as notes')).rows[0].notes;
     const write=async (body,rev,mutation)=>(await db.query(
       'select public.paper_v25_note_write($1,$2::jsonb,$3,$4,$5) as result',[desc.key,'[["GEN",1,24,24]]',body,rev,mutation])).rows[0].result;
     const v2=async (key,refs,body,rev,mutation)=>(await db.query(
       'select public.paper_v25_note_write_v2($1,$2::jsonb,$3,$4,$5) as result',[key,JSON.stringify(refs),body,rev,mutation])).rows[0].result;
+    const v3=async (key,refs,body,rev,mutation,objects)=>(await db.query(
+      'select public.paper_v25_note_write_v3($1,$2::jsonb,$3,$4,$5,$6::jsonb) as result',
+      [key,JSON.stringify(refs),body,rev,mutation,JSON.stringify(objects)])).rows[0].result;
+    const listV2=async()=>(await db.query('select public.paper_v25_note_list_v2() as notes')).rows[0].notes;
     const role=async (name,user='')=>{
       await db.exec('reset role; set role '+name);
       await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]);
@@ -102,9 +108,28 @@ const wait=()=>new Promise(r=>setImmediate(r));
     assert.deepEqual(await v2(desc.key,oldRefs,'过期操作',3,ids[2]),{ok:false,revision:4,body:'保留旧笔记身份',refs:newRefs});
     assert.deepEqual(await write('旧网页不能把关联改回去',4,ids[2]),{ok:false,revision:4,body:'保留旧笔记身份'});
     assert.deepEqual((await list()).find(n=>n.note_key===desc.key).refs,newRefs);
+    const projected=[['GEN',1,30,31],['GEN',2,1,2]],objects=[['GEN',1,30,2,2]],spanKey='N:SPAN';
+    assert.deepEqual(await v3(spanKey,projected,'跨章笔记',0,ids[0],objects),{ok:true,revision:1});
+    assert.deepEqual(await v3(spanKey,projected,'跨章笔记',0,ids[0],objects),{ok:true,revision:1});
+    assert.deepEqual((await listV2()).find(n=>n.note_key===spanKey).anchor_objects,objects);
+    assert.deepEqual((await list()).find(n=>n.note_key===spanKey).refs,projected);
+    await assert.rejects(v3(spanKey,projected,'错配',1,ids[1],[['GEN',1,29,2,2]]),{code:'22023'});
+    assert.deepEqual(await v2(spanKey,projected,'旧版也可写正文',1,ids[1]),{ok:true,revision:2});
+    assert.deepEqual((await listV2()).find(n=>n.note_key===spanKey).anchor_objects,objects);
+    assert.deepEqual(await v2(spanKey,newRefs,'旧版移动到别处',2,ids[2]),{ok:true,revision:3});
+    assert.equal((await listV2()).find(n=>n.note_key===spanKey).anchor_objects,null);
+    const many=Array.from({length:11},(_,i)=>['GEN',i+1]);
+    await assert.rejects(v2('N:PLACESCAP',many,'超限',0,ids[0]),{code:'22023'});
+    assert.deepEqual(await v2('N:PLACESCAP',many.slice(0,10),'刚好十处',0,ids[0]),{ok:true,revision:1});
+    await assert.rejects(v2('N:PLACESCAP',many,'仍然超限',1,ids[1]),{code:'22023'});
+    const longSpan=many.map(([,ch])=>['GEN',ch,1,3]);
+    assert.deepEqual(await v3('N:LONGSPAN',longSpan,'跨十一章仍是一处',0,ids[0],[['GEN',1,1,11,3]]),{ok:true,revision:1});
     await role('authenticated',b);
+    assert.ok(!(await listV2()).some(n=>n.note_key===spanKey));
     assert.deepEqual(await v2(stable,newRefs,'不能移动别人的笔记',1,ids[2]),{ok:false,revision:0,body:'',refs:null});
     await role('anon');await assert.rejects(v2(stable,newRefs,'无权写入',1,ids[2]),{code:'42501'});
+    await assert.rejects(listV2(),{code:'42501'});
+    await assert.rejects(v3(spanKey,projected,'无权写入',1,ids[2],objects),{code:'42501'});
   }finally{await db.close();}
   console.log('PASS immediate per-input submission, ordered acknowledgement, offline journal replay, conflict and private database roles');
 })().catch(e=>{console.error(e);process.exitCode=1;});

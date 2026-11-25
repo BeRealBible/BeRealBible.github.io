@@ -10,6 +10,8 @@
   function slipSize(kind,w,h,compact,material){
     if(kind==='study')return {width:compact?Math.min(330,w*.84):clamp(w*.39,360,520),
       height:material?(compact?Math.min(465,h*.64):Math.min(490,h*.67)):(compact?Math.min(360,h*.44):Math.min(460,h*.59))};
+    if(kind==='note-pick')return {width:compact?Math.min(420,w-24):clamp(w*.40,330,480),
+      height:compact?Math.min(400,h*.58):Math.min(480,h*.65)};
     const width=compact?kind==='footnote'?Math.min(273,w*.76):Math.min(300,w*.78):
       kind==='footnote'?clamp(w*.26,255,350):clamp(w*.31,310,460);
     const height=compact?(kind==='footnote'?215:kind==='search'?264:260):(kind==='footnote'?285:kind==='search'?350:380);
@@ -67,6 +69,12 @@
     const back=action('back','返回搜索结果','M20 12H4m7-7-7 7 7 7',()=>close('back',true));
     const jump=action('jump','在主书查看','M13 5h6v6m0-6-8 8m7 0v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',()=>{if(activeRow)config?.onJump?.(activeRow);});
     const pin=action('pin','固定经文浮窗','m15 4 5 5-3 1-3 4 .5 2.5L13 18l-7-7 1.5-1.5 2.5.5 4-3 1-3ZM9.5 14.5 4 20',()=>config?.onPin?.(config.rows,activeRow));
+    const notePicked=new Map(),noteFooter=node('footer','compare-slip__note-footer'),noteStatus=node('span');
+    const noteConfirm=btn('compare-slip__note-confirm','确定','确定加入笔记',()=>{
+      if(config?.picker?.confirm([...notePicked.values()]))close('confirmed',true);
+      else updateNotePicks();
+    });
+    noteStatus.setAttribute('role','status');noteFooter.append(noteStatus,noteConfirm);
     panel.id=id;panel.dataset.role=role;panel.hidden=true;panel.setAttribute('aria-label','经文浮窗');
     name.type='button';name.append(title);
     name.onclick=()=>{if(collapsed)onExpand?.();};
@@ -74,7 +82,7 @@
     tools.setAttribute('role','group');tools.setAttribute('aria-label','浮窗操作');
     tools.append(back,jump,pin,minimize,exit);head.append(name,tools);
     panel.append(head,scroll,resize);home.append(panel);
-    const picking=select&&win.V25FloatSelection?.mount({panel,scroll,scripture,current:()=>activeRow,...select});
+    const picking=select&&win.V25FloatSelection?.mount({panel,scroll,scripture,current:()=>activeRow,active:()=>!config?.picker,...select});
     const pickingHints=['data-verse-picking','aria-keyshortcuts','aria-description'].map(attr=>[attr,scroll.getAttribute(attr)]);
     const clock=()=>win.performance.now();
     function limits(){
@@ -94,7 +102,7 @@
     }
     function reflow(restore=null){
       if(!config||panel.hidden||collapsed)return;
-      const view=limits(),z=getZoom(),compact=win.innerWidth<640,slot=panel.dataset.slot;
+      const view=limits(),z=config.picker?1:getZoom(),compact=win.innerWidth<640,slot=panel.dataset.slot;
       const editing=editor&&doc.activeElement===editor;
       if(!editing||!resting||Math.abs(view.width-resting.width)>24||Math.abs(view.scale-resting.scale)>.02||view.height>resting.height)resting=view;
       const keyboard=editing&&(compact||win.matchMedia('(pointer:coarse)').matches)&&resting.height-view.height>=90;
@@ -130,6 +138,7 @@
         // layer. Coordinates remain in screen pixels and are converted once.
         Object.assign(panel.style,{zoom:String(z),left:left/z+'px',top:top/z+'px',right:'auto',bottom:'auto',
           width:width/z+'px',height:height/z+'px'});
+        if(config.material)panel.style.setProperty('--note-ui-scale',String(Math.min(1,1.2/z)));
         panel.dataset.slipScale=String(z);
         if(mark?.el?.isConnected)scroll.scrollTop=mark.el.offsetTop-mark.offset;
         else if(mark?.top!=null)scroll.scrollTop=mark.top;
@@ -174,7 +183,7 @@
       keyboardFrame=win.requestAnimationFrame(()=>{keyboardFrame=0;reflow();});
     }
     panel.addEventListener('focusin',e=>{
-      if(e.target.matches?.('.study-notes__field,.study-notes__ref-input,.study-notes__search-input')){editor=e.target;scheduleKeyboard();}
+      if(e.target.matches?.('.study-notes__field,.study-notes__ref-input')){editor=e.target;scheduleKeyboard();}
     });
     panel.addEventListener('focusout',e=>{
       if(editor&&e.target===editor){releaseEditor();if(!panel.hidden&&!collapsed)reflow();}
@@ -243,10 +252,28 @@
     function close(reason='dismiss',restore=false){
       if(!config)return;
       releaseEditor();picking?.close();onHide?.();
-      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;rows=[];stream=null;activeRow=null;scroll.replaceChildren();
+      const closed=config;closed.onDispose?.();config=null;panel.hidden=true;notePicked.clear();noteFooter.remove();
+      rows=[];stream=null;activeRow=null;scroll.replaceChildren();
       if(closed.portal&&panel.parentNode!==home)home.append(panel);
       closed.onClose?.(reason,restore);
       if(restore&&(doc.activeElement===doc.body||panel.contains(doc.activeElement)))stage.focus({preventScroll:true});
+    }
+    function updateNotePicks(){
+      const picker=config?.picker;if(!picker)return;
+      for(const {el,row} of rows){
+        const pressed=notePicked.has(row.id),used=!!picker.has?.(row);
+        el.setAttribute('aria-pressed',String(pressed));el.setAttribute('aria-disabled',String(used));
+        el.toggleAttribute('data-selected-verse',pressed);
+      }
+      const {count,error}=picker.review([...notePicked.values()]);
+      noteStatus.textContent=error||(count?'已选 '+count+' 处':'轻点经文选取');
+      noteStatus.toggleAttribute('data-error',!!error);
+      noteConfirm.disabled=!count||!!error;
+    }
+    function pickNoteRow(row){
+      if(!config?.picker||config.picker.has?.(row))return;
+      if(notePicked.has(row.id))notePicked.delete(row.id);else notePicked.set(row.id,row);
+      updateNotePicks();
     }
     function renderChunk(n){
       const {chapter,rows}=stream.chunks[n],section=node('section','compare-slip__chunk');
@@ -264,6 +291,15 @@
         const verses=row.lo===row.hi?String(row.lo):row.lo+'–'+row.hi;
         const text=node('span','compare-slip__verse'),num=node('sup','compare-slip__ref',verses);
         text.dataset.ref=row.ref;text.dataset.verseId=row.id;
+        if(config.picker){
+          text.tabIndex=0;text.setAttribute('role','button');
+          text.setAttribute('aria-label','选择：'+row.name+' '+row.display);text.setAttribute('aria-description',row.text);
+          text.addEventListener('click',()=>pickNoteRow(row));
+          text.addEventListener('keydown',e=>{
+            if(e.key!=='Enter'&&e.key!==' ')return;
+            e.preventDefault();if(!e.repeat)pickNoteRow(row);
+          });
+        }
         const cited=config.cited.has(row.id);
         if(cited)text.dataset.cited='';
         text.append(num);
@@ -276,7 +312,7 @@
     function gather(){
       rows=Array.from(scroll.querySelectorAll('[data-verse-id]'),el=>({el,row:stream.byRef.get(el.dataset.ref)}));
       panel.dataset.chunkCount=String(scroll.childElementCount);
-      picking?.render();
+      if(config.picker)updateNotePicks();else picking?.render();
     }
     function aim(row){
       if(!row||!config)return;
@@ -373,12 +409,13 @@
       panel.setAttribute('aria-label',config.ariaLabel||'经文对照浮窗');
       scroll.setAttribute('aria-label',study?(config.material?'经文资料列表':'思考问答列表'):'浮窗经文');
       for(const [attr,value] of pickingHints){
-        if(study||value===null)scroll.removeAttribute(attr);
+        if(study||config.picker||value===null)scroll.removeAttribute(attr);
         else scroll.setAttribute(attr,value);
       }
       exit.title=study?(config.material?'关闭资料浮窗':'关闭问答浮窗'):'关闭经文浮窗';exit.setAttribute('aria-label',exit.title);
       if(study){bookTitle.textContent=config.material?'经文资料':'思考问答';refTitle.textContent=config.title;}
       back.hidden=!config.onBack;jump.hidden=!config.onJump;pin.hidden=!config.onPin;minimize.hidden=role==='preview';
+      if(config.picker)panel.insertBefore(noteFooter,resize);
       manual=null;foldedMark=null;panel.removeAttribute('style');
       collapse(false);
       if(study){scroll.scrollTop=0;config.render(scroll);}
@@ -389,7 +426,7 @@
     return {panel,scroll,open,close,collapse,reflow,picking,is:(kind)=>config?.kind===kind,
       reopen:mode=>config?.onReopen?.(mode),focus:()=>scroll.focus({preventScroll:true})};
   }
-  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy,hasStudy,onWriteNote}){
+  function mount({stage,scripture,onRead,feedback=()=>{},onJump,marks,onBegin,onStudy,hasStudy,onWriteNote,onHide}){
     const doc=stage.ownerDocument,win=doc.defaultView,home=doc.createElement('div'),dock=doc.createElement('div');
     const limitNote=doc.createElement('div');
     home.id='v25-compare-layer';dock.id='v25-compare-tabs';
@@ -412,7 +449,7 @@
       select:pickingFor(()=>preview,(locs,notice)=>openSelection(locs,notice,true))});
     const pins=Array.from({length:MAX_PINNED},(_,i)=>{
       const pin=createWindow({...opts,id:i===0?'v25-compare':i===1?'v25-compare-alt':'v25-compare-'+(i+1),
-        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>closeCitation(pin.panel),
+        role:'fixed',home,dock,onExpand:()=>activate(pin),onUse:()=>used(pin),onHide:()=>{closeCitation(pin.panel);onHide?.(pin.panel);},
         select:pickingFor(()=>pin,openSelection)});
       return pin;
     });
@@ -475,7 +512,7 @@
     function clearSelection(except){
       for(const reader of [...pins,preview])if(reader!==except)reader.picking?.reset();
     }
-    function refreshHighlights(){for(const reader of [...pins,preview])if(!reader.panel.hidden)reader.picking?.render();}
+    function refreshHighlights(){for(const reader of [...pins,preview])if(!reader.panel.hidden&&!reader.is('note-pick'))reader.picking?.render();}
     function open(loc){
       const resolved=scripture.resolve(loc);
       if(!resolved.length){feedback('找不到此处经文');return false;}
@@ -499,6 +536,12 @@
       return preview.open({...settings,rows,
         onPin:pin,
         onJump:settings.onJump||((row)=>{preview.close('jump');onJump?.(row);})});
+    }
+    function openNotePick(loc,{owner,picker,keywords,onClose}){
+      const rows=scripture.resolve(loc);if(!rows.length||!owner?.isConnected)return false;
+      if(preview.panel.hidden)makeRoom(sourcePin(owner));
+      return preview.open({kind:'note-pick',label:'选取关联经文',ariaLabel:'选取关联经文浮窗',rows,keywords,picker,
+        focus:true,onBack:true,onClose});
     }
     // Portaling into the active dialog keeps the same preview interactive
     // above its caller, without a second scripture renderer or a new slot.
@@ -528,7 +571,7 @@
       if(citationAnchor&&!preview.panel.contains(e.target)&&!e.target.closest?.('.scripture-cite,.pcz-control,.zoom-tools'))closeCitation();
     },true);
     function closeMaterials(){for(const pin of pins)if(!pin.panel.hidden&&pin.panel.hasAttribute('data-material'))pin.close('account-changed');}
-    return {open,openStudy,openSelection,openPreview,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights,closeMaterials};
+    return {open,openStudy,openSelection,openPreview,openNotePick,openCitation,closeCitation,choices,preview,clearSelection,refreshHighlights,closeMaterials};
   }
   return {mount,windowRange,slipScale,LIMIT,MAX_PINNED,MAX_EXPANDED};
 });

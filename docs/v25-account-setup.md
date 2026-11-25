@@ -44,6 +44,12 @@
 
 ## BeRealBible 正式域迁移
 
+跨章笔记关联启用顺序：先在目标 Supabase 验证并应用 `20261125000200_v25_note_spans.sql`，确认 v3 写入／v2 列表、旧客户端兼容及账号隔离后，再设置 `V25_ACCOUNT_CONFIG.noteSpanEnabled: true` 并重新盖资源指纹。未启用时普通笔记继续走现有 RPC，不把跨章对象拆开或误报已同步。
+
+最多 10 处关联的服务端保护由 `20261125000300_v25_note_place_limit.sql` 提供，须在跨章迁移之后应用。计数取原始关联对象，不取按章展开的检索索引；历史超限记录不清理，允许保留或减少关联。
+
+2026-11-25：正式项目已在同一事务应用跨章和上限迁移。线上事务验证跨章对象写入和回读、第 11 处被拒、另一账号不可读取、匿名不可执行写接口；测试事务已回滚。
+
 - 正式域由 `BeRealBible/BeRealBible.github.io` 的 `main` 分支直接托管 `https://berealbible.github.io/`。该域曾托管 `emmaus-paper-study-demo`，不能把正式站和 Demo 分别放在根目录与子目录来视为隔离。
 - 先准备正式版代码并验证根目录资源，旧读经入口保留。待 Demo 的该域发布停用，再验证 `node tools/check-v25-pages-isolation.cjs --official`。通过才置 `pagesIsolationVerified:true` 并发布账号入口。正式域公布后也不得在该域另开其他项目，即使暂时撤回账号配置。
 - 2026-11-24：经确认停用 `BeRealBible/emmaus-paper-study-demo` 的 Pages，未删除或归档仓库，部署分支仍指向原提交。正式根站构建后，已验证该组织下只有正式站启用 Pages、旧 Demo 路径返回 404、正式根网址响应 200 不跳转。
