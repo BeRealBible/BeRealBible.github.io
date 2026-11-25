@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const origin=process.env.V25_NOTES_TEST_ORIGIN||'http://127.0.0.1:37136',api='https://v25-note-test.supabase.co';
 const liveAssets=process.env.V25_NOTES_LIVE_ASSETS==='1';
-const target=origin+'/?v=index-25&curl=off&ref=2SA.3:1',enableLinks=process.env.V25_NOTES_LEGACY_API!=='1';
+const target=origin+'/?v=index-25&curl=off',enableLinks=process.env.V25_NOTES_LEGACY_API!=='1';
 const enableSpans=enableLinks&&process.env.V25_NOTES_NO_SPANS!=='1';
 const mime={'.js':'text/javascript','.html':'text/html','.css':'text/css','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.png':'image/png','.webp':'image/webp'};
 const cors={'access-control-allow-origin':origin,'access-control-allow-headers':'apikey,authorization,content-type','access-control-allow-methods':'POST,OPTIONS'};
@@ -16,7 +16,7 @@ async function snapshot(reader,name){
   await reader.page.screenshot({path:path.join(shots,name+'.png')});
 }
 let releaseSend,hold=new Promise(r=>{releaseSend=r;});
-async function visit(browser,width,holdNotes){
+async function visit(browser,width,holdNotes,ref='2SA.3:1'){
   const mobile=width<550;
   const ctx=await browser.newContext({viewport:{width,height:850},isMobile:mobile,hasTouch:mobile,reducedMotion:'reduce'});
   await ctx.addInitScript(mobile=>{
@@ -67,7 +67,7 @@ async function visit(browser,width,holdNotes){
   const page=await ctx.newPage(),err=[],qaRequests=[];
   page.on('pageerror',e=>err.push(e.message));
   page.on('request',r=>{if(r.url().includes('/study-qa.json?'))qaRequests.push(r.url());});
-  await page.goto(target,{waitUntil:'domcontentloaded',timeout:90000});
+  await page.goto(target+'&ref='+encodeURIComponent(ref),{waitUntil:'domcontentloaded',timeout:90000});
   await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
   assert.equal(new URL(page.url()).origin,origin,'login and notes stay at this reading site');
   await page.evaluate(()=>document.getElementById('fit-book').click());
@@ -111,7 +111,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const desk=await visit(browser,1280),bar=await desk.select('4:1');
     const count=(reader,ch,kind)=>reader.page.locator(`#stage [data-chapter-total="2SA.${ch}"] [data-chapter-count="${kind}"]`).first();
     await count(desk,4,'qa').waitFor();assert.equal(await count(desk,4,'qa').textContent(),'6');
-    assert.equal(await count(desk,4,'notes').textContent(),'—');
+    assert.equal(await count(desk,4,'notes').count(),0,'guests get no placeholder');
     assert.ok(await bar.locator('[data-study]').isDisabled());
     await bar.getByRole('button',{name:'写笔记'}).click();await desk.login('a');
     const edit=desk.dialog.getByRole('textbox',{name:'笔记正文'}),status=desk.dialog.getByRole('status');
@@ -160,7 +160,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const field=phone.dialog.getByRole('textbox',{name:'笔记正文'});await field.waitFor();
     try{
       assert.equal(await field.inputValue(),'');
-      assert.equal(await count(phone,4,'notes').textContent(),'—');
+      assert.equal(await count(phone,4,'notes').count(),0,'loading account notes does not leave a placeholder');
     }finally{releasePhone();}
     await phone.page.waitForFunction(()=>document.querySelector('#stage [data-chapter-total="2SA.4"] [data-chapter-count="notes"]')?.textContent==='1');
     assert.equal(await field.inputValue(),'','late cloud notes must not take over a new draft');
@@ -570,7 +570,25 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await finishEdit(desk).click();await returnToNotes(desk).click();
     assert.equal(await desk.dialog.locator('.study-notes__text').textContent(),'ab笔');
     await desk.page.waitForFunction(()=>document.querySelector('#stage [data-chapter-total="2SA.4"] [data-chapter-count="notes"]')?.textContent==='1');
-    assert.equal(await count(other,4,'notes').textContent(),'0');
+    assert.equal(await count(other,4,'notes').count(),0,'a confirmed zero is not drawn');
+    await closeMaterials(phone).tap();
+    const chapterBadge=phone.page.locator('#stage [data-chapter-total="2SA.4"]');
+    await chapterBadge.waitFor();
+    await phone.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+    await phone.page.waitForFunction(()=>document.querySelector('#stage [data-chapter-total="2SA.4"] [data-chapter-count="notes"]')?.textContent==='1');
+    assert.deepEqual(await chapterBadge.locator('[data-chapter-count]').allTextContents(),['6','1']);
+    await chapterBadge.tap();
+    const all=phone.dialog.getByRole('tab',{name:'全部',exact:true});
+    await all.waitFor();assert.equal(await all.getAttribute('aria-selected'),'true');
+    assert.ok(await phone.dialog.getByRole('heading',{name:'私人笔记',exact:true}).isVisible());
+    assert.ok(await phone.dialog.getByRole('heading',{name:'公开问答',exact:true}).isVisible());
+    await phone.dialog.locator('.study-qa__list details').first().waitFor();
+    assert.equal(await phone.dialog.locator('.study-qa__list details').count(),6);
+    await snapshot(phone,'mobile-chapter-overview');
+    await noteButton(phone,'ab笔').tap();assert.ok(await readNote(phone).isVisible());
+    await returnToNotes(phone).tap();assert.equal(await all.getAttribute('aria-selected'),'true','return to the chapter overview');
+    await closeMaterials(phone).tap();
+    await (await phone.select('4:1')).getByRole('button',{name:'查看资料'}).tap();
     for(let i=0;i<16;i++){
       const id='N:'+String(100+i).padStart(32,'0');
       cloud.set('a:'+id,{owner:'a',note_key:id,refs:[['2SA',4,1,1]],body:'测试笔记 '+i,revision:1});
@@ -585,6 +603,25 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await snapshot(phone,'mobile-note-list-add');
     const beforeBlank=writes.length;
     await mobileAdd.tap();assert.equal(await field.inputValue(),'');assert.equal(writes.length,beforeBlank);
+
+    const exodus=await visit(browser,1280,null,'EXO.4:1'),exoBadge=exodus.page.locator('#stage [data-chapter-total="EXO.4"]');
+    assert.equal(await exodus.page.locator('#stage').getAttribute('data-book'),'EXO');
+    await exodus.page.locator('#stage text[data-role="chapter"][data-ref="4:1"]').waitFor();
+    assert.equal(await exoBadge.count(),0,'the chapter with no known material draws no badge or target');
+    const sampleNote={owner:'b',note_key:'N:77777777777777777777777777777777',refs:[['EXO',4,2,2],['EXO',4,3,3]],body:'只挂在出埃及记第 4 章第 2、3 节的私人笔记',revision:1};
+    cloud.set('b:'+sampleNote.note_key,sampleNote);
+    await exodus.page.evaluate(()=>V25Account.openDialog());await exodus.login('b');
+    await exoBadge.waitFor();
+    assert.deepEqual(await exoBadge.locator('[data-chapter-count]').allTextContents(),['1'],'only the positive note item exists; both references count once');
+    await exoBadge.click();
+    await exodus.dialog.getByRole('heading',{name:'私人笔记',exact:true}).waitFor();
+    await noteButton(exodus,sampleNote.body).waitFor();
+    assert.equal(await exodus.dialog.getByRole('heading',{name:'公开问答',exact:true}).count(),0);
+    await closeMaterials(exodus).click();
+    cloud.set('b:'+sampleNote.note_key,{...sampleNote,body:'',revision:2});
+    await exodus.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+    await exoBadge.waitFor({state:'detached'});
+    assert.deepEqual(exodus.err,[]);await exodus.ctx.close();
     assert.deepEqual([...desk.err,...phone.err,...other.err],[]);
     console.log('PASS persistent list creation from Q&A, guest sign-in and long lists; read-only detail, explicit edit, address editing, keyboard layout, ordered sync, and account isolation');
   }finally{releaseSend();await browser.close();}

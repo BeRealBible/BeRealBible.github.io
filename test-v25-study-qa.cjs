@@ -69,6 +69,9 @@ assert.equal(paperCueLine(digit,[{x:20,y:64,w:12,h:10}]),null,'do not draw a cue
 assert.equal(paperCueLine(digit,[{x:20,y:64.5,w:12,h:10}]).y,63.9,'use a closer cue when the gap is tight but safe');
 const box=chapterCountBox(digit,[digit,unrelated]);
 assert.ok(box&&box.x+box.w<digit.x,'both counts fit at the left of the chapter number');
+const singleBox=chapterCountBox(digit,[digit,unrelated],1,1);
+assert.ok(singleBox.h<box.h&&Math.abs(singleBox.y+singleBox.h/2-(digit.y+digit.h*.51))<1,'a single positive count is centered on the chapter number');
+assert.ok(singleBox.hit.x+singleBox.hit.width<digit.x,'blank-space hit enlargement cannot swallow the chapter numeral');
 assert.equal(chapterCountBox(digit,[{x:0,y:0,w:18,h:90}]),null,'an occupied gutter is not overwritten');
 const selection=describeSelection([inChapter('2SA',4),one('2SA',3,6),one('2SA',3,1),one('2SA',3,2),one('2SA',4,7)],bible.books);
 assert.equal(selection.title,'撒下 3:1–2、6、4章');

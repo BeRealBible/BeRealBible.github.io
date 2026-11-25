@@ -747,11 +747,11 @@
   function pointerDown(e){
     if(!pointers.size&&e.button<=0)stopCoast();
     let target=e.target;
-    if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact]')){
+    if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact],[data-chapter-total]')){
       // A nearby button may win the browser's touch adjustment even when
       // the actual contact is on adjacent ink. Keep that tap in the book.
       const exact=document.elementFromPoint(e.clientX,e.clientY);
-      if(exact?.closest('text[data-role]')&&stage.contains(exact))target=exact;
+      if(exact&&stage.contains(exact)&&(exact.closest('text[data-role],[data-chapter-total]')||target.closest('[data-chapter-total]')))target=exact;
     }
     const touchLabel=e.pointerType==='touch'?target?.closest?.('.edge-index__group'):null;
     const contact=touchLabel?relative(e):null,atEdge=contact&&inwardDirection((contact.x-x)/scale,(contact.y-y)/scale,null);
@@ -781,9 +781,10 @@
       for(const id of pointers.keys())try{stage.setPointerCapture(id);}catch{}
       const c=centroid();gesture={pinched:true,cuts,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance()};return;
     }
-    const start=relative(e),token=fold||pressTarget?null:selection?.hit(e.clientX,e.clientY,target);
+    const start=relative(e),chapterBadge=target?.closest?.('[data-chapter-total]');
+    const token=fold||pressTarget||chapterBadge?null:selection?.hit(e.clientX,e.clientY,target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
-    const g=gesture={start,end:start,band:pressTarget,cuts,tapOnly:!!pressTarget&&!band,token,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
+    const g=gesture={start,end:start,band:pressTarget,cuts,tapOnly:!!pressTarget&&!band,token,chapterBadge,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
       edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,
       fromPaper:onPaper(bx,by),
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
@@ -891,6 +892,11 @@
       if(g.cancelled&&g.kind==='swipe'&&fold&&!fold.settling)settleFold(false);
       stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';if(g.pinched)save();return;
     }
+    if(g.kind==='pending'&&g.chapterBadge){
+      const actual=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-chapter-total]');
+      if(actual===g.chapterBadge&&end.t-g.start.t<TEXT_HOLD_MS)study?.openChapterBadge(actual);
+      return;
+    }
     if(g.kind==='pending'&&g.token){
       hideStartShortcut();
       const t=g.token,single=!selection.isActive();
@@ -930,6 +936,9 @@
   stage.addEventListener('pointerdown',pointerDown,true);stage.addEventListener('pointermove',pointerMove);
   stage.addEventListener('pointerup',e=>pointerUp(e),true);stage.addEventListener('pointercancel',e=>pointerUp(e,true),true);
   stage.addEventListener('click',e=>{
+    if(!fold&&!jumpState&&!chapters?.isOpen()&&e.detail===0){
+      const badge=e.target?.closest?.('[data-chapter-total]');if(badge){study?.openChapterBadge(badge);return;}
+    }
     if(suppressBandClick&&e.detail!==0&&performance.now()<=suppressBandClick.until&&suppressBandClick.cuts.has(e.target?.closest?.('.edge-index__band,.edge-index__group'))){
       e.preventDefault();e.stopPropagation();
     }
@@ -984,6 +993,10 @@
   stage.addEventListener('keydown',e=>{
     if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&(e.altKey||e.ctrlKey||e.metaKey))return;
     if(jumpState||chapters?.isOpen()){if(e.key==='Escape'){e.preventDefault();interrupt();}return;}
+    if(!fold&&(e.key==='Enter'||e.key===' ')){
+      const badge=e.target?.closest?.('[data-chapter-total]');
+      if(badge){e.preventDefault();if(!e.repeat)study?.openChapterBadge(badge);return;}
+    }
     if(e.target?.closest?.('button,input,dialog'))return;
     if(e.key==='ArrowRight'){e.preventDefault();turn(1);}else if(e.key==='ArrowLeft'){e.preventDefault();turn(-1);}
     else if(e.key==='Escape')interrupt();else if(e.key==='+'||e.key==='=')zoom(scale*1.2);else if(e.key==='-')zoom(scale/1.2);else if(e.key==='0')fit();

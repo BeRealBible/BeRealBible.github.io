@@ -31,15 +31,27 @@
     }
     return underline>=bottom+.85?{x1,x2,y:underline}:null;
   }
-  function chapterCountBox(anchor,ink){
+  function chapterCountBox(anchor,ink,rows=2,digits=2){
     if(!anchor||anchor.hideHatch||!(anchor.w>0&&anchor.h>0))return null;
     const right=anchor.x-2.7,center=anchor.y+anchor.h*.51;
-    const other=ink.filter(o=>o!==anchor&&!o.hideHatch&&o.w>0&&o.h>0&&o.x<right+.7&&o.x+o.w>right-20&&o.y+o.h>center-32&&o.y<center+32);
-    // Fit the two rows in existing whitespace, not over printed ink.
-    for(const size of [8,7,6,5])for(const dy of [0,-4,4,-8,8,-12,12,-16,16,-20,20]){
-      const w=size*2.2,h=size*2.25,x=right-w,y=center+dy-h/2;
+    const other=ink.filter(o=>o!==anchor&&!o.hideHatch&&o.w>0&&o.h>0&&o.x<anchor.x&&o.x+o.w>right-52&&o.y+o.h>center-50&&o.y<center+50);
+    const clear=(l,t,r,b)=>!other.some(o=>o.x+o.w>l-.55&&o.x<r+.55&&o.y+o.h>t-.55&&o.y<b+.55);
+    // Use real whitespace and compact a one-row badge rather than reserving
+    // a phantom row. Accommodate at most three digit widths; longer counts fit the same gutter.
+    for(const size of [8.5,8,7,6,5])for(const dy of [0,-4,4,-8,8,-12,12,-16,16,-20,20]){
+      const w=size*(1.12+.57*Math.min(3,digits)),h=size*(1.14*rows+.04),x=right-w,y=center+dy-h/2;
       if(x<1||y<1||y+h>703||Math.abs(dy)>Math.max(12,anchor.h*.55))continue;
-      if(!other.some(o=>o.x+o.w>x-.7&&o.x<right+.7&&o.y+o.h>y-.7&&o.y<y+h+.7))return {x,y,w,h,size};
+      if(!clear(x,y,right,y+h))continue;
+      let l=x,t=y,r=right,b=y+h;
+      // Enlarge the transparent target only through blank paper. Never take
+      // the real chapter numeral or neighboring ink away from text selection.
+      for(let i=0;i<9;i++){
+        if(l-1>=1&&clear(l-1,t,r,b))l--;
+        if(r+1<=anchor.x-1&&clear(l,t,r+1,b))r++;
+        if(t-1>=1&&clear(l,t-1,r,b))t--;
+        if(b+1<=703&&clear(l,t,r,b+1))b++;
+      }
+      return {x,y,w,h,size,hit:{x:l,y:t,width:r-l,height:b-t}};
     }
     return null;
   }
@@ -164,7 +176,7 @@
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
     const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
     const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
-    const root=doc.documentElement,marked=new WeakSet(),countedFaces=new WeakSet();
+    const root=doc.documentElement,marked=new WeakSet(),countedFaces=new WeakMap();
     const notesEnabled=!!win.V25Notes?.enabled(win.location,win.V25_ACCOUNT_CONFIG?.notesOrigin,
       win.V25_ACCOUNT_CONFIG?.pagesIsolationVerified),models=new Map();
     const grammar=win.V25NoteRefs,parser=grammar.create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
@@ -291,22 +303,29 @@
       const bar=make('div','study-material__bar'),tabs=make('div','study-material__tabs');
       tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','经文资料');
       const owner=scroll.closest('.compare-slip').id,parts={};
-      for(const [key,label] of [['notes','笔记'],['qa','问答']]){
+      for(const [key,label] of [['all','全部'],['notes','笔记'],['qa','问答']]){
         const button=make('button','study-material__tab',label),panel=make('div','study-material__panel');
         button.type='button';button.id=owner+'-tab-'+key;panel.id=owner+'-pane-'+key;
         button.setAttribute('role','tab');button.setAttribute('aria-controls',panel.id);
         panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);
         button.addEventListener('click',()=>show(key));tabs.append(button);parts[key]={button,panel,top:0};
       }
+      parts.all.button.hidden=true;
       tabs.addEventListener('keydown',e=>{
         if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
-        const next=e.key==='Home'?'notes':e.key==='End'?'qa':active==='notes'?'qa':'notes';
+        const keys=Object.keys(parts).filter(id=>!parts[id].button.hidden);
+        const next=e.key==='Home'?keys[0]:e.key==='End'?keys.at(-1):keys[(keys.indexOf(active)+(e.key==='ArrowLeft'?-1:1)+keys.length)%keys.length];
         e.preventDefault();parts[next].button.focus({preventScroll:true});show(next);
       });
       const add=make('button','study-notes__add','+');add.type='button';
       add.setAttribute('aria-label','新增笔记');add.title='新增笔记';
-      bar.append(tabs,add);scroll.append(bar,parts.notes.panel,parts.qa.panel);
-      const listing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
+      bar.append(tabs,add);scroll.append(bar,parts.all.panel,parts.notes.panel,parts.qa.panel);
+      const listing=make('div','study-notes__list'),allListing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
+      const allNotes=make('section','study-material__section'),allQA=make('section','study-material__section'),qaContent=make('div');
+      allNotes.append(make('h3','study-material__section-label','私人笔记'),allListing);
+      allQA.append(make('h3','study-material__section-label','公开问答'));
+      allQA.hidden=!availability.hasAny(description.objects);allNotes.hidden=true;
+      parts.all.panel.append(allNotes,allQA);parts.qa.panel.append(qaContent);
       const field=make('textarea','study-notes__field');
       field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=8;
       field.spellcheck=false;field.autocomplete='off';field.maxLength=win.V25Notes.LIMIT;
@@ -341,7 +360,7 @@
         }});
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
       compose.append(notebook,hint,status,done);parts.notes.panel.append(listing,viewer,compose);
-      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null;
+      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,listFrom='notes',renderedRefs=null;
       let qaRendered=false,seenText='',composing=false;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
       const fromItem=item=>describe((item.anchorObjects||item.refs).map(grammar.decode));
@@ -350,8 +369,10 @@
         const latest=model.descriptor(id);if(latest)return latest;
         const cached=model.get(id);return cached&&fromItem(cached);
       }
-      const noteButton=id=>id&&[...listing.querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
-      const syncAdd=()=>{add.hidden=active!=='notes'||listing.hidden;};
+      const currentList=()=>active==='all'?allListing:listing;
+      const noteButton=id=>id&&[...currentList().querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
+      const syncAdd=()=>{add.hidden=active==='all'?allNotes.hidden:active!=='notes'||listing.hidden;};
+      function rememberList(){if(active==='all'||active==='notes'&&!editing&&!viewing){listFrom=active;listTop=scroll.scrollTop;}}
       function showNoteScreen(screen){
         listing.hidden=screen!=='list';viewer.hidden=screen!=='view';compose.hidden=screen!=='edit';
         syncAdd();
@@ -365,9 +386,11 @@
         if(model)newNote();else open(description.objects,add,'write');
       });
       function listNotes(){
-        if(editing||viewing||active!=='notes')return;
+        if(active!=='all'&&(active!=='notes'||editing||viewing))return;
         const matches=model?.query(description.objects)||[],frag=doc.createDocumentFragment();
-        if(!model){frag.append(make('p','study-notes__empty','登录后可查看自己的云端笔记。'));listing.replaceChildren(frag);return;}
+        const contents=currentList();
+        allNotes.hidden=!matches.length;syncAdd();
+        if(!model){frag.append(make('p','study-notes__empty','登录后可查看自己的云端笔记。'));contents.replaceChildren(frag);return;}
         const focusedId=doc.activeElement?.dataset.noteId;
         if(!matches.length)frag.append(make('p','study-notes__empty','所选经文还没有笔记。'));
         for(const item of matches){
@@ -378,7 +401,7 @@
           openNote.append(make('span','study-notes__text',item.text),make('span','study-notes__address',item.label));
           article.append(openNote);frag.append(article);
         }
-        listing.replaceChildren(frag);
+        contents.replaceChildren(frag);
         if(focusedId)(noteButton(focusedId)||add).focus({preventScroll:true});
       }
       function passage(anchor){
@@ -418,8 +441,9 @@
       }
       function startViewing(id,top=0,focus=viewTitle){
         if(profile!==scope())return;
-        if(!editing&&!viewing)listTop=scroll.scrollTop;
+        rememberList();
         editing=null;editReturn=null;refEditor.reset();viewing=id;
+        show('notes');
         paintViewing();showNoteScreen('view');scroll.scrollTop=top;
         focus.focus({preventScroll:true});
       }
@@ -428,12 +452,13 @@
         if(active)parts[active].top=scroll.scrollTop;
         if(key!=='notes')refEditor.suspend();
         active=key;
+        (key==='all'?allQA:parts.qa.panel).append(qaContent);
         syncAdd();
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
         }
-        if(key==='notes')listNotes();
-        else if(!qaRendered){qaRendered=true;renderQA(parts.qa.panel,description.objects);}
+        if(key!=='qa')listNotes();
+        if(!qaRendered&&key!=='notes'){qaRendered=true;renderQA(qaContent,description.objects);}
         scroll.scrollTop=parts[key].top;
       }
       const swipeEvents=new win.AbortController(),signal=swipeEvents.signal;
@@ -486,7 +511,7 @@
       }
       function startEditing(desc,id,fromView=false){
         if(profile!==scope())return;
-        if(!editing&&!viewing&&active==='notes')listTop=scroll.scrollTop;
+        rememberList();
         editReturn=fromView?{id,top:scroll.scrollTop}:null;
         done.textContent=fromView?'完成编辑':'返回笔记列表';
         viewing=null;editing={...desc,noteId:id};showNoteScreen('edit');
@@ -509,8 +534,9 @@
       function returnToList(){
         const id=viewing;
         editing=null;viewing=null;editReturn=null;refEditor.reset();showNoteScreen('list');listNotes();
-        if(active==='notes')scroll.scrollTop=listTop;else parts.notes.top=listTop;
-        if(active==='notes')(noteButton(id)||parts.notes.button).focus({preventScroll:true});
+        if(active==='notes'&&listFrom==='all')show('all');
+        if(active===listFrom)scroll.scrollTop=listTop;else parts[listFrom].top=listTop;
+        if(active===listFrom)(noteButton(id)||parts[active].button).focus({preventScroll:true});
       }
       back.addEventListener('click',returnToList);
       edit.addEventListener('click',()=>{const desc=currentDescriptor(viewing);if(desc?.key)startEditing(desc,viewing,true);});
@@ -528,12 +554,17 @@
           }
           statusText();
         }else if(viewing){if(key==null||key===viewing)paintViewing();}
-        else listNotes();
+        if(active==='all'||!editing&&!viewing)listNotes();
       });
       showNoteScreen('list');
       const request=mode=>{
         // A scripture address is a shared association, never a note identity.
         if(mode==='write')newNote();
+        else if(mode==='chapter'){
+          parts.all.button.hidden=false;
+          if(editing||viewing)returnToList();
+          show('all');
+        }
         else if(!active)show(availability.hasAny(description.objects)?'qa':'notes');
         else if(editing)returnToList();
       };
@@ -555,6 +586,11 @@
       return openWindow({key,title,fullTitle,restore,material:notesEnabled,mode,focus:mode!=='write',
         render(scroll){if(!notesEnabled)renderQA(scroll,objects);else content=renderMaterial(scroll,selection,model,profile,mode);},
         onReopen(nextMode){content?.request(nextMode);},onDispose(){content?.dispose();}});
+    }
+    function openChapterBadge(badge){
+      if(!badge?.isConnected||!stage.contains(badge))return false;
+      const {book,chapter}=badge.dataset;
+      return open([{code:book,ch:+chapter}],badge,'chapter');
     }
 
     function markPaper(svg){
@@ -608,44 +644,51 @@
         if(v&&availability.has(b,v.ch,v.lo,v.hi))el.querySelector('sup').dataset.qapMark='verse';
       }
     }
+    const chapterIcons={qa:'M1 1.1h6v4.3H4L2.15 7V5.4H1z M3.35 2.65a.68.68 0 1 1 1.1.55c-.34.22-.45.34-.45.61 M4 4.65h.01',
+      notes:'M1.6 .9h3.5l1.5 1.5V7h-5z M4.9 1v1.7h1.6 M2.8 4.05h2.65m-2.65 1.4h2.65'};
+    function badgeNode(tag,attrs={}){
+      const el=doc.createElementNS(SVG,tag);for(const [k,v] of Object.entries(attrs))el.setAttribute(k,v);
+      return el;
+    }
     function countPaper(svg,model){
-      if(!countedFaces.has(svg)){
-        countedFaces.add(svg);svg.querySelector('[data-chapter-counts]')?.remove();
+      let state=countedFaces.get(svg);
+      if(!state){
+        // A restored leaf can have been serialized with the old account's counts.
+        svg.querySelector('[data-chapter-counts]')?.remove();
         const pageIndex=Number(svg.dataset.pdf),face=paper.pages[pageIndex],book=paper.books[face?.b];
-        const chapters=book&&[...svg.querySelectorAll('text[data-role="chapter"][data-ref]')];
-        if(!chapters?.length)return;
-        const ink=win.PaperPage.commands(face,pageIndex,paper.books);
-        const make=(tag,attrs,parent)=>{
-          const el=doc.createElementNS(SVG,tag);for(const [k,v] of Object.entries(attrs))el.setAttribute(k,v);
-          parent?.append(el);return el;
-        };
-        const layer=make('g',{'data-chapter-counts':'','pointer-events':'none'});
-        const icons=['M1 1h6v4.4H4l-1.8 1.5V5.4H1z M3.5 2.3a.55.55 0 1 1 .9.45c-.35.22-.45.37-.45.65 M3.95 4.2h.01',
-          'M1.6 .9h3.5l1.5 1.5V7h-5z M4.9 1v1.7h1.6 M2.7 4h2.8m-2.8 1.4h2.8'];
-        for(const el of chapters){
-          const ch=chapterOf('chapter',el.dataset.ref),box=chapterCountBox(ink[el.dataset.physicalIdx],ink);
-          if(!ch||!box)continue;
-          const {x,y,size}=box,group=make('g',{'data-chapter-total':addr(book.code,ch),'data-book':book.code,'data-chapter':ch},layer);
-          for(const [i,kind] of ['qa','notes'].entries()){
-            const top=y+i*size*1.15;
-            make('path',{d:icons[i],transform:`translate(${x} ${top}) scale(${size/8})`},group);
-            const label=make('text',{x:x+size*1.05,y:top+size*.81,'font-size':size,'data-chapter-count':kind},group);
-            label.textContent=kind==='qa'?availability.chapterCount(book.code,ch):'—';
-          }
-        }
-        if(layer.childElementCount)svg.append(layer);
+        const chapters=[...svg.querySelectorAll('text[data-role="chapter"][data-ref]')];
+        const ink=book&&chapters.length?win.PaperPage.commands(face,pageIndex,paper.books):[];
+        const anchors=book?chapters.flatMap(el=>{
+          const ch=chapterOf('chapter',el.dataset.ref),anchor=ink[el.dataset.physicalIdx];
+          return ch&&anchor?[{anchor,ch,questions:availability.chapterCount(book.code,ch),stamp:null,group:null}]:[];
+        }):[];
+        state={book,ink,anchors,layer:badgeNode('g',{'data-chapter-counts':''})};countedFaces.set(svg,state);
       }
-      for(const group of svg.querySelectorAll('[data-chapter-total]')){
-        const {book,chapter}=group.dataset;
-        const q=group.querySelector('[data-chapter-count="qa"]'),n=group.querySelector('[data-chapter-count="notes"]');
-        const total=model?.ready()?String(model.query([{code:book,ch:+chapter}]).length):'—';
-        if(n.textContent!==total){
-          n.textContent=total;
-          if(total.length>2){n.setAttribute('textLength',Number(n.getAttribute('font-size'))*1.12);n.setAttribute('lengthAdjust','spacingAndGlyphs');}
-          else{n.removeAttribute('textLength');n.removeAttribute('lengthAdjust');}
+      const {book,ink,anchors,layer}=state;
+      for(const entry of anchors){
+        const {ch,questions,anchor}=entry,notes=model?.ready()?model.query([{code:book.code,ch}]).length:0;
+        const stamp=questions+':'+notes;if(stamp===entry.stamp)continue;
+        entry.stamp=stamp;
+        const counts=[['qa',questions,'公开问答'],['notes',notes,'私人笔记']].filter(([,total])=>total>0);
+        const box=counts.length&&chapterCountBox(anchor,ink,counts.length,Math.max(...counts.map(([,total])=>String(total).length)));
+        if(!box){
+          if(entry.group===doc.activeElement&&entry.group)stage.focus({preventScroll:true});
+          entry.group?.remove();entry.group=null;continue;
         }
-        group.setAttribute('aria-label',`问答 ${q.textContent}，笔记 ${total==='—'?'未读取':total}`);
+        const {x,y,size,hit}=box,group=entry.group??=badgeNode('g',{role:'button',tabindex:0,
+          'data-chapter-total':addr(book.code,ch),'data-book':book.code,'data-chapter':ch});
+        const target=badgeNode('rect',{...hit,rx:2,'data-chapter-badge-hit':'','aria-hidden':'true'});
+        group.setAttribute('aria-label',`查看${book.name}第 ${ch} 章资料，`+counts.map(([,total,label])=>label+' '+total+' 条').join('，'));
+        group.replaceChildren(target,...counts.map(([kind,total],i)=>{
+          const top=y+i*size*1.14,value=String(total),mark=badgeNode('g',{'aria-hidden':'true'});
+          const d=badgeNode('path',{d:chapterIcons[kind],transform:`translate(${x} ${top}) scale(${size/8})`});
+          const number=badgeNode('text',{x:x+size*1.1,y:top+size*.83,'font-size':size,'data-chapter-count':kind});
+          if(value.length>3){number.setAttribute('textLength',size*1.68);number.setAttribute('lengthAdjust','spacingAndGlyphs');}
+          number.textContent=value;mark.append(d,number);return mark;
+        }));
+        if(group.parentNode!==layer)layer.append(group);
       }
+      if(!layer.childElementCount)layer.remove();else if(layer.parentNode!==svg)svg.append(layer);
     }
     function scheduleCounts(){
       if(countFrame!=null)return;
@@ -675,7 +718,7 @@
     win.addEventListener('storage',e=>{if(e.key===KEY||e.key===null)setMarking(e.newValue!=='0');});
     let markPreference=null;try{markPreference=win.localStorage.getItem(KEY);}catch{}
     setMarking(markPreference!=='0');
-    return {open,notesEnabled,hasAny:objects=>availability.hasAny(objects)||!!notes()?.query(objects).length,
+    return {open,openChapterBadge,notesEnabled,hasAny:objects=>availability.hasAny(objects)||!!notes()?.query(objects).length,
       openSettings(){if(!settings.open)settings.showModal();}};
   }
   return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,paperCueLine,chapterCountBox,describeSelection,mount};

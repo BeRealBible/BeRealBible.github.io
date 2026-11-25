@@ -94,6 +94,31 @@ async function run(browser,width){
     await mainBar.locator('[data-exit]').click();
     assert.equal(requests.length,0,'the button state never downloads QAP text');
 
+    const badge=$('#stage [data-chapter-total="2SA.4"]');
+    await badge.waitFor();
+    assert.equal(await $('#stage').getByRole('button',{name:/查看撒母耳记下第 4 章资料/}).count(),1);
+    assert.deepEqual(await badge.locator('[data-chapter-count]').allTextContents(),['6'],'guest sees only the positive public count');
+    assert.ok(await badge.evaluate(el=>{
+      const icon=el.querySelector('path'),number=el.querySelector('text');
+      return getComputedStyle(icon).stroke===getComputedStyle(number).fill&&getComputedStyle(number).fill===getComputedStyle(el).color;
+    }),'printed-body fill never overrides the badge color');
+    const currentSpread=await $('#stage').getAttribute('data-spread');
+    await press(badge,true);assert.equal(await dialog.count(),0,'only a light tap opens the badge');
+    await press(badge);await rendered();
+    assert.match(await title.textContent(),/撒下 4章/);
+    assert.equal((await ids()).length,6,'badge shows the complete chapter, not only its first verse');
+    if(await dialog.getByRole('tab',{name:'全部'}).count()){
+      assert.equal(await dialog.getByRole('tab',{name:'全部'}).getAttribute('aria-selected'),'true');
+      assert.ok(await dialog.getByRole('heading',{name:'公开问答'}).isVisible());
+      assert.equal(await dialog.getByRole('heading',{name:'私人笔记'}).count(),0);
+    }
+    assert.equal(await $('#stage').getAttribute('data-spread'),currentSpread);
+    assert.ok(!(await mainBar.isVisible()),'the badge does not begin verse selection');
+    await close();
+    if(!mobile){
+      await badge.press('Enter');await rendered();assert.equal((await ids()).length,6);await close();
+    }
+
     await press(body('3:1'),true);
     await mainBar.waitFor({timeout:5000});
     await open();
