@@ -42,9 +42,10 @@
   root.V25BookGroups=groups;
   root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,citationLinks,windows})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more'),passage=$('vf-context');
+    const clear=$('vf-clear'),noteClose=$('vf-close'),end=$('vf-end'),finderName='定位搜索框';
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
     const key='paper:v25:slip:1',clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
-    const trigger=document.createElement('button');trigger.className='rh-toggle';trigger.type='button';trigger.title='搜索经文（Ctrl / ⌘ + K）';trigger.setAttribute('aria-label','搜索经文');
+    const trigger=document.createElement('button');trigger.className='rh-toggle';trigger.type='button';trigger.title=finderName+'（Ctrl / ⌘ + K）';trigger.setAttribute('aria-label',finderName);
     trigger.append(tab.querySelector('svg').cloneNode(true));
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
@@ -208,11 +209,10 @@
         if(hx<0||hx>c.w||hy<0||hy>c.h)mount=null;
       }
       scopeUI();interrupt();root.PaperImmersion?.hideChrome();setMode('browse');
-      if(edit)input.focus({preventScroll:true});else if(current>=0&&anchor?.i===current)landOnResult();else $('vf-close').focus({preventScroll:true});
+      if(edit)input.focus({preventScroll:true});else if(current>=0&&anchor?.i===current)landOnResult();else end.focus({preventScroll:true});
     }
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
-    const dismiss=()=>note?closeNote(note.owner,true):tuck();
-    trigger.onclick=()=>open();tab.onclick=()=>open();$('vf-close').onclick=dismiss;
+    trigger.onclick=()=>open();tab.onclick=()=>open();noteClose.onclick=()=>{if(note)closeNote(note.owner,true);};
     root.V25OverlayBack.register(panel,{
       layer:()=>document.querySelector('.compare-slip:not([hidden])')?48:31,
       // A verse preview hides the ordinary finder, but closing the verse
@@ -220,7 +220,7 @@
       active:()=>!panel.hidden||mode==='preview'&&windows.preview.is('search'),
       dismiss:()=>note?closeNote(note.owner,true,true):tuck()});
     $('vf-origin').onclick=()=>{if(start){tuck();restore(start);}};
-    $('vf-end').onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true,'locate');stage.focus({preventScroll:true});};
+    end.onclick=()=>{setMode('off');start=null;scope='all';trails={};scopeUI();input.value='';refresh(true,'locate');stage.focus({preventScroll:true});};
     root.V25PaperDock.onTap(stage,()=>{if(note)return;if(mode==='preview')backToResults();else if(!panel.hidden)tuck();});
     document.addEventListener('keydown',e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')){e.preventDefault();open(true);}
@@ -250,9 +250,9 @@
     function backToResults(){setMode('browse');landOnResult();persist();}
     function noteUI(){
       panel.toggleAttribute('data-note-search',!!note);
-      panel.setAttribute('aria-label',note?'笔记经文检索笺':'经文检索笺');
-      $('vf-close').title=note?'关闭检索笺':'收起检索笺';
-      $('vf-close').setAttribute('aria-label',$('vf-close').title);
+      panel.setAttribute('aria-label',note?'笔记经文检索笺':finderName);
+      input.setAttribute('aria-label',note?'经文坐标或搜索关键词':finderName);
+      noteClose.hidden=!note;
       panel.querySelector('.vf-foot').hidden=!!note;
     }
     function openNote(options){
@@ -263,7 +263,7 @@
       if(windows.preview.is('search'))windows.preview.close('screen');
       note={...options,saved};mode='browse';scope='all';mount=null;trails={};
       noteUI();scopeUI();input.value=options.query;refresh(true,'keyword');
-      if(input.value.trim())(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
+      if(input.value.trim())(list.firstElementChild||noteClose).focus({preventScroll:true});
       else input.focus({preventScroll:true});
       return true;
     }
@@ -353,7 +353,9 @@
         return first?[{...first,locations,heading:label(first.name,ref),partial}]:[];
       });
     }
+    const syncClear=()=>{clear.hidden=!!note||!input.value;};
     function refresh(force=false,nextKind=queryKind){
+      syncClear();
       const next=input.value.trim();
       if(next===q&&queryKind===nextKind&&!force)return;
       if(q!==next||queryKind!==nextKind)trails={};q=next;queryKind=nextKind;current=-1;seen.clear();anchor=null;passagePick=null;
@@ -368,12 +370,18 @@
     }
     let composing=false;
     const locateInput=()=>{closeGroups();refresh(false,'locate');};
+    // Keep the editing focus when a pointer uses the in-field clear button.
+    clear.onmousedown=e=>{if(document.activeElement===input)e.preventDefault();};
+    clear.onclick=()=>{
+      if(note)return;
+      input.value='';locateInput();input.focus({preventScroll:true});
+    };
     input.addEventListener('compositionstart',()=>{composing=true;});
-    input.addEventListener('input',e=>{if(!composing&&!e.isComposing)locateInput();});
+    input.addEventListener('input',e=>{if(!composing&&!e.isComposing)locateInput();else syncClear();});
     input.addEventListener('compositionend',()=>{composing=false;locateInput();});
     function submit(e){
       e.preventDefault();if(composing||e.isComposing||e.keyCode===229||e.repeat||!input.value.trim())return;
-      closeGroups();refresh(false,'keyword');input.blur();(list.firstElementChild||$('vf-close')).focus({preventScroll:true});
+      closeGroups();refresh(false,'keyword');input.blur();(list.firstElementChild||(note?noteClose:end)).focus({preventScroll:true});
     }
     input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)submit(e);});
     input.addEventListener('beforeinput',e=>{if(['insertLineBreak','insertParagraph'].includes(e.inputType)&&!composing&&!e.isComposing)submit(e);});

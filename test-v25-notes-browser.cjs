@@ -472,9 +472,9 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.equal(writes.length,beforePaste+1);assert.equal(await refInput.inputValue(),'');
     await desk.dialog.getByRole('button',{name:'收起关联选择',exact:true}).click();
     assert.equal(await edit.inputValue(),'另一条独立笔记');
-    const ordinaryFinder=desk.page.getByRole('complementary',{name:'经文检索笺',exact:true});
+    const ordinaryFinder=desk.page.getByRole('complementary',{name:'定位搜索框',exact:true});
     await desk.page.evaluate(()=>PaperImmersion.showChrome());
-    await desk.page.getByRole('button',{name:'搜索经文',exact:true}).click();
+    await desk.page.getByRole('button',{name:'定位搜索框',exact:true}).click();
     const ordinaryQuery=ordinaryFinder.getByRole('searchbox');
     await ordinaryQuery.fill('创世纪');await ordinaryFinder.getByRole('button',{name:'打开经文：创世记 1:1',exact:true}).waitFor();
     assert.equal(await ordinaryFinder.locator('.scripture-ghost').count(),0);
@@ -490,7 +490,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await ordinaryQuery.dispatchEvent('compositionend',{data:'耶和华是我的牧者'});
     await ordinaryQuery.press('Enter');await ordinaryFinder.getByRole('button',{name:/诗篇 23:1/}).waitFor();
     await ordinaryQuery.fill('普通检索留在原处');await ordinaryQuery.press('Enter');
-    await ordinaryFinder.getByRole('button',{name:'收起检索笺'}).click();
+    await desk.page.keyboard.press('Escape');await ordinaryFinder.waitFor({state:'hidden'});
     await plus.click();
     const finder=desk.page.getByRole('complementary',{name:'笔记经文检索笺'}),
       searchQuery=finder.getByRole('searchbox'),cats=finder.getByRole('group',{name:'书卷分类'}),
@@ -527,7 +527,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await finder.getByRole('button',{name:'关闭检索笺'}).click();
     await desk.page.keyboard.press('Control+k');
     assert.equal(await ordinaryFinder.getByRole('searchbox').inputValue(),'普通检索留在原处','note lookup does not replace the ordinary search session');
-    await ordinaryFinder.getByRole('button',{name:'收起检索笺'}).click();
+    await desk.page.keyboard.press('Escape');await ordinaryFinder.waitFor({state:'hidden'});
     if(enableSpans){
       await refInput.fill('王上1:53~2:3');
       await pick('列王纪上 1:53–2:3').waitFor();

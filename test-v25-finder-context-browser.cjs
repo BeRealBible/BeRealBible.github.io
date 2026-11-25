@@ -25,13 +25,17 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         await page.locator('#stage[data-v25-opening]').waitFor({state:'detached',timeout:12000});
         const pose=()=>page.locator('#stage').evaluate(el=>['spread','x','y','scale'].map(k=>el.dataset[k]));
         const activate=locator=>touch?locator.tap():locator.click();
-        const finder=page.getByRole('complementary',{name:'经文检索笺',exact:true}),input=finder.getByRole('searchbox');
+        const finder=page.getByRole('complementary',{name:'定位搜索框',exact:true}),input=finder.getByRole('searchbox',{name:'定位搜索框'});
+        const trigger=page.getByRole('button',{name:'定位搜索框',exact:true}),
+          clear=finder.getByRole('button',{name:'清空输入',exact:true}),
+          end=finder.getByRole('button',{name:'结束检索',exact:true});
         const scopes=finder.locator('#vf-scopes'),context=finder.locator('#vf-context'),scroll=finder.locator('#vf-scroll');
         await page.evaluate(()=>PaperImmersion.showChrome());
-        await activate(page.getByRole('button',{name:'搜索经文',exact:true}));
+        await activate(trigger);
         await input.waitFor();
         assert.equal(await input.inputValue(),'');
         assert.ok(!await scopes.isVisible()&&!await context.isVisible(),'opening shows neither scopes nor a passage');
+        assert.ok(!await clear.isVisible()&&!await finder.locator('#vf-close').isVisible()&&await end.isVisible());
         const main=await pose(),address='创世记 5:15';
         for(const [spoken,standard] of [
           ['箴言书3:5','箴言 3:5'],['马太5:3','马太福音 5:3'],['路德1:16','路得记 1:16'],['列王上3:9','列王纪上 3:9']
@@ -141,9 +145,29 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         assert.equal(await preview.getByRole('button',{name:'确定插入',exact:true}).count(),0,'keyword hits open the same ordinary reading window');
         await activate(preview.getByRole('button',{name:'返回搜索结果'}));await input.waitFor();
         assert.equal(await input.inputValue(),'创造');
+        assert.ok(await clear.evaluate(el=>{
+          const shell=el.closest('.vf-field'),field=shell.getBoundingClientRect(),tap=el.getBoundingClientRect(),
+            glyph=el.querySelector('svg').getBoundingClientRect(),entry=shell.querySelector('input');
+          const overlap=entry.getBoundingClientRect().right-tap.left;
+          return getComputedStyle(shell).boxShadow!=='none'&&getComputedStyle(entry).outlineStyle==='none'&&
+            tap.width>=22&&glyph.width>=10&&tap.right<=field.right+1&&overlap<1&&
+            el.contains(document.elementFromPoint(tap.x+tap.width/2,tap.y+tap.height/2));
+        }),'the enlarged clear button has its own usable hit box inside the field');
+        await activate(clear);
+        assert.equal(await input.inputValue(),'');
+        assert.ok(await input.evaluate(el=>el===document.activeElement),'clear keeps the input ready to type again');
+        assert.ok(await finder.isVisible()&&!await clear.isVisible()&&!await scopes.isVisible());
+        assert.equal(await hits.count(),0,'clear also removes keyword results');
+        assert.deepEqual(await pose(),main);
         await input.fill('约翰福音 3:16');
         await context.getByRole('button',{name:'打开经文：约翰福音 3:16',exact:true}).waitFor();
         assert.ok(!await scopes.isVisible(),'editing goes back to coordinate mode regardless of previous scope');
+        await activate(end);
+        await finder.waitFor({state:'hidden'});
+        assert.ok(!await page.locator('#vf-tab').isVisible(),'ending the search leaves no tucked result');
+        await page.evaluate(()=>PaperImmersion.showChrome());
+        await activate(trigger);await input.waitFor();
+        assert.equal(await input.inputValue(),'','ending resets the next search');
         assert.deepEqual(errors,[]);
         console.log(`PASS ${width} px: keyword-only scopes, inline cross-chapter reading in both directions, and preview return`);
       }finally{await ctx.close();}

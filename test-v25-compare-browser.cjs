@@ -130,7 +130,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       const jump=async(q,book,ref)=>{
         await page.keyboard.press('Control+k');await $('#vf-input').fill(q);await $('#vf-context [data-current]').click();
         await $('#v25-scripture-preview .citation-jump').click();
-        const close=$('#vf-close');if(await close.isVisible())await close.click();
+        if(await $('#verse-finder').isVisible())await page.keyboard.press('Escape');
         await page.waitForFunction(({book,ref})=>document.querySelector('.rh-chip[aria-current=page]')?.getAttribute('aria-label').endsWith(ref)&&document.getElementById('stage').dataset.book===book,{book,ref});
       };
       await page.evaluate(()=>PaperImmersion.hideChrome());await fit();
@@ -327,7 +327,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.ok(await oneChapter.locator('[data-verse-id^="JUD."]').count());
       assert.equal(await oneChapter.locator('[data-verse-id]:not([data-verse-id^="JUD."])').count(),0);
       await note.locator('[aria-label="返回搜索结果"]').click();
-      await $('#vf-close').click();
+      await page.keyboard.press('Escape');
       await $('#vf-tab').waitFor();assert.match(await $('#vf-tab').evaluate(el=>getComputedStyle(el).backgroundColor),/^rgba\(/);
       await visit({pdf:958});await fit();
       const cue=$('[data-note-page="958"][data-note-ordinal="1"]').first();

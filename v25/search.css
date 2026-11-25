@@ -19,7 +19,8 @@
 #verse-finder,#vf-tab{transition:none!important;animation:none!important}
 .edge-chapters__sheet{padding-top:8px}.edge-chapters__header{min-height:20px;padding-right:66px}
 .edge-chapters__books,.edge-chapters__header{margin-bottom:3px}
-.vf-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 3px;padding:6px 8px 0}
+.vf-head{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:0 3px;padding:6px 8px 0}
+#verse-finder[data-note-search] .vf-head{grid-template-columns:minmax(0,1fr) auto}
 #vf-close{padding:0 3px;min-width:23px;min-height:25px;color:#735e47}
 #vf-status{grid-column:1/-1;min-width:0;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#vf-status:empty{display:none}
 @media(max-width:639px){
@@ -32,12 +33,23 @@
 }
 #verse-finder[data-layout=narrow] #vf-list span{font:10.5px/1.34 var(--serif)}#verse-finder[data-layout=narrow] #vf-list strong{font-size:9px;margin-bottom:2px}
 #verse-finder[data-layout=narrow] #vf-list button{padding:5px 2px}#verse-finder[data-layout=narrow] #vf-scroll{padding:0 8px}#verse-finder[data-layout=narrow] #vf-status{font-size:9px}#verse-finder[data-layout=narrow] #vf-more,#verse-finder[data-layout=narrow] .vf-foot button{font-size:10px;min-height:22px}
-#vf-form .vf-field{min-width:0;flex:1;display:flex;position:relative;overflow:hidden}
+#vf-form :is(.vf-field,.vf-entry){min-width:0;flex:1;display:flex}
+.vf-entry{position:relative;overflow:hidden}
+#verse-finder:not([data-note-search]) #vf-form{border:0;border-radius:4px}
+#verse-finder:not([data-note-search]) .vf-field{border-radius:4px;box-shadow:inset 0 0 0 1px #aa916c75}
+#verse-finder:not([data-note-search]) .vf-field:focus-within{box-shadow:inset 0 0 0 1px #917956}
+#verse-finder:not([data-note-search]) #vf-input:focus{outline:none}
+#verse-finder:not([data-note-search]) #vf-input::-webkit-search-cancel-button{display:none;-webkit-appearance:none}
+#vf-clear{flex:0 0 30px;display:grid;place-items:center;padding:0;border:0;border-radius:3px;color:#755d45}
+#vf-clear svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+@media(hover:hover){#vf-clear:hover{background:#bda78524}}
+@media(pointer:coarse){#vf-clear{flex-basis:34px}}
 /* Keep a native 16px editing surface without enlarging the printed text
-   on focus. Its painted box (including caret and clear button) fills the slot. */
+   on focus. Its painted box fills the entry next to the clear button. */
 #verse-finder[data-layout=narrow] .vf-field{min-height:25px}
+#verse-finder[data-layout=narrow]:not([data-note-search]) .vf-field{min-height:29px}
 #verse-finder[data-layout=narrow] #vf-input{position:absolute;left:0;top:50%;box-sizing:border-box;width:145.45455%;height:36px;padding:0 5px;font-size:16px;line-height:1.25;transform-origin:left center;transform:translateY(-50%) scale(.6875)}
-#verse-finder[data-layout=narrow] #vf-input:focus{outline:1px solid #917956;outline-offset:-1px;border-radius:2px}
+#verse-finder[data-layout=narrow][data-note-search] #vf-input:focus{outline:1px solid #917956;outline-offset:-1px;border-radius:2px}
 #verse-finder[data-layout=narrow] .vf-foot{padding:0 5px}
 #verse-finder *{transition-property:none}
 

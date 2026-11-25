@@ -98,7 +98,7 @@ const closeTo=(a,b,t=.85)=>assert.ok(Math.abs(a-b)<=t,`${a} is not close to ${b}
         await fit();
         await page.keyboard.press('Control+k');await page.locator('#vf-input').fill('光');await page.locator('#vf-input').press('Enter');
         await page.locator('#vf-list button').first().waitFor();
-        await page.locator('#vf-close').click();
+        await page.keyboard.press('Escape');
         const searchTab=page.locator('#vf-tab');await searchTab.waitFor();
         const searchA=await searchTab.boundingBox();await click('zoom-in');await settle();
         const searchB=await searchTab.boundingBox();
