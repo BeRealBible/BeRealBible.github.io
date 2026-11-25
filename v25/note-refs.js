@@ -47,7 +47,7 @@
   const edition=/\s*(?:和合本(?:修订版)?|新译本|CUV)$/iu;
   const prose=text=>/[\p{Script=Han}]{2}/u.test(text)&&
     !/^(?:[到至章节]|[-–—~〜]|[\p{Script=Han}]{1,10}\s*\d+\s*[:：])/u.test(text.trim());
-  function create({bookCode,bookMatches=()=>[],scripture}){
+  function create({bookCode,bookChoices=()=>[],bookMatches=()=>[],scripture}){
     function segments(ref){
       const {code,ch,lo,endCh=ch,hi=lo}=ref;
       if(endCh===ch)return [ref];
@@ -105,7 +105,7 @@
       return [c>a&&between(ref.code,a,neighbor(ref.code,c,-1)),
         d<b&&between(ref.code,neighbor(ref.code,d,1),b)].filter(Boolean);
     }
-    function start(value,defaultCode){
+    function start(value,defaultCode,resolve=bookCode){
       const text=value.trim();
       const local=defaultCode&&localAddress.exec(text);
       if(local)return {code:defaultCode,ch:decimal(local[1]),lo:decimal(local[2])};
@@ -113,23 +113,24 @@
       // book prefix first, before interpreting the remaining chapter wording.
       for(let i=Math.min(text.length-1,40);i>0;i--){
         const tail=localAddress.exec(text.slice(i).trimStart());if(!tail)continue;
-        const code=bookCode(text.slice(0,i).trim().replace(/^[《〈]|[》〉]$/gu,''));if(!code)continue;
+        const code=resolve(text.slice(0,i).trim().replace(/^[《〈]|[》〉]$/gu,''));
+        if(!code||Array.isArray(code)&&!code.length)continue;
         return {code,ch:decimal(tail[1]),lo:decimal(tail[2])};
       }
       return null;
     }
-    function inspect(value,defaultCode){
+    function inspect(value,defaultCode,resolve=bookCode){
       const raw=normalize(value).replace(/^(?:参见|参|见)\s*/u,'');
       const parts=raw.split(rangeSplit);
       const invalid={error:'经文不存在，请检查书卷、章或节。'};
       if(!parts.length||parts.length>2)return invalid;
-      const first=start(parts[0],defaultCode);if(!first)return invalid;
+      const first=start(parts[0],defaultCode,resolve);if(!first)return invalid;
       const {code,ch,lo}=first;
       if(parts.length===1)return {ref:checked(code,ch,lo),...invalid};
       const missing={error:'区间需要完整的起止经节，例如：王上1:53–2:3。'};
       if(lo===undefined)return missing;
       const endVerse=singleVerse.exec(parts[1]);
-      const last=endVerse?{code,ch,lo:decimal(endVerse[1])}:start(parts[1],code);
+      const last=endVerse?{code,ch,lo:decimal(endVerse[1])}:start(parts[1],code,resolve);
       if(!last||last.lo===undefined)return missing;
       if(last.code!==code)return {error:'不支持跨书卷的区间，请把两卷分别加入。'};
       if(positive(ch)&&positive(last.ch)&&positive(lo)&&positive(last.lo)&&(last.ch<ch||last.ch===ch&&last.lo<lo)){
@@ -224,6 +225,15 @@
         }
         return [{anchors}];
       }
+      // An exact but undivided name, e.g. “列王 2:3”, can offer each
+      // applicable address without granting it the status of an exact match.
+      const candidate=text.replace(pickEnd,'').trim().replace(/^(?:参见|参|见)\s*/u,'');
+      const possibilities=start(candidate.split(rangeSplit)[0],undefined,bookChoices)?.code;
+      if(possibilities?.length>1)return possibilities.flatMap(code=>{
+        const resolve=name=>bookCode(name)||(bookChoices(name).includes(code)?code:undefined);
+        const ref=inspect(candidate,undefined,resolve).ref;
+        return ref?[{anchors:[ref],partial:true}]:[];
+      });
       if(editing||text.length>40)return [];
       const name=text.replace(/^[《〈]|[》〉]$/gu,'');
       if(!/\p{L}/u.test(name))return [];

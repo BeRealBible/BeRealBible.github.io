@@ -3,13 +3,13 @@ const assert=require('node:assert/strict'),source=require('./data/bible-source.j
 const {create:cite}=require('./v25/citation-links.js'),{create:read}=require('./v25/scripture.js');
 const {create,key,describe:describeNote,encode,decode}=require('./v25/note-refs.js'),{describeSelection,createReferenceIndex}=require('./v25/study-qa.js');
 const {createStore}=require('./v25/notes.js');
-const scripture=read(source),{bookCode,bookMatches}=cite(source),parser=create({bookCode,bookMatches,scripture});
+const scripture=read(source),names=cite(source),parser=create({...names,scripture});
 const keys=(s,options)=>parser.parse(s,options)?.map(key)??null;
 const suggestions=s=>parser.suggest(s).flatMap(row=>row.anchors.map(key));
 assert.deepEqual(suggestions('路'),['LUK.1:1-1']);
 assert.deepEqual(suggestions('路加'),['LUK.1:1-1']);
 assert.deepEqual(suggestions('创世纪'),['GEN.1:1-1']);
-for(const [value,suffix,ref] of [['创世纪',' 1:1','GEN.1:1-1'],['创世','记 1:1','GEN.1:1-1'],['创世纪 ','1:1','GEN.1:1-1'],
+for(const [value,suffix,ref] of [['创世纪',' 1:1','GEN.1:1-1'],['创世',' 1:1','GEN.1:1-1'],['创世纪 ','1:1','GEN.1:1-1'],
   ['创世记 2',':1','GEN.2:1-1'],['创世记第2章','1节','GEN.2:1-1'],['路２：','1','LUK.2:1-1']]){
   assert.equal(parser.completion(value),suffix);assert.deepEqual(keys(value+suffix),[ref]);
 }
@@ -29,6 +29,29 @@ assert.equal(locked('何西阿2:1,'),'HOS.2:1-1');
 assert.equal(locked('王上1:53–2:3。'),'1KI.1:53-2:3');
 assert.equal(key(parser.preselect('何西阿2:1',{accepted:true}).ref),'HOS.2:1-1');
 for(const input of ['创造，','何西阿2: ','何西阿99，','创1:1，创2:1。','撒母耳，'])assert.equal(locked(input),null,input);
+for(const [spoken,ref] of [
+  ['箴言书3:5','PRO.3:5-5'],['诗篇书23','PSA.23'],['雅歌书2:1','SNG.2:1-1'],
+  ['马太5:3','MAT.5:3-3'],['路加2:1','LUK.2:1-1'],['约翰3:16','JHN.3:16-16'],['馬可１章１節','MRK.1:1-1'],
+  ['路得1:16','RUT.1:16-16'],['路德1:16','RUT.1:16-16'],['路德記1:16','RUT.1:16-16'],
+  ['出埃及3','EXO.3'],['約 書 亞2:1','JOS.2:1-1'],['列王上3:9','1KI.3:9-9'],
+  ['列王记下2:1','2KI.2:1-1'],['列王纪第二卷2:1','2KI.2:1-1'],['歷代記下7:14','2CH.7:14-14'],['撒母耳上下2:1',null],
+  ['罗马8','ROM.8'],['哥林多前13:4','1CO.13:4-4'],['哥林多一书13:4','1CO.13:4-4'],['哥后5:17','2CO.5:17-17'],
+  ['彼得後3:9','2PE.3:9-9'],['帖撒羅尼迦前5:16','1TH.5:16-16'],['约翰2书1:6','2JN.1:6-6'],
+  ['约翰壹5:13','1JN.5:13-13'],['启示21:4','REV.21:4-4'],['哀歌3:23','LAM.3:23-23']
+]){
+  assert.deepEqual(keys(spoken),ref?[ref]:null,spoken);
+  assert.equal(locked(spoken+'，'),ref,spoken+' is handled identically by preselection');
+}
+for(const [spoken,refs] of [
+  ['列王2',['1KI.2','2KI.2']],['列王2:3',['1KI.2:3-3','2KI.2:3-3']],['列王23:1',['2KI.23:1-1']],
+  ['撒母耳记3',['1SA.3','2SA.3']],['哥林多5:1',['1CO.5:1-1','2CO.5:1-1']]
+]){
+  assert.deepEqual(located(spoken),refs.map(ref=>[ref,true]),spoken+' previews candidates, never an automatic choice');
+  assert.equal(parser.completion(spoken),'');assert.equal(locked(spoken+' '),null);
+}
+assert.deepEqual(names.bookChoices('列王'),['1KI','2KI']);
+assert.equal(names.bookCode('约翰'),'JHN');
+assert.ok(!names.scan('见路德第1章').some(hit=>hit.locations.some(ref=>ref.code==='RUT')),'explicit input aliases do not extend prose scanning');
 assert.deepEqual(suggestions('《路加福音》'),['LUK.1:1-1']);
 assert.deepEqual(suggestions('路2'),['LUK.2:1-1']);
 assert.deepEqual(parser.suggest('路2')[0].chapter,{code:'LUK',ch:2});

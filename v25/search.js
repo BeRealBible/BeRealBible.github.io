@@ -49,7 +49,7 @@
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
     const {create,label,bindCompletion,bindPreselection}=root.V25NoteRefs;
-    const addresses=create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
+    const addresses=create({...citationLinks,scripture});
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',queryKind='locate',saveTimer,geom='',wide=false;
     const preselection=bindPreselection(input,addresses,{options:()=>({pasted:true}),
       changed:()=>{closeGroups();refresh(true,'locate');}});
@@ -357,9 +357,9 @@
     }
     function locate(raw,picked){
       const found=picked?[{anchors:[picked]}]:addresses.locateOne(raw,{pasted:true});
-      return found.flatMap(({anchors:[ref]})=>{
+      return found.flatMap(({anchors:[ref],partial})=>{
         const locations=addresses.locations(ref),first=scripture.resolve(locations[0])[0];
-        return first?[{...first,locations,heading:label(first.name,ref)}]:[];
+        return first?[{...first,locations,heading:label(first.name,ref),partial}]:[];
       });
     }
     let renderedPick=null;
@@ -370,7 +370,7 @@
       renderedPick=picked;
       results=q?(queryKind==='keyword'?find(q,scope,{keywordsOnly:true}):locate(q,picked)):[];
       contextStream.clear();list.replaceChildren();scroll.scrollTop=0;scopeUI();
-      const located=queryKind==='locate'&&results.length===1?results[0]:null;
+      const located=queryKind==='locate'&&results.length===1&&!results[0].partial?results[0]:null;
       passage.hidden=!located;list.hidden=!!located;
       if(located){contextStream.start(scripture.index(located.code).rows,located.order);more.hidden=true;}
       else append();

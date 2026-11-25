@@ -33,6 +33,23 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         assert.equal(await input.inputValue(),'');
         assert.ok(!await scopes.isVisible()&&!await context.isVisible(),'opening shows neither scopes nor a passage');
         const main=await pose(),address='创世记 5:15';
+        for(const [spoken,standard] of [
+          ['箴言书3:5','箴言 3:5'],['马太5:3','马太福音 5:3'],['路德1:16','路得记 1:16'],['列王上3:9','列王纪上 3:9']
+        ]){
+          await input.fill(spoken);
+          await context.getByRole('button',{name:'打开经文：'+standard,exact:true}).waitFor();
+        }
+        await input.fill('列王2:3');
+        const candidate=finder.locator('#vf-list button strong');
+        assert.deepEqual(await candidate.allTextContents(),['列王纪上 2:3','列王纪下 2:3']);
+        await input.press('Space');assert.equal(await input.getAttribute('data-address-preselected'),null);
+        const candidatePreview=page.getByRole('complementary',{name:'搜索结果经文浮窗'});
+        await activate(finder.getByRole('button',{name:/列王纪下 2:3/}));
+        await candidatePreview.waitFor();
+        await candidatePreview.locator('[data-verse-id="2KI.2:3"][data-cited]').waitFor();
+        assert.match(await candidatePreview.locator('.compare-slip__title').getAttribute('aria-label'),/列王纪下/);
+        await activate(candidatePreview.getByRole('button',{name:'返回搜索结果'}));
+        assert.deepEqual(await pose(),main);
         await input.fill(address);
         const target=context.getByRole('button',{name:'打开经文：创世记 5:15',exact:true});
         await target.waitFor();

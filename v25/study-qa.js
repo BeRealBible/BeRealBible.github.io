@@ -263,7 +263,7 @@
     const root=doc.documentElement,marked=new WeakMap(),countedFaces=new WeakMap(),noteCues=new Map();
     const notesEnabled=!!win.V25Notes?.enabled(win.location,win.V25_ACCOUNT_CONFIG?.notesOrigin,
       win.V25_ACCOUNT_CONFIG?.pagesIsolationVerified),models=new Map();
-    const grammar=win.V25NoteRefs,parser=grammar.create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
+    const grammar=win.V25NoteRefs,parser=grammar.create({...citationLinks,scripture});
     const plain=objects=>describeSelection(objects,paper.books,{separate:true});
     const describe=objects=>grammar.describe(objects,paper.books,parser,plain),scope=()=>win.V25Account?.notesScope||null;
     let pendingWrite=null,countFrame=null,noteEpoch=0;

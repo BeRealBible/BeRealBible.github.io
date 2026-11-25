@@ -566,7 +566,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
       assert.equal(writes.at(-1).anchor_objects,null,'removing one span removes its grouping and all projections');
       assert.ok(!writes.at(-1).anchors.some(r=>r[0]==='1KI'&&(r[2]===53||r[1]===2)));
     }
-    await plus.click();await typeRef('诗篇1章','；');await refInput.press('Enter');await stamp();
+    await plus.click();await typeRef('诗篇书1章','；');await refInput.press('Enter');await stamp();
     const literal='另一条独立笔记\n\n读到这里，想到**信心**也需要在日常的小事上操练。\n<em>原样保留</em>';
     await edit.fill(literal);await stamp();
     const beforeReading=writes.length;
@@ -658,6 +658,9 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     assert.equal(await refInput.inputValue(),'');
     await remove('马太福音 5:1').click();await stamp();
     const beforeLimit=writes.length;
+    await refInput.fill('列王2');await refInput.press('Space');
+    await pick('列王纪上 2章').waitFor();await pick('列王纪下 2章').waitFor();
+    assert.equal(await refInput.getAttribute('data-address-preselected'),null,'multiple books never lock the note input');
     await refInput.fill('创1:1，创2:1');await refInput.press('Enter');
     await finder.getByRole('group',{name:'检索范围'}).waitFor();
     assert.equal(writes.length,beforeLimit);
@@ -755,14 +758,14 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await mobileSubmit();
     await phone.dialog.getByRole('button',{name:'查看关联经文：何西阿书 2章',exact:true}).waitFor();
     assert.equal(await phoneQuery.inputValue(),'');
-    await phoneQuery.fill('路2:13');
-    const secondTarget=phone.dialog.getByRole('button',{name:'选择：路加福音 2:13',exact:true});
+    await phoneQuery.fill('路德1:16');
+    const secondTarget=phone.dialog.getByRole('button',{name:'选择：路得记 1:16',exact:true});
     assert.ok(await secondTarget.evaluate(el=>{
       const verse=el.getClientRects()[0],pane=el.closest('[data-browse]').getBoundingClientRect();
       return verse.top>=pane.top-1&&verse.top<pane.top+20&&verse.bottom<=pane.bottom;
     }),'the second result is visibly positioned in the mobile passage');
     await phone.page.keyboard.insertText('，');await mobileSubmit();
-    await phone.dialog.getByRole('button',{name:'查看关联经文：路加福音 2:13',exact:true}).waitFor();
+    await phone.dialog.getByRole('button',{name:'查看关联经文：路得记 1:16',exact:true}).waitFor();
     assert.equal(await phoneQuery.inputValue(),'');
     if(await phone.page.evaluate(()=>typeof window.lastReaderCloseWatcher?.requestClose==='function')){
       await phone.page.evaluate(()=>window.lastReaderCloseWatcher.requestClose());

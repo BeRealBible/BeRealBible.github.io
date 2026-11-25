@@ -44,6 +44,55 @@
     return {value,start,end};
   }
   const sane=n=>Number.isInteger(n)&&n>0;
+  const addressTrad={數:'数',師:'师',結:'结',來:'来',錄:'录',貳:'二',贰:'二',壹:'一',叁:'三',參:'三'};
+  const bookKey=name=>normalized(name).value.trim().toLowerCase().replace(/[數師結來錄貳贰壹叁參]/gu,c=>addressTrad[c])
+    .replace(/\s*([\p{Script=Han}])\s*/gu,'$1')
+    .replace(/^列王记/u,'列王纪').replace(/^历代[记纪]/u,'历代志');
+  // Spoken/typed book names belong to the explicit address input. Leave the
+  // prose citation scanner conservative so an alias is not a new inline link.
+  function addressNames(source,canonical){
+    const names=new Map(),standard=new Map();
+    const add=(name,code,to=names)=>{
+      const key=bookKey(name);if(!key)return;
+      if(!to.has(key))to.set(key,new Set());
+      to.get(key).add(code);
+    };
+    for(const [name,code] of canonical){add(name,code,standard);add(name,code);}
+    for(const {name,code} of source.books){
+      const base=name.replace(/书$/u,'').replace(/福音$/u,'').replace(/[记纪志](?=[上下]?$)/u,'');
+      add(base,code);
+      if(!name.endsWith('书')){add(name+'书',code);if(base.length>=2)add(base+'书',code);}
+      if(/[上下前后]$/u.test(base)){
+        // Keep the division when supplied; an undivided title is a group.
+        const group=base.slice(0,-1),fullStem=name.replace(/(?:[上下]|[前后]书)$/u,'');
+        add(group,code);add(group+'书',code);add(fullStem,code);
+        const first=/[上前]$/u.test(base),num=first?'一':'二',digit=first?'1':'2';
+        // Require an explicit unit: “列王2:3” is a chapter and verse,
+        // not a disguised shortcut for the second volume.
+        for(const stem of new Set([group,fullStem]))for(const order of [num,digit,'第'+num,'第'+digit])
+          for(const unit of ['书','卷'])add(stem+order+unit,code);
+      }
+      const epistle=/^约翰([一二三])书$/u.exec(name);
+      if(epistle){
+        const digit='一二三'.indexOf(epistle[1])+1;
+        for(const suffix of [digit,'第'+digit,'第'+epistle[1]])add('约翰'+suffix+'书',code);
+      }
+    }
+    for(const [name,code] of Object.entries({
+      路德:'RUT',路德记:'RUT',哀歌:'LAM',启示:'REV',徒行传:'ACT',使徒行:'ACT',使徒:'ACT',
+      哥前:'1CO',哥后:'2CO',帖撒前:'1TH',帖撒后:'2TH'
+    }))if(source.books.some(book=>book.code===code))add(name,code);
+    const bookChoices=name=>{const key=bookKey(name);return [...(standard.get(key)||names.get(key)||[])];};
+    const bookCode=name=>{const choices=bookChoices(name);return choices.length===1?choices[0]:undefined;};
+    function bookMatches(prefix){
+      const key=bookKey(prefix);if(!key)return [];
+      const exact=bookChoices(prefix);if(exact.length)return exact;
+      const found=new Set();
+      for(const [name,codes] of names)if(name.startsWith(key))for(const code of codes)found.add(code);
+      return [...found];
+    }
+    return {bookCode,bookChoices,bookMatches};
+  }
   function create(source){
     const aliases=new Map(),books=new Map();
     function alias(name,code){if(name)aliases.set(normalized(name).value.toLowerCase(),code);}
@@ -173,15 +222,7 @@
       }
       emit(host,offset,text.length);
     }
-    const bookKey=name=>normalized(name).value.trim().toLowerCase().replace(/^列王记/u,'列王纪')
-      .replace(/[壹]/gu,'一').replace(/[贰貳]/gu,'二').replace(/[叁參]/gu,'三');
-    const bookCode=name=>aliases.get(bookKey(name));
-    function bookMatches(prefix){
-      const key=bookKey(prefix);
-      if(!key)return [];
-      return [...new Set([...aliases].filter(([name])=>name.startsWith(key)).map(([,code])=>code))];
-    }
-    return {scan,append,bookCode,bookMatches};
+    return {scan,append,...addressNames(source,aliases)};
   }
   return {create};
 });
