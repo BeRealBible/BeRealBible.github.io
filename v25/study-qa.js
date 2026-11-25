@@ -68,12 +68,12 @@
   // Only the union of canonical locations is needed for toolbar state and
   // paper marks. Stamp it into the entry; do not fetch the QAP text on select.
   function buildAvailability(data){
-    const books={},chapterCounts={};
+    const books={},chapterCounts={},starts={};
     for(const {refs} of data.items){
       const counted=new Set();
       for(const [code,ch,lo,hi] of refs){
         const ranges=((books[code]??={})[ch]??=[]),key=addr(code,ch);
-        if(lo!=null)ranges.push([lo,hi]);
+        if(lo!=null){ranges.push([lo,hi]);((starts[code]??={})[ch]??=new Set()).add(lo);}
         if(!counted.has(key)){
           counted.add(key);const counts=(chapterCounts[code]??={});counts[ch]=(counts[ch]??0)+1;
         }
@@ -82,7 +82,8 @@
     for(const chapters of Object.values(books))for(const ch of Object.keys(chapters)){
       chapters[ch]=mergeRanges(chapters[ch]).flat();
     }
-    return {schema:1,books,chapterCounts};
+    for(const chapters of Object.values(starts))for(const ch of Object.keys(chapters))chapters[ch]=[...chapters[ch]].sort((a,b)=>a-b);
+    return {schema:1,books,chapterCounts,starts};
   }
   function createAvailability(data){
     if(data?.schema!==1||!data.books)throw Error('Unknown QAP availability version');
@@ -92,7 +93,12 @@
       for(let n=0;n<ranges.length&&ranges[n]<=hi;n+=2)if(ranges[n+1]>=lo)return true;
       return false;
     }
-    return {has,chapterCount:(code,ch)=>data.chapterCounts?.[code]?.[ch]??0,
+    function hasStart(code,ch,lo,hi=lo){
+      if(data.starts)return !!data.starts[code]?.[ch]?.some(v=>v>=lo&&v<=hi);
+      // A cached, older availability index still uses the first verse of each retained range.
+      return !!data.books[code]?.[ch]?.some((v,i)=>i%2===0&&v>=lo&&v<=hi);
+    }
+    return {has,hasStart,chapterCount:(code,ch)=>data.chapterCounts?.[code]?.[ch]??0,
       hasAny:objects=>objects.some(({code,ch,lo,hi})=>has(code,ch,lo,hi))};
   }
   // QAP and notes share both canonical location normalization and this lookup.
@@ -136,6 +142,78 @@
     }
     return createReferenceIndex(data.items,(item,ref,key)=>(item.id.startsWith(key+'.')?2:0)+(ref.length===4?1:0));
   }
+  // Only the ink cue is abbreviated. The saved association and its lookup
+  // still cover the entire range, including any later chapters.
+  function noteStarts(items,code,ch){
+    const starts=new Set();
+    for(const item of items)for(const ref of item.anchorObjects??item.refs){
+      if(ref.length>=4&&ref[0]===code&&ref[1]===ch)starts.add(ref[2]);
+    }
+    return [...starts].sort((a,b)=>a-b);
+  }
+  function* passageRows(anchor,scripture,parser){
+    const book=scripture.index(anchor.code);
+    for(const {ch,lo,hi=lo} of parser.segments(anchor)){
+      const rows=book?.chunks.find(chunk=>chunk.chapter===ch)?.rows;
+      if(rows)yield {ch,rows:lo==null?rows:rows.filter(row=>row.lo<=hi&&row.hi>=lo)};
+    }
+  }
+  function formatNoteCopy(body,anchors,{scripture,parser,label,limit=50}){
+    const chunks=anchors.map(anchor=>{
+      let text='',length=0;
+      passage: for(const part of passageRows(anchor,scripture,parser))for(const row of part.rows)for(const char of row.text){
+        if(length===limit){text+='…';break passage;}
+        text+=char;length++;
+      }
+      return label(anchor)+(text?'\n'+text:'');
+    });
+    return [...(body?[body]:[]),...chunks].join('\n\n');
+  }
+  function createNoteBack(win){
+    if(!/Android/i.test(win.navigator.userAgent)&&win.navigator.userAgentData?.platform!=='Android'){
+      return {register:()=>({active(){},dispose(){}})};
+    }
+    const key='paperV25NoteBack',h=win.history,entries=new Map();
+    let watcher=null,armed=false,removing=false,waitForInteraction=false;
+    const priority=entry=>+entry.panel.style.getPropertyValue('--slip-priority');
+    const top=()=>[...entries.values()].filter(e=>e.active&&!e.panel.hidden&&!e.panel.hasAttribute('data-collapsed'))
+      .sort((a,b)=>priority(b)-priority(a))[0];
+    const dismiss=()=>top()?.dismiss();
+    function sync(){
+      if(top()){
+        // Android Back can arrive as a native CloseWatcher request or as a
+        // direct browser history traversal. Both dismiss the same note window.
+        if(!watcher&&typeof win.CloseWatcher==='function')try{
+          watcher=new win.CloseWatcher();
+          watcher.addEventListener('close',()=>{watcher=null;dismiss();sync();},{once:true});
+        }catch{}
+        if(removing||waitForInteraction)return;
+        if(h.state?.[key]){armed=true;return;}
+        if(win.navigator.userActivation?.hasBeenActive===false)return;
+        try{h.pushState({...h.state,[key]:true},'');armed=true;}catch{}
+      }else{
+        watcher?.destroy();watcher=null;
+        if(!removing&&armed){
+          armed=false;
+          if(h.state?.[key])try{removing=true;h.back();}catch{removing=false;}
+        }
+      }
+    }
+    win.addEventListener('popstate',()=>{
+      if(removing){removing=false;sync();return;}
+      if(!armed||h.state?.[key])return;
+      armed=false;waitForInteraction=true;dismiss();sync();
+    });
+    for(const event of ['pointerup','click','keyup'])win.addEventListener(event,e=>{
+      if(!e.isTrusted||!top()||armed)return;
+      waitForInteraction=false;sync();
+    });
+    return {register(panel,dismiss){
+      const entry={panel,dismiss,active:false};entries.set(panel,entry);
+      const observer=new win.MutationObserver(sync);observer.observe(panel,{attributes:true,attributeFilter:['hidden','data-collapsed']});
+      return {active(value){entry.active=value;sync();},dispose(){observer.disconnect();entries.delete(panel);sync();}};
+    }};
+  }
   function describeSelection(next,books,{separate=false}={}){
     const order=new Map(books.map((book,i)=>[book.code,{...book,i}])),groups=new Map();
     for(const {code,ch,lo,hi=lo} of next){
@@ -174,15 +252,23 @@
   }
   function mount({stage,paper,scripture,citationLinks,openWindow,openCitation,closeCitation,openNoteSearch,closeNoteSearch,feedback=()=>{}}){
     const doc=stage.ownerDocument,win=doc.defaultView,$=id=>doc.getElementById(id);
+    const noteBack=createNoteBack(win);
     const template=$('study-qa'),settings=$('study-settings'),pref=$('study-marks-enabled');
     const availability=createAvailability(JSON.parse($('study-qa-availability').textContent));
-    const root=doc.documentElement,marked=new WeakSet(),countedFaces=new WeakMap();
+    const root=doc.documentElement,marked=new WeakMap(),countedFaces=new WeakMap(),noteCues=new Map();
     const notesEnabled=!!win.V25Notes?.enabled(win.location,win.V25_ACCOUNT_CONFIG?.notesOrigin,
       win.V25_ACCOUNT_CONFIG?.pagesIsolationVerified),models=new Map();
     const grammar=win.V25NoteRefs,parser=grammar.create({bookCode:citationLinks.bookCode,bookMatches:citationLinks.bookMatches,scripture});
     const plain=objects=>describeSelection(objects,paper.books,{separate:true});
     const describe=objects=>grammar.describe(objects,paper.books,parser,plain),scope=()=>win.V25Account?.notesScope||null;
-    let pendingWrite=null,countFrame=null;
+    let pendingWrite=null,countFrame=null,noteEpoch=0;
+    function notesChanged(){noteEpoch++;noteCues.clear();scheduleMarks();scheduleCounts();}
+    function cuesFor(model,code,ch){
+      if(!model?.ready())return [];
+      const key=addr(code,ch);
+      if(!noteCues.has(key))noteCues.set(key,noteStarts(model.query([{code,ch}]),code,ch));
+      return noteCues.get(key);
+    }
     const notes=()=>{
       const id=scope();if(!notesEnabled||!id||!win.V25NoteSync)return null;
       if(models.has(id))return models.get(id);
@@ -192,7 +278,7 @@
         active:()=>scope()===id,online:()=>win.navigator.onLine!==false,transport:win.V25Account.noteTransport(id),
         spansEnabled:win.V25Account.noteSpanEnabled,
         retrySoon(){if(!timer)timer=win.setTimeout(()=>{timer=0;if(scope()===id)model.refresh();},2500);}});
-      models.set(id,model);model.listen(scheduleCounts);model.refresh();return model;
+      models.set(id,model);model.listen(notesChanged);model.refresh();return model;
     };
     if(notesEnabled){
       win.addEventListener('storage',e=>{for(const model of models.values())model.invalidate(e.key);});
@@ -200,7 +286,7 @@
       // Receive changes made in another browser without interrupting the editor.
       const pull=()=>{if(!doc.hidden)notes()?.refresh();};
       doc.addEventListener('visibilitychange',pull);
-      win.addEventListener('paper-note-scope-changed',()=>{pull();scheduleCounts();});
+      win.addEventListener('paper-note-scope-changed',()=>{pull();notesChanged();});
       win.addEventListener('beforeunload',e=>{if(models.get(scope())?.hasPending()){e.preventDefault();e.returnValue=true;}});
       win.setInterval(pull,5000);pull();
       $('paper-account-dialog')?.addEventListener('close',()=>{
@@ -296,36 +382,29 @@
           load().then(render,()=>{if(status.isConnected)status.textContent='问答未能载入。请关闭后重试。';});
         }
     }
-    function renderMaterial(scroll,description,model,profile,initial){
+    function renderMaterial(scroll,description,model,profile,initial,onBack){
       const doc=scroll.ownerDocument,make=(tag,cls,text)=>{
         const el=doc.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;
       };
       const bar=make('div','study-material__bar'),tabs=make('div','study-material__tabs');
       tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','经文资料');
-      const owner=scroll.closest('.compare-slip').id,parts={};
-      for(const [key,label] of [['all','全部'],['notes','笔记'],['qa','问答']]){
+      const slip=scroll.closest('.compare-slip'),owner=slip.id,parts={};
+      for(const [key,label] of [['notes','笔记'],['qa','问答']]){
         const button=make('button','study-material__tab',label),panel=make('div','study-material__panel');
         button.type='button';button.id=owner+'-tab-'+key;panel.id=owner+'-pane-'+key;
         button.setAttribute('role','tab');button.setAttribute('aria-controls',panel.id);
         panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',button.id);
         button.addEventListener('click',()=>show(key));tabs.append(button);parts[key]={button,panel,top:0};
       }
-      parts.all.button.hidden=true;
       tabs.addEventListener('keydown',e=>{
         if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
-        const keys=Object.keys(parts).filter(id=>!parts[id].button.hidden);
-        const next=e.key==='Home'?keys[0]:e.key==='End'?keys.at(-1):keys[(keys.indexOf(active)+(e.key==='ArrowLeft'?-1:1)+keys.length)%keys.length];
+        const next=e.key==='Home'?'notes':e.key==='End'?'qa':active==='notes'?'qa':'notes';
         e.preventDefault();parts[next].button.focus({preventScroll:true});show(next);
       });
-      const add=make('button','study-notes__add','+');add.type='button';
+      const addSlot=make('div','study-notes__add-slot'),add=make('button','study-notes__add','+');add.type='button';
       add.setAttribute('aria-label','新增笔记');add.title='新增笔记';
-      bar.append(tabs,add);scroll.append(bar,parts.all.panel,parts.notes.panel,parts.qa.panel);
-      const listing=make('div','study-notes__list'),allListing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
-      const allNotes=make('section','study-material__section'),allQA=make('section','study-material__section'),qaContent=make('div');
-      allNotes.append(make('h3','study-material__section-label','私人笔记'),allListing);
-      allQA.append(make('h3','study-material__section-label','公开问答'));
-      allQA.hidden=!availability.hasAny(description.objects);allNotes.hidden=true;
-      parts.all.panel.append(allNotes,allQA);parts.qa.panel.append(qaContent);
+      addSlot.append(add);bar.append(addSlot,tabs);scroll.append(bar,parts.notes.panel,parts.qa.panel);
+      const listing=make('div','study-notes__list'),compose=make('div','study-notes__editor');
       const field=make('textarea','study-notes__field');
       field.setAttribute('aria-label','笔记正文');field.placeholder='在这里写笔记…';field.rows=8;
       field.spellcheck=false;field.autocomplete='off';field.maxLength=win.V25Notes.LIMIT;
@@ -333,6 +412,8 @@
       const status=make('p','study-notes__status');status.setAttribute('role','status');
       const done=make('button','study-notes__link','返回笔记列表');done.type='button';
       const button=(label,cls='study-notes__link')=>{const el=make('button',cls,label);el.type='button';return el;};
+      const editorActions=make('div','study-notes__editor-actions'),copy=button('复制');
+      copy.setAttribute('aria-label','复制笔记和引用经文');editorActions.append(done,copy);
       const viewer=make('article','study-notes__view'),viewBar=make('div','study-notes__view-bar');
       const back=button('返回笔记列表','study-notes__back'),edit=button('编辑','study-notes__edit');
       edit.setAttribute('aria-label','编辑笔记');
@@ -359,8 +440,9 @@
           editing={...next,noteId:id};refEditor.setRefs(editing.objects);statusText();return true;
         }});
       const notebook=make('div','study-notes__box');notebook.append(refEditor.root,field);
-      compose.append(notebook,hint,status,done);parts.notes.panel.append(listing,viewer,compose);
-      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,listFrom='notes',renderedRefs=null;
+      compose.append(notebook,hint,status,editorActions);parts.notes.panel.append(listing,viewer,compose);
+      const backHandle=noteBack.register(slip,onBack);
+      let active=null,viewing=null,editing=null,editReturn=null,listTop=0,renderedRefs=null;
       let qaRendered=false,seenText='',composing=false;
       const idForNew=()=> 'N:'+win.crypto.randomUUID().replaceAll('-','').toUpperCase();
       const fromItem=item=>describe((item.anchorObjects||item.refs).map(grammar.decode));
@@ -369,10 +451,8 @@
         const latest=model.descriptor(id);if(latest)return latest;
         const cached=model.get(id);return cached&&fromItem(cached);
       }
-      const currentList=()=>active==='all'?allListing:listing;
-      const noteButton=id=>id&&[...currentList().querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
-      const syncAdd=()=>{add.hidden=active==='all'?allNotes.hidden:active!=='notes'||listing.hidden;};
-      function rememberList(){if(active==='all'||active==='notes'&&!editing&&!viewing){listFrom=active;listTop=scroll.scrollTop;}}
+      const noteButton=id=>id&&[...listing.querySelectorAll('[data-note-id]')].find(el=>el.dataset.noteId===id);
+      const syncAdd=()=>{add.hidden=active!=='notes'||listing.hidden;};
       function showNoteScreen(screen){
         listing.hidden=screen!=='list';viewer.hidden=screen!=='view';compose.hidden=screen!=='edit';
         syncAdd();
@@ -386,11 +466,9 @@
         if(model)newNote();else open(description.objects,add,'write');
       });
       function listNotes(){
-        if(active!=='all'&&(active!=='notes'||editing||viewing))return;
+        if(editing||viewing||active!=='notes')return;
         const matches=model?.query(description.objects)||[],frag=doc.createDocumentFragment();
-        const contents=currentList();
-        allNotes.hidden=!matches.length;syncAdd();
-        if(!model){frag.append(make('p','study-notes__empty','登录后可查看自己的云端笔记。'));contents.replaceChildren(frag);return;}
+        if(!model){frag.append(make('p','study-notes__empty','登录后可查看自己的云端笔记。'));listing.replaceChildren(frag);return;}
         const focusedId=doc.activeElement?.dataset.noteId;
         if(!matches.length)frag.append(make('p','study-notes__empty','所选经文还没有笔记。'));
         for(const item of matches){
@@ -401,7 +479,7 @@
           openNote.append(make('span','study-notes__text',item.text),make('span','study-notes__address',item.label));
           article.append(openNote);frag.append(article);
         }
-        contents.replaceChildren(frag);
+        listing.replaceChildren(frag);
         if(focusedId)(noteButton(focusedId)||add).focus({preventScroll:true});
       }
       function passage(anchor){
@@ -409,10 +487,8 @@
         const cross=anchor.endCh>anchor.ch;
         card.append(make('h4','study-notes__passage-title',grammar.label(book?.book.name||anchor.code,anchor)));
         let hasText=false;
-        for(const {ch,lo,hi=lo} of parser.segments(anchor)){
-          const chunk=book?.chunks.find(c=>c.chapter===ch);
-          const rows=chunk?.rows.filter(row=>lo==null||row.lo<=hi&&row.hi>=lo);
-          if(!rows?.length)continue;
+        for(const {ch,rows} of passageRows(anchor,scripture,parser)){
+          if(!rows.length)continue;
           hasText=true;
           if(cross)card.append(make('h5','study-notes__passage-chapter','第 '+ch+' 章'));
           let p;
@@ -441,9 +517,8 @@
       }
       function startViewing(id,top=0,focus=viewTitle){
         if(profile!==scope())return;
-        rememberList();
+        if(!editing&&!viewing)listTop=scroll.scrollTop;
         editing=null;editReturn=null;refEditor.reset();viewing=id;
-        show('notes');
         paintViewing();showNoteScreen('view');scroll.scrollTop=top;
         focus.focus({preventScroll:true});
       }
@@ -452,13 +527,13 @@
         if(active)parts[active].top=scroll.scrollTop;
         if(key!=='notes')refEditor.suspend();
         active=key;
-        (key==='all'?allQA:parts.qa.panel).append(qaContent);
+        backHandle.active(key==='notes');
         syncAdd();
         for(const [id,{button,panel}] of Object.entries(parts)){
           button.setAttribute('aria-selected',String(key===id));button.tabIndex=key===id?0:-1;panel.hidden=key!==id;
         }
-        if(key!=='qa')listNotes();
-        if(!qaRendered&&key!=='notes'){qaRendered=true;renderQA(qaContent,description.objects);}
+        if(key==='notes')listNotes();
+        else if(!qaRendered){qaRendered=true;renderQA(parts.qa.panel,description.objects);}
         scroll.scrollTop=parts[key].top;
       }
       const swipeEvents=new win.AbortController(),signal=swipeEvents.signal;
@@ -479,7 +554,7 @@
       scroll.addEventListener('pointerdown',event=>{
         const target=event.target;
         if(event.pointerType!=='touch'||!event.isPrimary||!active||
-          (!tabTarget(target)&&target.closest?.('button,[role=button],a,summary,textarea,input,select,[contenteditable]')))return;
+          (!tabTarget(target)&&target.closest?.('button:not(.study-notes__open),[role=button],a,textarea,input,select,[contenteditable]')))return;
         swipe={id:event.pointerId,x:event.clientX,y:event.clientY,time:win.performance.now(),from:active,horizontal:false};
       },{passive:true,signal});
       scroll.addEventListener('pointermove',event=>{
@@ -491,14 +566,14 @@
         swipe=null;
         if(!offset||active!==start.from||Math.abs(offset.x)<48||Math.abs(offset.x)<Math.abs(offset.y)*1.5)return;
         const next=offset.x<0?'qa':'notes';
-        ignoreTabClick=tabTarget(event.target);
+        ignoreTabClick=true;
         if(next===active)return;
         const focus=scroll.contains(doc.activeElement)&&doc.activeElement!==scroll;
         show(next);
         if(focus)parts[next].button.focus({preventScroll:true});
       },{passive:true,signal});
       scroll.addEventListener('pointercancel',event=>{if(swipe?.id===event.pointerId)swipe=null;},{passive:true,signal});
-      tabs.addEventListener('click',event=>{
+      scroll.addEventListener('click',event=>{
         if(!ignoreTabClick||!event.detail)return;
         // Suppress only a compatibility click from this swipe; a new pointer
         // down (including a quick next tap) already cleared the flag.
@@ -511,11 +586,11 @@
       }
       function startEditing(desc,id,fromView=false){
         if(profile!==scope())return;
-        rememberList();
+        if(!editing&&!viewing&&active==='notes')listTop=scroll.scrollTop;
         editReturn=fromView?{id,top:scroll.scrollTop}:null;
         done.textContent=fromView?'完成编辑':'返回笔记列表';
         viewing=null;editing={...desc,noteId:id};showNoteScreen('edit');
-        refEditor.reset();composing=false;field.value=seenText=model.body(id);statusText();
+        refEditor.reset();editorActions.querySelector('.paper-copy-field')?.remove();composing=false;field.value=seenText=model.body(id);statusText();
         refEditor.setRefs(desc.objects);
         show('notes');
         scroll.scrollTop=0;
@@ -534,15 +609,24 @@
       function returnToList(){
         const id=viewing;
         editing=null;viewing=null;editReturn=null;refEditor.reset();showNoteScreen('list');listNotes();
-        if(active==='notes'&&listFrom==='all')show('all');
-        if(active===listFrom)scroll.scrollTop=listTop;else parts[listFrom].top=listTop;
-        if(active===listFrom)(noteButton(id)||parts[active].button).focus({preventScroll:true});
+        if(active==='notes')scroll.scrollTop=listTop;else parts.notes.top=listTop;
+        if(active==='notes')(noteButton(id)||parts.notes.button).focus({preventScroll:true});
       }
       back.addEventListener('click',returnToList);
       edit.addEventListener('click',()=>{const desc=currentDescriptor(viewing);if(desc?.key)startEditing(desc,viewing,true);});
       done.addEventListener('click',()=>{
         if(editReturn)startViewing(editReturn.id,editReturn.top,edit);
         else returnToList();
+      });
+      copy.addEventListener('click',async()=>{
+        if(!editing||profile!==scope())return;
+        const id=editing.noteId,tools=win.PaperTextSelection;
+        const text=formatNoteCopy(field.value,editing.objects,{scripture,parser,
+          label:ref=>grammar.label(scripture.index(ref.code)?.book.name||ref.code,ref)});
+        const ok=await tools.writeText(win,text);
+        if(!compose.isConnected||editing?.noteId!==id||profile!==scope())return;
+        if(ok||tools.fallbackCopy(doc,editorActions,text))feedback('已复制笔记和引用经文');
+        else feedback('浏览器未允许自动复制，可手动复制已选文字');
       });
       const off=model?.listen((key,source)=>{
         if(editing&&key===editing.noteId){
@@ -554,22 +638,21 @@
           }
           statusText();
         }else if(viewing){if(key==null||key===viewing)paintViewing();}
-        if(active==='all'||!editing&&!viewing)listNotes();
+        else listNotes();
       });
       showNoteScreen('list');
       const request=mode=>{
         // A scripture address is a shared association, never a note identity.
         if(mode==='write')newNote();
-        else if(mode==='chapter'){
-          parts.all.button.hidden=false;
+        else if(mode==='chapter-notes'||mode==='chapter-qa'){
           if(editing||viewing)returnToList();
-          show('all');
+          show(mode==='chapter-notes'?'notes':'qa');
         }
         else if(!active)show(availability.hasAny(description.objects)?'qa':'notes');
         else if(editing)returnToList();
       };
       request(initial);
-      return {request,dispose(){swipeEvents.abort();refEditor.dispose();off?.();}};
+      return {request,dispose(){backHandle.dispose();swipeEvents.abort();refEditor.dispose();off?.();}};
     }
     function open(next,restore,mode='view'){
       // A contiguous reader selection starts as one range; only addresses
@@ -584,64 +667,87 @@
       }
       let content;
       return openWindow({key,title,fullTitle,restore,material:notesEnabled,mode,focus:mode!=='write',
-        render(scroll){if(!notesEnabled)renderQA(scroll,objects);else content=renderMaterial(scroll,selection,model,profile,mode);},
+        render(scroll,onBack){if(!notesEnabled)renderQA(scroll,objects);else content=renderMaterial(scroll,selection,model,profile,mode,onBack);},
         onReopen(nextMode){content?.request(nextMode);},onDispose(){content?.dispose();}});
     }
-    function openChapterBadge(badge){
+    function openChapterBadge(badge,clientY){
       if(!badge?.isConnected||!stage.contains(badge))return false;
       const {book,chapter}=badge.dataset;
-      return open([{code:book,ch:+chapter}],badge,'chapter');
+      const rows=[...badge.querySelectorAll('[data-chapter-count]')];
+      const distance=el=>{const r=el.getBoundingClientRect();return Math.abs((r.top+r.bottom)/2-clientY);};
+      const row=Number.isFinite(clientY)?rows.reduce((best,el)=>!best||distance(el)<distance(best)?el:best,null):rows[0];
+      return open([{code:book,ch:+chapter}],badge,row?.dataset.chapterCount==='notes'?'chapter-notes':'chapter-qa');
     }
 
-    function markPaper(svg){
-      if(marked.has(svg))return;
-      marked.add(svg);
+    function noteMarksFor(node,model,keys){
+      const old=marked.get(node);
+      if(old?.epoch===noteEpoch)return null;
+      const chapters=old?.chapters??keys(),starts=new Map(chapters.map(([code,ch])=>[addr(code,ch),cuesFor(model,code,ch)]));
+      const signature=[...starts.values()].map(list=>list.join(',')).join('|');
+      marked.set(node,{epoch:noteEpoch,signature,chapters});
+      return old?.signature===signature?null:starts;
+    }
+    const includesStart=(starts,code,{ch,lo,hi})=>starts.get(addr(code,ch))?.some(v=>v>=lo&&v<=hi);
+    function markPaper(svg,model){
       const pageIndex=Number(svg.dataset.pdf),face=paper.pages[pageIndex],book=paper.books[face?.b];
       if(!book)return;
+      const starts=noteMarksFor(svg,model,()=>[...new Set([...svg.querySelectorAll('text[data-ref]')]
+        .map(el=>parse(el.dataset.ref)?.ch).filter(Boolean))].map(ch=>[book.code,ch]));
+      if(!starts)return;
       // A restored curl face can already contain a snapshot of its cue layer.
       svg.querySelector('[data-qap-paper-cues]')?.remove();
       const layer=doc.createElementNS(SVG,'g');
       layer.setAttribute('data-qap-paper-cues','');layer.setAttribute('aria-hidden','true');layer.setAttribute('pointer-events','none');
       let layout;
-      function cue(el,kind){
-        el.dataset.qapMark=kind;
+      function cue(el,kind,qa=true){
+        const type=qa?'qap':'note';el.setAttribute('data-'+type+'-mark',kind);
         layout??=win.PaperPage.commands(face,pageIndex,paper.books);
         const index=el.dataset.physicalIdx,box=paperCueLine(index===undefined?null:layout[index],layout);
         if(!box)return;
         const line=doc.createElementNS(SVG,'line');
         for(const [key,value] of Object.entries({x1:box.x1,x2:box.x2,y1:box.y,y2:box.y,
-          'data-qap-cue':kind,'data-qap-ref':el.dataset.ref,'data-qap-ink':index}))line.setAttribute(key,value);
+          ['data-'+type+'-cue']:kind,['data-'+type+'-ref']:el.dataset.ref,['data-'+type+'-ink']:index}))line.setAttribute(key,value);
         layer.append(line);
+      }
+      function verseCue(el,v){
+        const qa=availability.hasStart(book.code,v.ch,v.lo,v.hi);
+        if(!qa&&!includesStart(starts,book.code,v))return false;
+        cue(el,'verse',qa);return true;
       }
       const markedVerses=new Set(),ink=new Map();
       for(const el of svg.querySelectorAll('text[data-ref]')){
         const {role,ref}=el.dataset,v=parse(ref);
         if(!v)continue;
+        el.removeAttribute('data-qap-mark');el.removeAttribute('data-note-mark');
         const ch=chapterOf(role,ref);
         if(ch&&availability.has(book.code,ch))cue(el,'chapter');
-        if(role==='verse'&&availability.has(book.code,v.ch,v.lo,v.hi)){
-          cue(el,'verse');markedVerses.add(ref);
-        }
+        if(role==='verse'&&verseCue(el,v))markedVerses.add(ref);
         if(role==='body'&&!ink.has(ref))ink.set(ref,[el,v]);
       }
       // The first verse and a split verse may have no separate printed number
       // on this face. In that case underline only the first visible ink run.
       for(const [ref,[el,v]] of ink){
-        if(!markedVerses.has(ref)&&availability.has(book.code,v.ch,v.lo,v.hi))cue(el,'verse');
+        if(!markedVerses.has(ref))verseCue(el,v);
       }
       if(layer.childElementCount)svg.append(layer);
     }
-    function markChunk(chunk){
-      if(marked.has(chunk))return;
-      marked.add(chunk);
+    function markChunk(chunk,model){
       const chapter=chunk.querySelector('[data-study-chapter]');
       if(chapter){
         const [b,c]=chapter.dataset.studyChapter.split('.');
         if(availability.has(b,+c))chapter.dataset.qapMark='chapter';
       }
+      const starts=noteMarksFor(chunk,model,()=>{
+        if(!chapter)return [];
+        const [code,ch]=chapter.dataset.studyChapter.split('.');return [[code,+ch]];
+      });
+      if(!starts)return;
       for(const el of chunk.querySelectorAll('[data-verse-id]')){
-        const b=el.dataset.verseId.split('.')[0],v=parse(el.dataset.ref);
-        if(v&&availability.has(b,v.ch,v.lo,v.hi))el.querySelector('sup').dataset.qapMark='verse';
+        const b=el.dataset.verseId.split('.')[0],v=parse(el.dataset.ref),marker=el.querySelector('sup');
+        if(!v||!marker)continue;
+        const qa=availability.hasStart(b,v.ch,v.lo,v.hi);
+        if(qa)marker.dataset.qapMark='verse';else marker.removeAttribute('data-qap-mark');
+        if(!qa&&includesStart(starts,b,v))marker.dataset.noteMark='verse';else marker.removeAttribute('data-note-mark');
       }
     }
     const chapterIcons={qa:'M1 1.1h6v4.3H4L2.15 7V5.4H1z M3.35 2.65a.68.68 0 1 1 1.1.55c-.34.22-.45.34-.45.61 M4 4.65h.01',
@@ -701,8 +807,9 @@
       if(!marking||frame!==null)return;
       frame=win.requestAnimationFrame(()=>{
         frame=null;if(!marking)return;
-        for(const svg of stage.querySelectorAll('.paper svg[data-pdf]'))markPaper(svg);
-        for(const chunk of doc.querySelectorAll('.compare-slip__chunk'))markChunk(chunk);
+        const model=notes();
+        for(const svg of stage.querySelectorAll('.paper svg[data-pdf]'))markPaper(svg,model);
+        for(const chunk of doc.querySelectorAll('.compare-slip__chunk'))markChunk(chunk,model);
       });
     }
     function setMarking(value,{persist=false}={}){
@@ -721,5 +828,5 @@
     return {open,openChapterBadge,notesEnabled,hasAny:objects=>availability.hasAny(objects)||!!notes()?.query(objects).length,
       openSettings(){if(!settings.open)settings.showModal();}};
   }
-  return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,paperCueLine,chapterCountBox,describeSelection,mount};
+  return {buildAvailability,createAvailability,createReferenceIndex,createIndex,chapterOf,paperCueLine,chapterCountBox,describeSelection,noteStarts,formatNoteCopy,mount};
 });

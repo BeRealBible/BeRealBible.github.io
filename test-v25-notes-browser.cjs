@@ -3,6 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const origin=process.env.V25_NOTES_TEST_ORIGIN||'http://127.0.0.1:37136',api='https://v25-note-test.supabase.co';
 const liveAssets=process.env.V25_NOTES_LIVE_ASSETS==='1';
+const previous=origin+'/v25-test-back-previous';
 const target=origin+'/?v=index-25&curl=off',enableLinks=process.env.V25_NOTES_LEGACY_API!=='1';
 const enableSpans=enableLinks&&process.env.V25_NOTES_NO_SPANS!=='1';
 const mime={'.js':'text/javascript','.html':'text/html','.css':'text/css','.json':'application/json','.woff2':'font/woff2','.ttf':'font/ttf','.png':'image/png','.webp':'image/webp'};
@@ -18,10 +19,15 @@ async function snapshot(reader,name){
 let releaseSend,hold=new Promise(r=>{releaseSend=r;});
 async function visit(browser,width,holdNotes,ref='2SA.3:1'){
   const mobile=width<550;
-  const ctx=await browser.newContext({viewport:{width,height:850},isMobile:mobile,hasTouch:mobile,reducedMotion:'reduce'});
+  const ctx=await browser.newContext({viewport:{width,height:850},isMobile:mobile,hasTouch:mobile,reducedMotion:'reduce',
+    ...(mobile?{userAgent:'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0 Mobile Safari/537.36 EdgA/145.0'}:{})});
   await ctx.addInitScript(mobile=>{
     localStorage.setItem('paper:v25:first-guide:1','seen');
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedNote=text;}}});
     if(!mobile)return;
+    if(typeof window.CloseWatcher==='function')window.CloseWatcher=class extends window.CloseWatcher{
+      constructor(...args){super(...args);window.lastReaderCloseWatcher=this;}
+    };
     const native=window.visualViewport,viewport=new EventTarget();let override=null;
     for(const key of ['width','height','offsetLeft','offsetTop','scale','pageLeft','pageTop'])
       Object.defineProperty(viewport,key,{get:()=>override?.[key]??native[key]});
@@ -56,6 +62,7 @@ async function visit(browser,width,holdNotes,ref='2SA.3:1'){
       return respond({},404);
     }
     if(u.origin!==origin)return route.abort();
+    if(u.href===previous)return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Previous page for Back test</title>'});
     if(u.pathname==='/v25/account-config.js')return route.fulfill({contentType:'text/javascript',body:
       `window.V25_ACCOUNT_CONFIG=${JSON.stringify({url:api,publishableKey:'sb_publishable_demo',notesOrigin:origin,pagesIsolationVerified:true,noteReanchorEnabled:enableLinks,noteSpanEnabled:enableSpans})};`});
     if(liveAssets)return route.continue(); // Still use the intercepted fake account service, never real notes.
@@ -67,6 +74,7 @@ async function visit(browser,width,holdNotes,ref='2SA.3:1'){
   const page=await ctx.newPage(),err=[],qaRequests=[];
   page.on('pageerror',e=>err.push(e.message));
   page.on('request',r=>{if(r.url().includes('/study-qa.json?'))qaRequests.push(r.url());});
+  if(mobile)await page.goto(previous);
   await page.goto(target+'&ref='+encodeURIComponent(ref),{waitUntil:'domcontentloaded',timeout:90000});
   await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
   assert.equal(new URL(page.url()).origin,origin,'login and notes stay at this reading site');
@@ -520,6 +528,16 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     const literal='另一条独立笔记\n\n读到这里，想到信心也需要在日常的小事上操练。\n<em>原样保留</em>';
     await edit.fill(literal);await stamp();
     const beforeReading=writes.length;
+    const copy=desk.dialog.getByRole('button',{name:'复制笔记和引用经文',exact:true});
+    assert.ok(await copy.evaluate(el=>el.previousElementSibling?.textContent==='完成编辑'));
+    await copy.click();
+    const copied=await desk.page.evaluate(()=>window.copiedNote);
+    assert.ok(copied.startsWith(literal+'\n\n'),'copy preserves the whole note as plain text above quotations');
+    const expectedPsalm=await desk.page.evaluate(()=>[...BIBLE_SOURCE.books.find(b=>b.code==='PSA').chapters[0].verses.map(([,text])=>text).join('')].slice(0,50).join('')+'…');
+    assert.equal(copied.match(/诗篇 1章\n([^\n]+)/u)?.[1],expectedPsalm);
+    const shortVerse=await desk.page.evaluate(()=>BIBLE_SOURCE.books.find(b=>b.code==='PSA').chapters[22].verses[0][1]);
+    assert.equal(copied.match(/诗篇 23:1\n([^\n]+)/u)?.[1],shortVerse);
+    assert.equal(writes.length,beforeReading,'copy does not write');
     await finishEdit(desk).click();
     const showNote=readNote(desk),psalm=showNote.locator('.study-notes__passage').filter({has:desk.page.getByRole('heading',{name:'诗篇 1章',exact:true})});
     assert.equal(await showNote.locator('.study-notes__view-text').textContent(),literal);
@@ -577,17 +595,30 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await phone.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
     await phone.page.waitForFunction(()=>document.querySelector('#stage [data-chapter-total="2SA.4"] [data-chapter-count="notes"]')?.textContent==='1');
     assert.deepEqual(await chapterBadge.locator('[data-chapter-count]').allTextContents(),['6','1']);
-    await chapterBadge.tap();
-    const all=phone.dialog.getByRole('tab',{name:'全部',exact:true});
-    await all.waitFor();assert.equal(await all.getAttribute('aria-selected'),'true');
-    assert.ok(await phone.dialog.getByRole('heading',{name:'私人笔记',exact:true}).isVisible());
-    assert.ok(await phone.dialog.getByRole('heading',{name:'公开问答',exact:true}).isVisible());
+    const badgeNotes=await chapterBadge.locator('[data-chapter-count="notes"]').boundingBox();
+    await phone.page.touchscreen.tap(badgeNotes.x+badgeNotes.width/2,badgeNotes.y+badgeNotes.height/2);
+    const noteTab=phone.dialog.getByRole('tab',{name:'笔记',exact:true}),qaTab=phone.dialog.getByRole('tab',{name:'问答',exact:true});
+    await noteTab.waitFor();assert.equal(await noteTab.getAttribute('aria-selected'),'true');
+    assert.deepEqual(await phone.dialog.getByRole('tab').allTextContents(),['笔记','问答']);
+    assert.ok(await addNote(phone).evaluate(el=>el.getBoundingClientRect().right<=el.closest('.study-material__bar').querySelector('[role=tab]').getBoundingClientRect().left+.5),'the plus is just before Notes');
+    await phone.swipe(noteButton(phone,'ab笔'),-65,1);
+    assert.equal(await qaTab.getAttribute('aria-selected'),'true','swipe from a note row to Q&A');
     await phone.dialog.locator('.study-qa__list details').first().waitFor();
     assert.equal(await phone.dialog.locator('.study-qa__list details').count(),6);
+    assert.equal(await addNote(phone).count(),0,'the plus is not a Q&A action');
+    await phone.swipe(phone.dialog.locator('.study-qa__list summary').first(),65,0);
+    assert.equal(await noteTab.getAttribute('aria-selected'),'true','swipe from a question row back to Notes');
+    await phone.page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+    assert.equal(await noteTab.evaluate(el=>getComputedStyle(el).borderBottomColor),'rgb(137, 92, 68)','the visible underline follows Notes');
     await snapshot(phone,'mobile-chapter-overview');
-    await noteButton(phone,'ab笔').tap();assert.ok(await readNote(phone).isVisible());
-    await returnToNotes(phone).tap();assert.equal(await all.getAttribute('aria-selected'),'true','return to the chapter overview');
-    await closeMaterials(phone).tap();
+    const chapterNote=noteButton(phone,'ab笔');await chapterNote.tap();
+    // Chromium may drop the first compatibility click after a raw CDP swipe.
+    if(!await readNote(phone).waitFor({timeout:650}).then(()=>true,()=>false))await chapterNote.tap();
+    await readNote(phone).waitFor();
+    const readingURL=phone.page.url();
+    await phone.page.waitForFunction(()=>history.state?.paperV25NoteBack===true);
+    await phone.page.goBack();await phone.dialog.waitFor({state:'hidden'});
+    assert.equal(phone.page.url(),readingURL,'browser history Back only closes the open note');
     await (await phone.select('4:1')).getByRole('button',{name:'查看资料'}).tap();
     for(let i=0;i<16;i++){
       const id='N:'+String(100+i).padStart(32,'0');
@@ -603,20 +634,30 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await snapshot(phone,'mobile-note-list-add');
     const beforeBlank=writes.length;
     await mobileAdd.tap();assert.equal(await field.inputValue(),'');assert.equal(writes.length,beforeBlank);
+    if(await phone.page.evaluate(()=>typeof window.lastReaderCloseWatcher?.requestClose==='function')){
+      await phone.page.evaluate(()=>window.lastReaderCloseWatcher.requestClose());
+      await phone.dialog.waitFor({state:'hidden'});
+      assert.equal(phone.page.url(),readingURL,'native CloseWatcher closes only the note window');
+    }else await closeMaterials(phone).tap();
+    await phone.page.waitForFunction(()=>!history.state?.paperV25NoteBack);
+    await phone.page.goBack();await phone.page.waitForURL(previous);
 
     const exodus=await visit(browser,1280,null,'EXO.4:1'),exoBadge=exodus.page.locator('#stage [data-chapter-total="EXO.4"]');
     assert.equal(await exodus.page.locator('#stage').getAttribute('data-book'),'EXO');
     await exodus.page.locator('#stage text[data-role="chapter"][data-ref="4:1"]').waitFor();
     assert.equal(await exoBadge.count(),0,'the chapter with no known material draws no badge or target');
-    const sampleNote={owner:'b',note_key:'N:77777777777777777777777777777777',refs:[['EXO',4,2,2],['EXO',4,3,3]],body:'只挂在出埃及记第 4 章第 2、3 节的私人笔记',revision:1};
+    const sampleNote={owner:'b',note_key:'N:77777777777777777777777777777777',refs:[['EXO',4,2,10],['EXO',4,12,12]],body:'出埃及记第 4 章的范围笔记',revision:1};
     cloud.set('b:'+sampleNote.note_key,sampleNote);
     await exodus.page.evaluate(()=>V25Account.openDialog());await exodus.login('b');
     await exoBadge.waitFor();
     assert.deepEqual(await exoBadge.locator('[data-chapter-count]').allTextContents(),['1'],'only the positive note item exists; both references count once');
+    const noteCue=(ref)=>exodus.page.locator(`#stage [data-note-mark="verse"][data-ref="${ref}"]`);
+    await noteCue('4:2').first().waitFor({state:'attached'});
+    assert.equal(await noteCue('4:3').count(),0,'a later verse in the linked range is not marked');
+    await noteCue('4:12').first().waitFor({state:'attached'});
     await exoBadge.click();
-    await exodus.dialog.getByRole('heading',{name:'私人笔记',exact:true}).waitFor();
+    assert.equal(await exodus.dialog.getByRole('tab',{name:'笔记'}).getAttribute('aria-selected'),'true');
     await noteButton(exodus,sampleNote.body).waitFor();
-    assert.equal(await exodus.dialog.getByRole('heading',{name:'公开问答',exact:true}).count(),0);
     await closeMaterials(exodus).click();
     cloud.set('b:'+sampleNote.note_key,{...sampleNote,body:'',revision:2});
     await exodus.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));

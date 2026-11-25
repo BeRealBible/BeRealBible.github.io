@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {buildAvailability,createAvailability,createIndex,chapterOf,paperCueLine,chapterCountBox,describeSelection}=require('./v25/study-qa.js');
+const {buildAvailability,createAvailability,createIndex,chapterOf,paperCueLine,chapterCountBox,describeSelection,noteStarts,formatNoteCopy}=require('./v25/study-qa.js');
 const fs=require('node:fs'),path=require('node:path');
 const library=require('./data/study-qa.json');
 const bible=require('./data/bible-source.js');
@@ -54,6 +54,25 @@ assert.ok(!availability.hasAny([empty]));
 assert.ok(availability.hasAny([empty,withQuestion]));
 assert.ok(availability.hasAny([inChapter('2SA',4)]));
 assert.ok(!availability.hasAny([inChapter('OBA',1)]));
+const startFixture=createAvailability(buildAvailability({items:[{refs:[['EXO',4,2,30],['EXO',5,13,18]]}]}));
+assert.ok(startFixture.has('EXO',4,29)&&!startFixture.hasStart('EXO',4,29),'middle verses remain findable but unmarked');
+assert.ok(startFixture.hasStart('EXO',4,2)&&startFixture.hasStart('EXO',5,13));
+const spanFixture={anchorObjects:[['EXO',4,2,5,30],['EXO',5,13,13],['EXO',6]],refs:[['EXO',4,2,31],['EXO',5,1,30],['EXO',5,13,13],['EXO',6]]};
+assert.deepEqual(noteStarts([spanFixture],'EXO',4),[2]);
+assert.deepEqual(noteStarts([spanFixture],'EXO',5),[13],'a cross-chapter continuation is not a fresh cue');
+assert.deepEqual(noteStarts([spanFixture],'EXO',6),[],'a whole-chapter note belongs to the chapter counter');
+const {create:cite}=require('./v25/citation-links.js'),{create:scriptureFor}=require('./v25/scripture.js'),refs=require('./v25/note-refs.js');
+const scripture=scriptureFor(bible),parser=refs.create({...cite(bible),scripture});
+const diverse=parser.parse('诗篇119章；诗篇117:1；约3:35–4:2');
+const body='第一段\n\n'+Array(110).fill('我的笔记🙂').join('');
+const [bodyCopy,...quoted]=formatNoteCopy(body,diverse,{scripture,parser,label:a=>refs.label(scripture.index(a.code).book.name,a)}).split(/\n\n(?=诗篇|约翰福音)/u);
+assert.equal(bodyCopy,body);
+assert.equal(quoted.length,3);
+for(const [i,part] of quoted.entries()){
+  const anchor=diverse[i],text=[...parser.segments(anchor).flatMap(({ch,lo,hi=lo})=>scripture.index(anchor.code).chunks.find(c=>c.chapter===ch).rows
+    .filter(row=>lo==null||lo<=row.hi&&hi>=row.lo)).map(row=>row.text).join('')];
+  assert.equal(part.split('\n')[1],text.slice(0,50).join('')+(text.length>50?'…':''));
+}
 assert.deepEqual(
   [createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4),
    createAvailability(buildAvailability({items:[{refs:[['2SA',4]]}]})).has('2SA',4,1)],

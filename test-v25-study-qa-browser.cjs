@@ -107,10 +107,9 @@ async function run(browser,width){
     await press(badge);await rendered();
     assert.match(await title.textContent(),/撒下 4章/);
     assert.equal((await ids()).length,6,'badge shows the complete chapter, not only its first verse');
-    if(await dialog.getByRole('tab',{name:'全部'}).count()){
-      assert.equal(await dialog.getByRole('tab',{name:'全部'}).getAttribute('aria-selected'),'true');
-      assert.ok(await dialog.getByRole('heading',{name:'公开问答'}).isVisible());
-      assert.equal(await dialog.getByRole('heading',{name:'私人笔记'}).count(),0);
+    if(await dialog.getByRole('tab').count()){
+      assert.deepEqual(await dialog.getByRole('tab').allTextContents(),['笔记','问答']);
+      assert.equal(await dialog.getByRole('tab',{name:'问答'}).getAttribute('aria-selected'),'true');
     }
     assert.equal(await $('#stage').getAttribute('data-spread'),currentSpread);
     assert.ok(!(await mainBar.isVisible()),'the badge does not begin verse selection');

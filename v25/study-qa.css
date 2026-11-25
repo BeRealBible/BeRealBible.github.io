@@ -19,9 +19,6 @@
 .study-material__tab[aria-selected=true]{border-bottom-color:#895c44;color:#4b2e21;font-weight:650}
 .study-material__tab:focus-visible,.study-notes__link:focus-visible{outline:2px solid #8e644b;outline-offset:-2px}
 .study-material__panel[hidden],.study-notes__editor[hidden],.study-notes__list[hidden],.study-notes__view[hidden]{display:none}
-.study-material__section{padding:.65em .2em .18em}
-.study-material__section:not([hidden])+.study-material__section{margin-top:.7em;padding-top:.8em;border-top:1px solid #bca58273}
-.study-material__section-label{margin:.12em 0 .22em;color:#6a4831;font:650 .85em/1.4 var(--ui,sans-serif)}
 .study-notes__item{border-bottom:1px solid #cdbb9d69}
 .study-notes__open{display:grid;gap:.3em;position:relative;width:100%;min-height:44px;padding:.72em 1.55em .72em .38em;text-align:left}
 .study-notes__open:hover{background:#a477400e}
@@ -108,8 +105,11 @@
 @media (forced-colors:active){
   .study-notes__verse[data-selected-verse]{color:LinkText;text-decoration:underline;text-decoration-thickness:2px}
 }
-.study-notes__add{display:grid;place-items:center;flex:none;width:44px;padding:0;border:0;background:transparent;color:#69412d;font:500 18px/1 var(--ui,sans-serif)}
+.study-notes__add-slot{display:flex;flex:0 0 32px}
+.study-notes__add{display:grid;place-items:center;width:100%;padding:0;border:0;background:transparent;color:#69412d;font:500 18px/1 var(--ui,sans-serif)}
 .study-notes__add:hover{background:#a4774011}
+.study-notes__editor-actions{display:flex;align-items:center;flex-wrap:wrap;gap:0 .45em}
+.study-notes__editor-actions .paper-copy-field.manual{flex-basis:100%;height:5em}
 .study-notes__link:disabled{opacity:.48;cursor:default}
 .study-notes__field{box-sizing:border-box;display:block;width:100%;height:14em;height:calc(8lh + 1.1em + 2px);min-height:5em;padding:.55em .63em;padding-bottom:calc(.55em + var(--note-keyboard-inset,0px));color:#3b2c21;background:#fffdf6;border:1px solid transparent;border-radius:0 0 8px 8px;resize:vertical;font:inherit;font-size:max(1em,16px);line-height:1.6;user-select:text;-webkit-user-select:text;touch-action:auto}
 .study-notes__field:focus{outline:2px solid #a17b5e;outline-offset:-1px}
@@ -147,6 +147,7 @@
 [data-qap-paper-cues]{display:none}
 html[data-study-marks] [data-qap-paper-cues]{display:inline}
 [data-qap-paper-cues]>line{stroke:#a0804f63;stroke-width:var(--qap-cue-width,.9px);stroke-linecap:round}
+[data-qap-paper-cues]>line[data-note-cue]{stroke:#9b624770}
 [data-chapter-counts]{pointer-events:none;user-select:none;-webkit-user-select:none;color:#796952}
 /* Outrank the paper-wide .paper svg text rule, which is only for printed ink. */
 .paper svg [data-chapter-counts] text{fill:currentColor;font-family:system-ui,sans-serif;font-weight:600;font-variant-numeric:tabular-nums}
@@ -155,10 +156,11 @@ html[data-study-marks] [data-qap-paper-cues]{display:inline}
 .paper svg [data-chapter-total]:focus-visible{outline:none}
 .paper svg [data-chapter-total]:focus-visible [data-chapter-badge-hit]{fill:#bda78535;stroke:currentColor;stroke-width:.8}
 @media(hover:hover){.paper svg [data-chapter-total]:hover [data-chapter-badge-hit]{fill:#bda78524}}
-html[data-study-marks] :where(.compare-slip__chunk) [data-qap-mark]{
+html[data-study-marks] :where(.compare-slip__chunk) :is([data-qap-mark],[data-note-mark]){
   text-decoration-line:underline;text-decoration-color:#a0804f63;
   text-decoration-thickness:max(1px,.045em);text-underline-offset:.14em;text-decoration-skip-ink:none;
 }
+html[data-study-marks] :where(.compare-slip__chunk) [data-note-mark]{text-decoration-color:#9b624770}
 .rh-toggle.rh-settings{margin-inline-start:auto;flex:none}
 @media(max-width:560px){
   .study-qa{width:calc(100% - 18px);max-height:88dvh}

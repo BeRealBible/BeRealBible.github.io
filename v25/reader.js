@@ -894,7 +894,7 @@
     }
     if(g.kind==='pending'&&g.chapterBadge){
       const actual=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-chapter-total]');
-      if(actual===g.chapterBadge&&end.t-g.start.t<TEXT_HOLD_MS)study?.openChapterBadge(actual);
+      if(actual===g.chapterBadge&&end.t-g.start.t<TEXT_HOLD_MS)study?.openChapterBadge(actual,e.clientY);
       return;
     }
     if(g.kind==='pending'&&g.token){

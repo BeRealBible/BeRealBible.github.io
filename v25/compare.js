@@ -418,7 +418,7 @@
       if(config.picker)panel.insertBefore(noteFooter,resize);
       manual=null;foldedMark=null;panel.removeAttribute('style');
       collapse(false);
-      if(study){scroll.scrollTop=0;config.render(scroll);}
+      if(study){scroll.scrollTop=0;config.render(scroll,()=>close('dismiss',true));}
       else show(config.seed);
       if(config.focus)scroll.focus({preventScroll:true});
       return true;
