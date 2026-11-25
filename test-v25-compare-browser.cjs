@@ -128,7 +128,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
         await page.waitForFunction(n=>Number(document.getElementById('stage').dataset.spread)===n,want);await page.waitForTimeout(100);}
       const shelf=()=>page.evaluate(()=>[...document.querySelectorAll('.rh-chip')].map(n=>({text:n.textContent,id:n.dataset.id,current:n.getAttribute('aria-current')})));
       const jump=async(q,book,ref)=>{
-        await page.keyboard.press('Control+k');await $('#vf-input').fill(q);await $('#vf-list button').first().click();
+        await page.keyboard.press('Control+k');await $('#vf-input').fill(q);await $('#vf-context [data-current]').click();
         await $('#v25-scripture-preview .citation-jump').click();
         const close=$('#vf-close');if(await close.isVisible())await close.click();
         await page.waitForFunction(({book,ref})=>document.querySelector('.rh-chip[aria-current=page]')?.getAttribute('aria-label').endsWith(ref)&&document.getElementById('stage').dataset.book===book,{book,ref});
@@ -320,7 +320,7 @@ const type={'.js':'application/javascript; charset=utf-8','.html':'text/html; ch
       assert.equal(await $('#vf-input').inputValue(),'创造');
       assert.equal(await $('#verse-finder header h2').count(),0);
       assert.equal(await $('#vf-status').evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap');
-      await $('#vf-input').fill('犹 1:1');await $('#vf-list button').filter({hasText:'犹大书 1:1'}).first().click();
+      await $('#vf-input').fill('犹 1:1');await $('#vf-context').getByRole('button',{name:'打开经文：犹大书 1:1',exact:true}).click();
       const oneChapter=note.locator('.compare-slip__scroll');
       await oneChapter.evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new WheelEvent('wheel',{deltaY:300}));});
       assert.equal(await oneChapter.locator('.compare-slip__chunk').count(),1);

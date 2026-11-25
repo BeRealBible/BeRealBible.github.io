@@ -67,6 +67,13 @@
 #verse-finder [hidden]{display:none!important}
 #verse-finder .vf-head{padding:5px 7px 0}
 #verse-finder #vf-scroll{padding:0 7px}
+#vf-scroll{touch-action:pan-y}
+#vf-context{padding:2px 2px 9px}
+#vf-context .compare-slip__paragraph{margin-inline:2px;font-size:calc(13px * var(--vf-density));line-height:1.55;overflow-wrap:anywhere}
+#vf-context :is(.compare-slip__chapter-title,.compare-slip__section-title){margin-inline:2px;font-size:calc(12px * var(--vf-density))}
+.vf-context__verse{cursor:pointer;-webkit-touch-callout:none}
+.vf-context__verse[data-current]{color:var(--slip-citation-ink,#8e4235)}
+.vf-context__verse:focus-visible{outline:1px solid #8b6740;outline-offset:1px}
 #verse-finder #vf-list button{padding:3px 3px;font-size:calc(11px * var(--vf-density))}
 #verse-finder #vf-list .vf-hit{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;line-height:1.38;overflow-wrap:anywhere}
 #verse-finder #vf-list .vf-hit :is(strong,span){display:inline;overflow:visible;font:inherit;margin:0}

@@ -52,7 +52,8 @@
     chooser.append(field,feedback,output,pickedList,footer);root.append(chipFeedback);
 
     let refs=[],shown='',editing=null,restore=null,pasted=false,composing=false,idle=0,entered=false,
-      matches=[],rendered=[],listed=0,stream=null,pending=[];
+      matches=[],rendered=[],listed=0,browseTarget=null,pending=[];
+    const browseStream=win.V25AddressStream.create({viewport:results,renderVerse:rowOption,onExtend:decorateResults});
     function message(text='',error=false){
       for(const el of [feedback,chipFeedback]){
         const active=el===(chooser.hidden?chipFeedback:feedback)&&!!text;
@@ -62,7 +63,7 @@
       else input.removeAttribute('aria-invalid');
     }
     function clearResults(){
-      matches=[];rendered=[];listed=0;stream=null;context.replaceChildren();special.replaceChildren();
+      matches=[];rendered=[];listed=0;browseTarget=null;browseStream.clear();context.replaceChildren();special.replaceChildren();
       results.replaceChildren();results.removeAttribute('data-browse');results.scrollTop=0;more.hidden=true;status.textContent='';refreshFooter();
     }
     function clearIdle(){win.clearTimeout(idle);idle=0;}
@@ -229,7 +230,7 @@
     }
     function rowOption(row,current=false){
       const {code,ch,lo,hi}=row;
-      const target=stream.target,anchor=current&&target?.lo===target?.hi&&target?.lo!=null?target:{code,ch,lo,hi};
+      const target=browseTarget,anchor=current&&target?.lo===target?.hi&&target?.lo!=null?target:{code,ch,lo,hi};
       // A native button is an atomic inline box. Use an inline, keyboard-
       // accessible control so a verse can wrap and the next one flows on.
       const el=make('span','study-notes__verse'),num=make('sup','compare-slip__ref',lo===hi?String(lo):lo+'–'+hi);
@@ -250,50 +251,18 @@
       }
       more.hidden=listed>=matches.length;updatePicks();
     }
-    const paragraphStart=(rows,i)=>i===0||rows[i].ch!==rows[i-1].ch||rows[i].paragraph||rows[i].titles.length>0;
-    function leftEdge(rows,i){while(!paragraphStart(rows,i))i--;return i;}
-    function rightEdge(rows,i){while(i<rows.length&&!paragraphStart(rows,i))i++;return i;}
-    function browsePart(lo,hi){
-      const frag=doc.createDocumentFragment(),{rows,at}=stream;
-      let p;
-      for(let i=lo;i<hi;i++){
-        const row=rows[i];
-        if(!i||rows[i-1].ch!==row.ch)frag.append(make('h2','compare-slip__chapter-title','第 '+row.ch+' 章'));
-        for(const title of row.titles)frag.append(make('h3','compare-slip__section-title',title));
-        if(!p||paragraphStart(rows,i)){p=make('p','compare-slip__paragraph');frag.append(p);}
-        else p.append(doc.createTextNode(' '));
-        p.append(rowOption(row,i===at));
-      }
-      return frag;
-    }
     function startBrowse(anchor,chapter){
       const book=browse(anchor);
       if(!book?.rows.length||!Number.isInteger(book.at))return false;
       // Scroll to the line of the located verse while keeping its real
       // paragraph (and earlier ones) intact above that line.
       const range=anchor.lo!=null&&(anchor.hi!==anchor.lo||anchor.endCh>anchor.ch);
-      const lo=leftEdge(book.rows,Math.max(0,book.at-12)),hi=rightEdge(book.rows,Math.min(book.rows.length,book.at+18));
-      stream={rows:book.rows,at:book.at,lo,hi,target:range?null:anchor};
+      browseTarget=range?null:anchor;
       if(chapter||anchor.lo==null)context.append(option({anchors:[chapter||anchor],shortcut:'chapter'}));
       if(range)special.append(option({anchors:[anchor],shortcut:'range'}));
-      results.setAttribute('data-browse','');results.append(browsePart(lo,hi));
-      const at=results.querySelector('[data-current]');
-      results.scrollTop=book.at===0?0:Math.max(0,at.offsetTop-5);
+      results.setAttribute('data-browse','');browseStream.start(book.rows,book.at);browseStream.layout();
       updatePicks();return true;
     }
-    results.addEventListener('scroll',()=>{
-      if(!stream||!results.clientHeight)return;
-      const {lo,hi,rows}=stream,threshold=64;
-      if(lo>0&&results.scrollTop<threshold){
-        const hold=results.firstElementChild,top=hold.offsetTop;
-        stream.lo=leftEdge(rows,Math.max(0,lo-20));
-        results.prepend(browsePart(stream.lo,lo));
-        results.scrollTop+=hold.offsetTop-top;decorateResults();
-      }else if(hi<rows.length&&results.scrollHeight-results.scrollTop-results.clientHeight<threshold){
-        stream.hi=rightEdge(rows,Math.min(rows.length,hi+20));
-        results.append(browsePart(hi,stream.hi));decorateResults();
-      }
-    },{passive:true});
     function run(){
       if(chooser.hidden||composing)return;
       clearResults();

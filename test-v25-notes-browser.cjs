@@ -441,7 +441,7 @@ async function until(cond){for(let i=0;i<100;i++){if(cond())return;await new Pro
     await desk.page.evaluate(()=>PaperImmersion.showChrome());
     await desk.page.getByRole('button',{name:'搜索经文',exact:true}).click();
     const ordinaryQuery=ordinaryFinder.getByRole('searchbox'),ordinarySuffix=ordinaryFinder.locator('.scripture-ghost__suffix');
-    await ordinaryQuery.fill('创世纪');await ordinaryFinder.getByRole('button',{name:/创世记 1:1/}).waitFor();
+    await ordinaryQuery.fill('创世纪');await ordinaryFinder.getByRole('button',{name:'打开经文：创世记 1:1',exact:true}).waitFor();
     assert.equal(await ordinarySuffix.textContent(),' 1:1');assert.equal(await ordinaryQuery.inputValue(),'创世纪');
     await snapshot(desk,'desktop-address-completion');
     await ordinaryQuery.press('Shift+ArrowLeft');assert.equal(await ordinaryQuery.inputValue(),'创世纪','Shift used as a modifier does not accept');
