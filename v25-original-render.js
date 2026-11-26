@@ -32,7 +32,24 @@
   // The source pack stores thin rules as separate physical rectangles, not
   // as a property of a word. Suppress those rules in both drawing paths;
   // keep the raw source and the unrelated non-horizontal ink untouched.
-  const retainedInk=p=>(p[4]||none).filter(([, ,w,h])=>!(h>0&&w>=4*h));
+  const sameTuple=(a,b)=>!!a&&!!b&&a.length===b.length&&a.every((x,j)=>x===b[j]);
+  const retainedInk=(p,skips=none)=>(p[4]||none).filter(a=>{
+    const [, ,w,h]=a;return !(h>0&&w>=4*h)&&!skips.some(b=>sameTuple(a,b));
+  });
+  function patchFor(store,i,p){
+    const table=root.V25PaperErrata;
+    const slot=table&&store.sha===table.source?table.pages[i]:null;
+    const fix=new Map(),add=new Map();
+    if(slot){
+      for(const [j,expected,box,next] of slot.words)if(sameTuple(p[3][j],expected))fix.set(j,[box,next]);
+      for(const [l,a,r,b,box] of slot.add){
+        if(r===l+1&&sameTuple(p[3][l],a)&&sameTuple(p[3][r],b)&&!fix.has(l)&&!fix.has(r))add.set(r,box);
+        // A guarded normalisation of the right double quote preserves its old box.
+        else if(r===l+1&&sameTuple(p[3][l],a)&&sameTuple(p[3][r],b)&&!fix.has(l)&&fix.get(r)?.[0]===null&&fix.get(r)?.[1]==='”')add.set(r,box);
+      }
+    }
+    return {fix,add,skip:slot?.ink||none};
+  }
   // Running page numbers read directly from the reference PDF, not OCR
   // guesses. Keep the original physical rectangles and printed header.
   const proofedFolio={
@@ -100,17 +117,33 @@
     const store=db(),p=store.get(i);if(!p)return null;
     if(p[0]!==i)throw Error('Physical page identity mismatch: '+i);
     const tags=store.tags?.(i)||none,cached=models.get(i);if(cached&&cached.version===version&&cached.tags===tags&&cached.p===p){models.delete(i);models.set(i,cached);return cached}
-    const f=fit(p[1],p[2]),words=p[3].map((w,n)=>{
+    const f=fit(p[1],p[2]),patch=patchFor(store,i,p),words=p[3].map((w,n)=>{
       const t=tags[n]||store.metaFor?.(i,n)||{};
       const heading=root.V25HeadingFrames?.classify(store.sha,i,n,w)??(t.role==='heading');
       return {...word(folioWord(store,i,n,w,t),f,heading),role:t.role||'other',ref:t.ref||'',group:t.group??'',column:t.column??'',row:t.row??'',physicalInk:true,index:n,hideHatch:hatchResidue(i,n,w)};
     });
     typesetBody(words,p);
-    const v={version,p,tags,words,f,extraInk:retainedInk(p)};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
+    // The original rows and fits are already resolved. A correction changes the
+    // ink in its slot, not the position or fitting of any neighbouring letter.
+    for(const [j,[coords,next]] of patch.fix){
+      const c=words[j];
+      if(!next){c.hideHatch=true;continue;}
+      const corrected=word([...(coords||p[3][j].slice(0,4)),next],f,c.weight===600);
+      if(!coords){
+        const [l,iw,a,ih]=metricsFor(next,corrected.fontSpec),sx=c.w/iw,sy=c.h/ih;
+        Object.assign(corrected,{x:c.x,y:c.y,w:c.w,h:c.h,sx,sy,tx:c.x+l*sx,ty:c.y+a*sy});
+      }
+      Object.assign(c,corrected);
+    }
+    const extraText=new Map([...patch.add].map(([j,box])=>[j,{...word(box,f,false),errataInserted:true}]));
+    const v={version,p,tags,words,f,extraText,extraInk:retainedInk(p,patch.skip)};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
+  }
+  function* displayWords(v){
+    for(const c of v.words){const extra=v.extraText.get(c.index);if(extra)yield extra;yield c;}
   }
   function text(c){
     const [x,y,w,h]=c.box;
-    const meta=(' data-role="'+esc(c.role)+'" data-physical-idx="'+c.index+'" data-x="'+x+'" data-y="'+y+'" data-w="'+w+'" data-h="'+h+'"'+(c.ref?' data-ref="'+esc(c.ref)+'"':''));
+    const meta=c.errataInserted?' data-errata-inserted="true" pointer-events="none"':(' data-role="'+esc(c.role)+'" data-physical-idx="'+c.index+'" data-x="'+x+'" data-y="'+y+'" data-w="'+w+'" data-h="'+h+'"'+(c.ref?' data-ref="'+esc(c.ref)+'"':''));
     const clip=[Math.floor(c.x)-1,Math.ceil(c.x+c.w)+1,Math.floor(c.y)-1,Math.ceil(c.y+c.h)+1];
     return '<text'+meta+(c.hideHatch?' visibility="hidden" pointer-events="none" aria-hidden="true"':'')+' data-clip="'+clip.join(' ')+'" transform="matrix('+[c.sx,0,0,c.sy,c.tx,c.ty].join(' ')+')" font-family="'+esc(c.family)+'"'+(c.weight===600?' font-weight="600"':'')+' font-size="100" fill="'+ink+'" style="fill:'+ink+'">'+esc(c.text)+'</text>';
   }
@@ -119,7 +152,7 @@
     const name=page?.b>=0&&books[page.b]?books[page.b].name:'原书',v=model(i),f=v?.f||{s:1,ox:0,oy:0};
     const a=['<svg viewBox="0 0 480 704" role="img" data-pdf="'+i+'" data-scale="'+f.s+'" data-offset-x="'+f.ox+'" data-offset-y="'+f.oy+'" aria-label="'+esc(name+' · 原 PDF 第 '+i+' 页')+'">','<defs><linearGradient id="paper-'+i+'">'+stock(i).map(([o,c])=>'<stop offset="'+o+'" stop-color="'+c+'"/>').join('')+'</linearGradient></defs><rect width="480" height="704" fill="url(#paper-'+i+')"/>'];
     if(v){
-      for(const c of v.words)a.push(text(c));
+      for(const c of displayWords(v))a.push(text(c));
       if(v.extraInk.length){
         a.push('<g transform="matrix('+[f.s,0,0,f.s,f.ox,f.oy].join(' ')+')" fill="'+ink+'" aria-hidden="true" pointer-events="none">');
         for(const [x,y,w,h] of v.extraInk)a.push('<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'"/>');
@@ -135,7 +168,7 @@
     c.fillStyle=grd;c.fillRect(0,0,W,H);c.fillStyle=ink;
     if(v){
       const {f,extraInk}=v;function draw(t){c.save();c.transform(t.sx,0,0,t.sy,t.tx,t.ty);c.font=t.fontSpec;c.textBaseline='alphabetic';c.textAlign='left';c.fillText(t.text,0,0);c.restore()}
-      for(const w of v.words)if(!w.hideHatch)draw(w);
+      for(const w of displayWords(v))if(!w.hideHatch)draw(w);
       if(extraInk.length){c.save();c.transform(f.s,0,0,f.s,f.ox,f.oy);for(const rect of extraInk)c.fillRect(...rect);c.restore();}
     }c.restore();
   }
