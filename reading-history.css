@@ -63,3 +63,17 @@
 .rh-fullscreen[aria-pressed=true]{background:#eadbc4}
 .rh-fullscreen-notice{position:absolute;bottom:calc(100% + 8px);right:max(8px,env(safe-area-inset-right));max-width:calc(100% - 24px);pointer-events:none}
 .rh-fullscreen-notice:not(:empty){padding:7px 11px;border:1px solid #ad967566;border-radius:5px;background:#f7f0e2;color:#694e35;font-size:12px;line-height:1.45}
+
+/* V25: the pin on the label is a status mark, not a miniature button. */
+.rh-guarded .rh-pin-mark{display:inline-block;margin-inline-end:3px;vertical-align:-1px;pointer-events:none;color:inherit}
+.rh-guarded .rh-pin-mark svg{display:block;width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round}
+.rh-guarded .rh-pin-mark .rh-pin-head{fill:currentColor}
+.rh-guarded .rh-item[data-pinned]:not([data-reveal]) .rh-pin{position:absolute;visibility:hidden;pointer-events:none}
+.rh-guarded .rh-item[data-reveal] .rh-action{
+  position:fixed;inset:auto;top:var(--rh-tools-bottom);left:var(--rh-tools-left);transform:translateY(-100%);
+  z-index:1;background:#40382e;box-shadow:0 0 0 1px #aa957660;touch-action:manipulation;
+}
+.rh-guarded .rh-item[data-reveal] .rh-delete{left:calc(var(--rh-tools-left) + var(--rh-action-width))}
+.rh-guarded .rh-item[data-reveal] .rh-float{left:calc(var(--rh-tools-left) + 2 * var(--rh-action-width))}
+.paper-immersive .rh-guarded .rh-item[data-reveal] .rh-action{background:#f4e8d6;color:#70492f}
+.paper-immersive .rh-guarded .rh-item[data-reveal] .rh-action:is(:hover,:focus-visible){background:#ead9be}

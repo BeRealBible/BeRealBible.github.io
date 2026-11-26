@@ -172,7 +172,7 @@
     const el=(tag,cls,txt)=>{const n=doc.createElement(tag);if(cls)n.className=cls;if(txt)n.textContent=txt;return n;};
     const button=(cls,txt,title,fn)=>{const b=el('button',cls,txt);b.type='button';b.setAttribute('aria-label',title);b.title=title;b.addEventListener('click',fn);return b;};
     const toolLabel=text=>{const n=el('span','rh-tool-label',text);n.setAttribute('aria-hidden','true');return n;};
-    const shelf=el('div','rh-rail'),track=el('div','rh-track');
+    const shelf=el('div','rh-rail rh-guarded'),track=el('div','rh-track');
     const compact=doc.documentElement.dataset?.readerBuild==='index-25';
     const caption=compact?button('rh-toggle','','浏览历史',()=>setHistoryOpen(track.hidden)):
       el('span','rh-caption','最近跳转');
@@ -184,7 +184,7 @@
     }
     track.setAttribute('role','group');track.setAttribute('aria-label','最近阅读位置');
     const status=el('span','rh-sr');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-    let controls=new Map(),removedId=null,shown=null,via=null,modality=null,pending=null,blocked=null;
+    let controls=new Map(),removedId=null,shown=null,via=null,modality=null,pending=null,blocked=null,hoverExit=0;
     const HOLD_MS=420,DRIFT=8,contacts=new Set(),listeners=[];
     const listen=(n,type,fn,opts)=>{if(!n?.addEventListener)return;n.addEventListener(type,fn,opts);listeners.push(()=>n.removeEventListener?.(type,fn,opts));};
     const rowOf=node=>node?.closest?.('.rh-item')?.dataset.id;
@@ -192,24 +192,29 @@
     function placeTools(row){
       const box=row.item.getBoundingClientRect?.(),rail=track.getBoundingClientRect?.();
       if(!box||!rail||!rail.width)return;
-      const w=row.del.getBoundingClientRect().width||26,extra=w*((row.item.dataset.pinned?1:2)+(onFloat?1:0));
+      const w=row.del.getBoundingClientRect().width||26,extra=w*(onFloat?3:2);
       // Place the tools directly ABOVE this chip, never in the navigation
       // strip. No reflow: even the original centre of the next short label
       // remains a navigation target when a pointer arrives from its neighbour.
-      const at=Math.max(rail.left,Math.min(rail.right-extra,(box.left+box.right-extra)/2));
+      const at=Math.max(4,Math.min(win.innerWidth-4-extra,(box.left+box.right-extra)/2));
       row.item.style?.setProperty('--rh-tools-left',at+'px');
-      row.item.style?.setProperty('--rh-tools-bottom',(box.top+1)+'px');
+      row.item.style?.setProperty('--rh-tools-bottom',box.top+'px');
     }
     function reveal(id,reason){
+      win.clearTimeout(hoverExit);hoverExit=0;
       if(id===shown&&reason===via)return;
-      const prev=controls.get(shown);if(prev){delete prev.item.dataset.reveal;prev.pin.tabIndex=prev.item.dataset.pinned?0:-1;prev.del.tabIndex=-1;if(prev.float)prev.float.tabIndex=-1;}
+      const prev=controls.get(shown);if(prev){delete prev.item.dataset.reveal;prev.pin.tabIndex=prev.del.tabIndex=-1;if(prev.float)prev.float.tabIndex=-1;}
       const row=controls.get(id);shown=row?id:null;via=row?reason:null;
       if(row){row.item.dataset.reveal=reason;row.pin.tabIndex=row.del.tabIndex=0;if(row.float)row.float.tabIndex=0;placeTools(row);}
     }
     function clearShown(){reveal(null,null);}
     const touch=e=>e.pointerType==='touch'||e.pointerType==='pen';
     listen(track,'pointerover',e=>{if(e.pointerType==='mouse'){const id=rowOf(e.target);if(id)reveal(id,'mouse');}});
-    listen(track,'pointerout',e=>{if(e.pointerType==='mouse'&&via==='mouse'&&rowOf(e.relatedTarget)!==shown)clearShown();});
+    listen(track,'pointerout',e=>{
+      if(e.pointerType!=='mouse'||via!=='mouse'||rowOf(e.relatedTarget)===shown)return;
+      // Allow a short diagonal move from the narrow label to an outer action.
+      win.clearTimeout(hoverExit);hoverExit=win.setTimeout(clearShown,180);
+    });
     // Actual pointer type matters: a Windows touchscreen laptop can also have
     // a mouse. Touch-generated hover must not briefly expose another label.
     listen(doc,'pointerdown',e=>{
@@ -221,7 +226,7 @@
     },true);
     listen(track,'pointerdown',e=>{
       if(!touch(e)||contacts.size>1||e.button>0)return;
-      const target=e.target?.closest?.('.rh-chip')||e.target?.closest?.('.rh-pin'),id=rowOf(target);if(!id)return;
+      const target=e.target?.closest?.('.rh-chip'),id=rowOf(target);if(!id)return;
       cancelHold();
       const p=pending={id,pointer:e.pointerId,x:e.clientX,y:e.clientY};
       p.timer=win.setTimeout(()=>{
@@ -290,6 +295,7 @@
       if(blocked!==id||event.detail===0&&!touch(event))return false;
       blocked=null;event.preventDefault();event.stopPropagation();return true;
     }
+    const canManage=(id,event)=>shown===id&&!consumed(id,event);
     function focusControl(id,action){
       const ctl=controls.get(id)?.[action];if(!ctl)return;
       ctl.focus({preventScroll:true});
@@ -316,19 +322,26 @@
           if(consumed(e.id,event))return;
           navigate(e.id);
         });chip.dataset.id=e.id;
-        if(e.pinned){item.dataset.pinned='true';chip.title='已置顶 · '+name;}
+        if(e.pinned){item.dataset.pinned='true';chip.title='已置顶 · '+name;chip.setAttribute('aria-description','已置顶');}
         if(e.id===active){item.dataset.current='true';chip.setAttribute('aria-current','page');}
         const pin=button('rh-action rh-pin','',(e.pinned?'取消置顶 ':'置顶 ')+name,event=>{
-          if(consumed(e.id,event))return;
+          if(!canManage(e.id,event))return;
           if(!model.pin(e.id,!e.pinned)){render();return;}
-          status.textContent=(e.pinned?'已取消置顶 ':'已置顶 ')+name;render();focusControl(e.id,'pin');
+          status.textContent=(e.pinned?'已取消置顶 ':'已置顶 ')+name;
+          const keyboard=via==='keyboard';
+          if(!keyboard)clearShown();
+          render();focusControl(e.id,keyboard?'pin':'chip');
         });
         // Icons are fixed local markup, never interpolated scripture/storage.
         pin.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g transform="rotate(32 8 8)"><path class="rh-pin-head" d="M5 2.1h6l-1 1.4v3.2l1.8 2H4.2l1.8-2V3.5z"/><path d="M8 8.9v5.2"/></g></svg>';
         pin.setAttribute('aria-pressed',String(e.pinned));
-        pin.tabIndex=e.pinned?0:-1;
+        pin.tabIndex=-1;
+        if(e.pinned){
+          const mark=el('span','rh-pin-mark');mark.innerHTML=pin.innerHTML;mark.setAttribute('aria-hidden','true');
+          chip.prepend(mark);
+        }
         const del=button('rh-action rh-delete','','删除 '+name,event=>{
-          if(consumed(e.id,event))return;
+          if(!canManage(e.id,event))return;
           if(model.remove(e.id)){
             removedId=e.id;status.textContent='已删除 '+name+'，可撤销';render();undoButton.focus({preventScroll:true});
           }
@@ -336,7 +349,7 @@
         del.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4.3 4.3 7.4 7.4m0-7.4-7.4 7.4"/></svg>';
         del.tabIndex=-1;
         const float=onFloat&&button('rh-action rh-float','','在浮窗打开 '+name,event=>{
-          if(consumed(e.id,event))return;
+          if(!canManage(e.id,event))return;
           const latest=model.get(e.id);if(!latest)return;
           clearShown();onFloat(latest.anchor||latest);
         });
@@ -347,15 +360,15 @@
         item.append(chip,pin,del,...(float?[float]:[]));track.appendChild(item);controls.set(e.id,{item,chip,pin,del,float});
       }
       track.scrollLeft=scroll;undoButton.hidden=track.hidden||!model.canUndo();
-      if(restore)focusControl(...restore);
       if(keep)reveal(keep,how);
+      if(restore)focusControl(...restore);
     }
     const sync=e=>{if(!e.key||e.key===key||e.key.startsWith(key+':'))render();};
     win?.addEventListener('storage',sync);listen(win,'paper-account-data',e=>sync(e.detail||{}));render();
     const apply=(name,...args)=>{const result=model[name](...args);render();if(name==='jump'&&result)revealInTrack(result.id);return result;};
     return {start:loc=>apply('start',loc),advance:loc=>apply('advance',loc),pickVerse:loc=>apply('pickVerse',loc),jump:(loc,id)=>apply('jump',loc,id),visitFloat:loc=>apply('visitFloat',loc),
       list:model.list,element:host,
-      destroy(){cancelHold();contacts.clear();for(const off of listeners)off();win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
+      destroy(){cancelHold();clearShown();contacts.clear();for(const off of listeners)off();win?.removeEventListener('storage',sync);host.replaceChildren();controls.clear();shell?.classList.remove('has-history-shelf');doc.documentElement.classList.remove('paper-history-on');}};
   }
   return {KEY,COMPARE_KEY,MAX_RECENT,createModel,create,label};
 });

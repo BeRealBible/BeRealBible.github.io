@@ -172,9 +172,9 @@
       const roomRight=c.w-margin-px,roomLeft=px-margin;
       const toRight=roomRight>=roomLeft,below=visibleBottom-margin-py,above=py-visibleTop-margin;
       const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
-      // A short touch viewport can be wide in landscape while the paper is
-      // much smaller than the controls. Keep its locator readable when it fits.
-      const z=next?c.scale:Math.min(Math.max(1,c.scale),1.15,roomW/147,roomH/120);
+      // Follow the paper anchor, not its magnification. The locator is a
+      // screen-sized tool; only a cramped touch viewport can shrink it.
+      const z=next?1:Math.min(1,roomW/147,roomH/120);
       const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
         height=Math.min(next?432:(mode==='browse'&&results.length?280:242),roomH/z),
         show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
@@ -191,7 +191,7 @@
         node.style.top=(bounded?clamp(top,visibleTop+margin,visibleBottom-margin-node.offsetHeight):top)+'px';
       }
       if(show){
-        panel.style.setProperty('--vf-density',String(Math.min(1,1.15/z)));
+        panel.style.setProperty('--vf-density','1');
         panel.style.width=w+'px';panel.style.maxHeight=height+'px';panel.toggleAttribute('data-compact',height<242||w<155);place(panel,z);
         contextStream.layout();
         if(g!==geom||wasHidden)restoreRow();

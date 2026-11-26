@@ -15,7 +15,7 @@
 
 #vf-tab:before{content:"";position:absolute;inset:-4px}
 
-/* Only the search results list is camera-bound; scripture has its own window. */
+/* The locator follows its paper anchor but uses screen-sized controls. */
 #verse-finder,#vf-tab{transition:none!important;animation:none!important}
 .edge-chapters__sheet{padding-top:8px}.edge-chapters__header{min-height:20px;padding-right:66px}
 .edge-chapters__books,.edge-chapters__header{margin-bottom:3px}
@@ -125,7 +125,6 @@
 #reading-history .rh-track{padding-inline:1px;gap:clamp(3px,.5vw,6px)}
 #reading-history .rh-chip{padding-inline:clamp(4px,.7vw,8px)}
 #reading-history .rh-pin svg{width:10px;height:10px}
-#reading-history .rh-item[data-pinned] .rh-pin{flex-basis:24px;width:24px}
 @media(max-width:639px){
   #vf-tab:not([hidden]){width:26px;height:31px}
   #vf-tab svg{width:14px;height:14px}
