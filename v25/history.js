@@ -171,12 +171,14 @@
     const shell=host.closest('.reader');
     const el=(tag,cls,txt)=>{const n=doc.createElement(tag);if(cls)n.className=cls;if(txt)n.textContent=txt;return n;};
     const button=(cls,txt,title,fn)=>{const b=el('button',cls,txt);b.type='button';b.setAttribute('aria-label',title);b.title=title;b.addEventListener('click',fn);return b;};
+    const toolLabel=text=>{const n=el('span','rh-tool-label',text);n.setAttribute('aria-hidden','true');return n;};
     const shelf=el('div','rh-rail'),track=el('div','rh-track');
     const compact=doc.documentElement.dataset?.readerBuild==='index-25';
     const caption=compact?button('rh-toggle','','浏览历史',()=>setHistoryOpen(track.hidden)):
       el('span','rh-caption','最近跳转');
     if(compact){
       caption.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 4v5h5M3.7 9a8.5 8.5 0 1 1 .8 7M12 7v5l3 2"/></svg>';
+      caption.append(toolLabel('历史'));
       track.id='rh-recent';track.hidden=false;
       caption.setAttribute('aria-controls',track.id);caption.setAttribute('aria-expanded','true');
     }
@@ -259,16 +261,17 @@
       const directory=button('rh-toggle rh-directory','','目录',onDirectory);
       directory.setAttribute('aria-haspopup','dialog');directory.setAttribute('aria-controls','v25-book-directory');
       directory.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 9h2m3 0h4M8 15h2m3 0h4"/></svg>';
-      shelf.prepend(directory);
+      directory.append(toolLabel('目录'));shelf.prepend(directory);
     }
     if(compact&&onSettings){
       const gear=button('rh-toggle rh-settings','','阅读设置',onSettings);
       gear.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.4 4.3 10 2.8h4l.6 1.5 1.5.9 1.6-.3 2 3.5-1 1.2v1.8l1 1.2-2 3.5-1.6-.3-1.5.9-.6 1.5h-4l-.6-1.5-1.5-.9-1.6.3-2-3.5 1-1.2V9.6l-1-1.2 2-3.5 1.6.3 1.5-.9Z" transform="translate(0 1.5)"/><circle cx="12" cy="12" r="3"/></svg>';
-      shelf.append(gear);
+      gear.append(toolLabel('设置'));shelf.append(gear);
     }
     if(compact&&mountFullscreen){
       const fullscreen=el('button','rh-toggle rh-fullscreen');fullscreen.type='button';
       fullscreen.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/><path d="M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"/></svg>';
+      fullscreen.append(toolLabel('全屏'),toolLabel('退出'));
       const notice=el('div','rh-fullscreen-notice');notice.setAttribute('role','status');
       let noticeTimer;
       mountFullscreen(fullscreen,message=>{

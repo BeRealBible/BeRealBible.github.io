@@ -95,21 +95,33 @@
 #vf-close{display:grid;place-items:center;flex:none;width:27px;padding:0}
 #verse-finder[data-note-search] #vf-input{position:static;transform:none;width:auto;height:27px;padding:3px 5px;font-size:12px}
 #verse-finder[data-note-search] #vf-scroll{padding-bottom:5px}
+#vf-assist{padding:5px 1px 7px;color:#6a5138;font:calc(12px * var(--vf-density))/1.5 var(--ui,system-ui,sans-serif);overflow-wrap:anywhere}
+#vf-assist p{margin:0}
+#vf-assist button{min-height:30px;margin-top:4px;padding:2px 8px;border:1px solid #aa916c;border-radius:4px;background:#fff8e9;color:#654121;font:inherit}
 @media(max-width:639px){
   #verse-finder[data-note-search] #vf-input{position:absolute;left:0;top:50%;height:32px;width:123.076923%;font-size:16px;transform:translateY(-50%) scale(.8125);transform-origin:left center}
   #verse-finder[data-note-search] #vf-close{width:32px;min-height:32px}
   #verse-finder[data-note-search] #vf-scopes button{min-height:27px}
 }
+#verse-finder[data-layout=narrow]:not([data-note-search]) .vf-field{min-height:36px}
+#verse-finder[data-layout=narrow]:not([data-note-search]) #vf-input{height:38px;width:114.28572%;transform:translateY(-50%) scale(.875)}
+#verse-finder[data-layout=narrow]:not([data-note-search]) .vf-foot button{min-height:30px;font-size:12px}
+#verse-finder[data-layout=narrow]:not([data-note-search]) #vf-list button{font-size:calc(13px * var(--vf-density));min-height:30px;padding-block:4px}
+#verse-finder[data-layout=narrow]:not([data-note-search]) #vf-scopes button{min-height:29px}
+#verse-finder[data-layout=narrow] #vf-assist{font-size:13px}
 
 /* No right-hand menu in the minimal reader. Give its former reserve (and the
    desktop max-width gutter) back to the scrollable history strip. */
 .paper-immersive body[data-minimal-reader] #reading-history{
-  --rail-gap:clamp(2px,.65vw,8px);--tool-width:clamp(28px,5vw,36px);
+  --rail-gap:clamp(2px,.65vw,8px);--tool-width:clamp(33px,9vw,40px);
   padding-left:max(4px,env(safe-area-inset-left));padding-right:max(4px,env(safe-area-inset-right))
 }
 #reading-history .rh-rail{max-width:none;gap:var(--rail-gap)}
-#reading-history :is(.pcz-button,.rh-toggle){display:inline-grid;place-items:center;padding:0;width:var(--tool-width);min-width:0;height:34px;min-height:0;border-radius:5px}
+#reading-history :is(.pcz-button,.rh-toggle){display:inline-grid;place-content:center;justify-items:center;gap:2px;padding:0;width:var(--tool-width);min-width:0;height:40px;min-height:0;border-radius:5px}
 #reading-history :is(.pcz-button,.rh-toggle) svg{width:15px;height:15px}
+#reading-history .rh-tool-label{font:500 10px/1.1 var(--ui,system-ui,sans-serif);white-space:nowrap;pointer-events:none}
+#reading-history .rh-fullscreen:not([aria-pressed=true]) .rh-tool-label:last-child,
+#reading-history .rh-fullscreen[aria-pressed=true] .rh-tool-label:nth-child(2){display:none}
 #reading-history .rh-track{padding-inline:1px;gap:clamp(3px,.5vw,6px)}
 #reading-history .rh-chip{padding-inline:clamp(4px,.7vw,8px)}
 #reading-history .rh-pin svg{width:10px;height:10px}

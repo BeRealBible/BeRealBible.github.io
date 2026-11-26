@@ -1036,6 +1036,12 @@
       if(next===null)return;
       if(chapters?.isOpen())zoomWithChapterMenu(next/scale);else zoom(next);
     }});
+  // Only this V25 shelf has labeled tools and paired find/directory entries.
+  const rail=$('reading-history')?.querySelector('.rh-rail'),ratio=rail?.querySelector('.pcz-button');
+  if(ratio){
+    const label=document.createElement('span');label.className='rh-tool-label';label.textContent='比例';label.setAttribute('aria-hidden','true');
+    ratio.append(label);rail.querySelector('.rh-directory')?.after(ratio.parentElement);
+  }
   window.addEventListener('v25-read-citation',e=>{
     const {code,ref}=e.detail||{},page=window.V25OriginalData.lookup(code,ref);
     if(Number.isInteger(page))jump(page,null,null,{bookCode:code,ref,search:true});

@@ -7,7 +7,7 @@
   color:#493b2e; box-shadow:1px 3px 9px #49372030; font:14px/1.5 "Songti SC","SimSun",serif;
 }
 #paper-guide[hidden],html:not([data-reader-scene="reading"]) #paper-guide,
-body:has(.stage[data-v25-opening], #footnote-preview:not([hidden]), #verse-finder:not([hidden]), #pcz-panel:not([hidden]), dialog[open], #edge-index-host[data-edge-expanded="true"], .edge-chapters:not([hidden])) #paper-guide {display:none}
+body:has(.stage[data-v25-opening], #footnote-preview:not([hidden]), .compare-slip[data-role=preview]:not([hidden]), #v25-citation-choice:not([hidden]), #verse-finder:not([hidden]), #pcz-panel:not([hidden]), dialog[open], #edge-index-host[data-edge-expanded="true"], .edge-chapters:not([hidden])) #paper-guide {display:none}
 #paper-guide .pg-top,#paper-guide .pg-nav {display:flex;align-items:center;justify-content:space-between;color:#735c43}
 #paper-guide .pg-top {font-size:12px;border-bottom:1px solid #ccb99580}
 #paper-guide small {margin-left:5px;font-size:11px;font-variant-numeric:tabular-nums}
@@ -20,8 +20,8 @@ body:has(.stage[data-v25-opening], #footnote-preview:not([hidden]), #verse-finde
 #paper-guide .pg-nav {font-size:13px}
 #paper-guide .pg-nav button:disabled {visibility:hidden}
 #paper-guide .pg-nav button:last-child {border-bottom:1px solid #a78a65;color:#513721}
-.pg-replay {display:block;font-size:12px;margin-top:2px;text-decoration:underline;text-underline-offset:3px}
-html[data-guide-step=history][data-reader-chrome=visible] .rh-toggle[aria-controls="rh-recent"],
+#study-settings .pg-replay:not([hidden]){min-height:2.65rem;padding:.5rem .8rem;margin-top:.7rem;border:1px solid #c5b59d;border-radius:6px;background:#fcf6eb;color:#633d2d}
+html[data-guide-step=history][data-reader-chrome=visible] #reading-history :is([aria-controls="verse-finder"],.rh-directory,[aria-controls="rh-recent"]),
 html[data-guide-step=column] #next-column-shortcut:not([hidden]) {outline:2px solid #9d713d;outline-offset:-2px}
 html[data-guide-step=note] .paper [data-footnote-anchor] {box-shadow:inset 0 -1px #936338}
 html[data-guide-step=turn] .stage:not([data-v25-opening]) #book:not(.curl-active) .paper::after {

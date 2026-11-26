@@ -43,10 +43,13 @@
   root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,citationLinks,windows})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more'),passage=$('vf-context');
     const clear=$('vf-clear'),noteClose=$('vf-close'),end=$('vf-end'),finderName='定位搜索框';
+    const assist=$('vf-assist'),assistCopy=$('vf-assist-copy'),keywordSearch=$('vf-keyword-search'),widenSearch=$('vf-widen-search');
+    const coarse=root.matchMedia('(pointer: coarse)'),isWide=(w,h)=>w>=640&&(!coarse.matches||h>540);
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
     const key='paper:v25:slip:1',clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
     const trigger=document.createElement('button');trigger.className='rh-toggle';trigger.type='button';trigger.title=finderName+'（Ctrl / ⌘ + K）';trigger.setAttribute('aria-label',finderName);
-    trigger.append(tab.querySelector('svg').cloneNode(true));
+    const toolLabel=document.createElement('span');toolLabel.className='rh-tool-label';toolLabel.textContent='定位';toolLabel.setAttribute('aria-hidden','true');
+    trigger.append(tab.querySelector('svg').cloneNode(true),toolLabel);
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
     const {create,label}=root.V25NoteRefs;
@@ -109,6 +112,10 @@
       remember();trails[scope]=trail();scope=next;mode='browse';refresh(true);applyTrail(trails[next]);scopeUI();layout();persist();
     }
     allButton.onclick=()=>{closeGroups();switchScope('all');};
+    widenSearch.onclick=()=>{
+      closeGroups();switchScope('all');
+      (list.firstElementChild||input).focus({preventScroll:true});
+    };
     // Anchor a row, not raw scrollTop: wrapping and line counts vary by width.
     function remember(i){
       if(contextStream.active){contextStream.snapshot();return;}
@@ -133,7 +140,7 @@
     let mount=null;
     function layout(){
       const c=camera();if(!c.w||!c.h)return;
-      const next=c.w>=640,vv=root.visualViewport,margin=4,
+      const desktop=c.w>=640,next=isWide(c.w,c.h),vv=root.visualViewport,margin=4,
         side=c.side===0?'right':'left',right=side==='right',
         rawX=c.x+(right?960:0)*c.scale,rawY=c.y+72*c.scale;
       // On mobile the IME may resize just the visual viewport, resize the
@@ -147,11 +154,11 @@
       if(note){
         const top=clamp((vv?.offsetTop||0)-stage.getBoundingClientRect().top,0,c.h)+8;
         const h=Math.max(70,Math.min(480,(vv?.height||c.h)-20));
-        panel.hidden=false;tab.hidden=true;panel.dataset.layout=next?'wide':'narrow';
+        panel.hidden=false;tab.hidden=true;panel.dataset.layout=desktop?'wide':'narrow';
         panel.removeAttribute('data-compact');panel.style.setProperty('--vf-density','1');
         Object.assign(panel.style,{transform:'none',left:'8px',top:top+'px',
-          width:Math.min(c.w-16,next?348:290)+'px',maxHeight:h+'px'});
-        contextStream.layout();wide=next;return;
+          width:Math.min(c.w-16,desktop?348:290)+'px',maxHeight:h+'px'});
+        contextStream.layout();wide=desktop;return;
       }
       if(mode==='off')mount=null;
       else if(!mount||mount.side!==side||mount.wide!==next){
@@ -165,7 +172,9 @@
       const roomRight=c.w-margin-px,roomLeft=px-margin;
       const toRight=roomRight>=roomLeft,below=visibleBottom-margin-py,above=py-visibleTop-margin;
       const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
-      const z=next?c.scale:Math.min(contextStream.active?Math.max(.85,c.scale):c.scale,1.15,roomW/147,roomH/120);
+      // A short touch viewport can be wide in landscape while the paper is
+      // much smaller than the controls. Keep its locator readable when it fits.
+      const z=next?c.scale:Math.min(Math.max(1,c.scale),1.15,roomW/147,roomH/120);
       const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
         height=Math.min(next?432:(mode==='browse'&&results.length?280:242),roomH/z),
         show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
@@ -232,7 +241,8 @@
       if(panel.hidden)return;
       if(contextStream.active){clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);return;}
       if(restoredBox&&boxKey()!==restoredBox){restoreRow();return;}
-      if(wide===(stage.clientWidth>=640)&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}
+      const wideNow=note?stage.clientWidth>=640:isWide(stage.clientWidth,stage.clientHeight);
+      if(wide===wideNow&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}
     });
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
     function landOnResult(focus=true){
@@ -357,6 +367,17 @@
       });
     }
     const syncClear=()=>{clear.hidden=!!note||!input.value;};
+    function syncAssist(){
+      const idle=!q,empty=!!q&&!results.length,keywords=queryKind==='keyword';
+      assist.hidden=!!note||!(idle||empty);
+      keywordSearch.hidden=!empty||keywords;
+      widenSearch.hidden=!empty||!keywords||scope==='all';
+      if(assist.hidden){input.removeAttribute('aria-describedby');return;}
+      assistCopy.textContent=idle?'如「约3:16」可直接定位。也可输入词句搜经文。':
+        keywords?(scope==='all'?'试试换个短词，或删掉几个字再搜。':'当前范围没有命中，可以扩到全书。'):
+          '如果在找关键词，可直接搜索。';
+      input.setAttribute('aria-describedby',assistCopy.id);
+    }
     function refresh(force=false,nextKind=queryKind){
       syncClear();
       const next=input.value.trim();
@@ -369,6 +390,7 @@
       if(located){contextStream.start(scripture.index(located.code).rows,located.order);more.hidden=true;}
       else append();
       $('vf-status').textContent=q&&queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
+      syncAssist();
       layout();persist();
     }
     let composing=false;
@@ -384,7 +406,8 @@
     input.addEventListener('compositionend',()=>{composing=false;locateInput();});
     function submit(e){
       e.preventDefault();if(composing||e.isComposing||e.keyCode===229||e.repeat||!input.value.trim())return;
-      closeGroups();refresh(false,'keyword');input.blur();(list.firstElementChild||(note?noteClose:end)).focus({preventScroll:true});
+      closeGroups();refresh(false,'keyword');
+      (list.firstElementChild||(note?noteClose:widenSearch.hidden?input:widenSearch)).focus({preventScroll:true});
     }
     input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)submit(e);});
     input.addEventListener('beforeinput',e=>{if(['insertLineBreak','insertParagraph'].includes(e.inputType)&&!composing&&!e.isComposing)submit(e);});
@@ -397,6 +420,7 @@
     input.addEventListener('focus',()=>{if(mode==='read')setMode('browse');});
     root.visualViewport?.addEventListener('resize',layout);
     root.visualViewport?.addEventListener('scroll',layout,{passive:true});
+    coarse.addEventListener?.('change',layout);
     root.addEventListener('pagehide',()=>{remember();persist();});
     let stored;try{stored=JSON.parse(sessionStorage.getItem(key));}catch{}
     refresh(true);

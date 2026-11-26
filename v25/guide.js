@@ -14,16 +14,17 @@
     }
   }
   function mount(){
-    const stage=document.getElementById('stage'),panel=document.getElementById('pcz-panel');
-    if(!stage||!panel||document.getElementById('paper-guide'))return;
+    const stage=document.getElementById('stage'),settings=document.getElementById('study-settings'),
+      replay=document.getElementById('paper-guide-replay');
+    if(!stage||!settings||!replay||document.getElementById('paper-guide'))return;
     const compact=matchMedia('(max-width: 639px)'),slip=document.createElement('aside');
     // The illustrations show the gesture even on pages with no printed references.
     const steps={
       turn:['从页边翻页','从右页外缘向左划，翻到下一页；从左页外缘向右划，翻回上一页。',
         'M4 6q7-2 14 1 7-3 14-1v20q-7-2-14 1-7-3-14-1z M18 7v20 M34 15H22m4-4-4 4 4 4'],
-      history:['轻点空白，找回读过的章','点书页没有字的地方，底部工具栏就会出现。点书卷标签回到那一章；时钟按钮可收起或展开历史。',
+      history:['底栏：定位、目录、历史','轻点纸页留白，底栏就会出现。「定位」找经文，「目录」选书卷，「历史」找回读过的章。',
         'M24 21a9 9 0 1 0-13 2M7 15H3v-4 M16 9v6l4 2 M5 27h26'],
-      note:['先读注释，再决定要不要跳','点页脚的经文引用，或小标题下的对观经文。浮窗里深色粗体是引用的经节，上下滑可读上下文；点「跳转 ↗」才会离开原页。',
+      note:['先看引用，再决定要不要跳','点页脚引用或对观经文。朱红字标出引用的经节，可上下滚读；点「在主书查看」才跳转。',
         'M4 6h27v19H15l-6 4v-4H4z M9 12h9m-9 5h12 M22 13l5-5m-5 0h5v5'],
       column:['读到栏底，接着读下一栏','手机放大到分栏阅读时，向上划到看见页底。点「栏底 · 下一栏 ↱」，就会移到下一栏开头，不用翻页。',
         'M4 5h28v23H4z M8 10h7m-7 4h7m-7 4h7 M21 10h7m-7 4h7m-7 4h7 M12 21v3h6V11l3 2']
@@ -65,9 +66,8 @@
     new MutationObserver(changes=>{
       if(step==='turn'&&changes.some(c=>c.oldValue!==stage.dataset.spread))render('history');
     }).observe(stage,{attributes:true,attributeFilter:['data-spread'],attributeOldValue:true});
-    const replay=document.createElement('button');replay.className='pg-replay';replay.type='button';replay.textContent='重看阅读指引';
-    panel.append(replay);replay.addEventListener('click',()=>{
-      if(!panel.hidden)document.querySelector('.pcz-button').click();
+    replay.hidden=false;replay.addEventListener('click',()=>{
+      if(settings.open)settings.close();
       render('turn');next.focus({preventScroll:true});
     });
     if(!seen())render('turn');
