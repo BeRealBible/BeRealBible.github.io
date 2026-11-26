@@ -51,6 +51,11 @@ const url=new URL(entry||origin);url.searchParams.set('ref','GEN.4:1');
           };
           const cells=book.map(b=>b.getBoundingClientRect()),rows=[...new Set(cells.map(r=>r.top))];
           const name=b=>el.querySelector('[data-book="'+b+'"] .v25-book-directory__name');
+          const columns=Number(getComputedStyle(grid).getPropertyValue('--dir-columns'));
+          const tint=b=>getComputedStyle(b).getPropertyValue('--dir-wash').trim(),
+            category=b=>b.closest('section');
+          const adjoiningTintsDiffer=book.every((b,i)=>[i-columns,i%columns?i-1:-1].every(j=>
+            j<0||category(b)===category(book[j])||tint(b)!==tint(book[j])));
           const groupInfo=[...el.querySelectorAll('section[aria-label]')].map(n=>{
             const tag=n.querySelector('.v25-book-directory__label');
             return {name:n.getAttribute('aria-label'),tag:tag?.textContent,
@@ -63,7 +68,13 @@ const url=new URL(entry||origin);url.searchParams.set('ref','GEN.4:1');
             minW:Math.min(...cells.map(r=>r.width)),minH:Math.min(...cells.map(r=>r.height)),
             rowCounts:rows.map(y=>cells.filter(r=>r.top===y).length),
             packed:cells.every((r,i)=>i===0||cells[i-1].top!==r.top||Math.abs(cells[i-1].right-r.left)<.5),
-            columns:Number(getComputedStyle(grid).getPropertyValue('--dir-columns')),
+            columns,adjoiningTintsDiffer,
+            paper:{
+              grain:getComputedStyle(el).getPropertyValue('--index-paper-grain').trim(),
+              ink:getComputedStyle(el.querySelector('[data-book="EXO"]')).color,
+              current:getComputedStyle(el.querySelector('[data-book="GEN"]')).color,
+              ring:getComputedStyle(name('GEN'),'::after').borderTopColor
+            },
             categoryLabels:groupInfo,namesRatio:name('1KI').getBoundingClientRect().width/name('GEN').getBoundingClientRect().width,
             groups:[...el.querySelectorAll('section[aria-label]')].map(n=>[n.getAttribute('aria-label'),
               [...n.querySelectorAll('button[data-book]')].map(b=>b.dataset.book).join(' ')]),
@@ -86,7 +97,8 @@ const url=new URL(entry||origin);url.searchParams.set('ref','GEN.4:1');
         assert.deepEqual(metric.rowCounts,Array(66/metric.columns).fill(metric.columns));
         assert.ok(metric.packed,'neighboring cells touch with no unused track');
         assert.ok(metric.categoryLabels.every(g=>g.name===g.tag&&g.linked));
-        assert.equal(new Set(metric.categoryLabels.map(g=>g.wash)).size,11);
+        assert.equal(new Set(metric.categoryLabels.map(g=>g.wash)).size,7,'shared warm shades, not eleven unrelated colors');
+        assert.ok(metric.adjoiningTintsDiffer,'touching categories always differ in tint in both layouts');
         if(scroll){
           assert.ok(metric.visible<66&&metric.content[3]>metric.content[2],'short viewport only uses normal vertical scrolling');
           await content.evaluate(el=>el.scrollTop=el.scrollHeight);
@@ -123,6 +135,23 @@ const url=new URL(entry||origin);url.searchParams.set('ref','GEN.4:1');
             await sheet.waitFor();
             assert.equal(await sheet.locator('.edge-chapters__title').textContent(),name);
             assert.equal(await sheet.locator('.edge-chapters__book[aria-pressed=true]').evaluate(el=>V25OriginalData.books[el.dataset.book].code),code);
+            if(code==='1KI'){
+              const leaf=await sheet.locator('.edge-chapters__sheet').evaluate(el=>{
+                const s=getComputedStyle(el);
+                return {grain:s.getPropertyValue('--index-paper-grain').trim(),
+                  ink:getComputedStyle(el.querySelector('.edge-chapters__chapter:not([aria-current])')).color,
+                  current:s.getPropertyValue('--index-current-ink').trim(),
+                  ring:s.getPropertyValue('--index-current-ring').trim()};
+              });
+              assert.ok(leaf.grain.startsWith('url('));
+              assert.equal(metric.paper.grain,leaf.grain);
+              assert.equal(metric.paper.ink,leaf.ink);
+              assert.equal(metric.paper.current,'rgb(133, 71, 62)');
+              assert.equal(leaf.current,'#85473e');
+              assert.equal(metric.paper.ring,'rgba(147, 72, 59, 0.6)');
+              assert.equal(leaf.ring,'#93483b99');
+              if(shots)await page.screenshot({path:path.join(shots,'chapter-leaf-320x690.png')});
+            }
             const after=await state();
             assert.deepEqual(after.camera.slice(0,2),before.camera.slice(0,2));
             assert.equal(after.history,before.history,'choosing a book only opens its chapter sheet');
