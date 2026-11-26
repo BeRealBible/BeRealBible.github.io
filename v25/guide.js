@@ -57,7 +57,9 @@
       const act=e.target.closest('button')?.dataset.act;
       if(act==='next')move(1);else if(act==='back')move(-1);else if(act==='skip')close();
     });
-    window.V25OverlayBack.register(slip,{layer:38,dismiss:close});
+    // The guide yields via CSS when other tools are open. It must not take a
+    // Back step or mark itself finished while that visible tool owns the UI.
+    window.V25OverlayBack.register(slip,{layer:38,active:()=>!slip.hidden&&slip.getClientRects().length>0,dismiss:close});
     compact.addEventListener('change',()=>{if(step)render(step);});
     // A real page turn can stand in for the first "next"; never turn for the user.
     new MutationObserver(changes=>{

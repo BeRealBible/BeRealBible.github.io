@@ -204,7 +204,10 @@
       if(document.querySelector('dialog[open]'))return;
       if(note){input.focus({preventScroll:true});return;}
       if(mode==='off'){start=origin();edit=true;}
-      else if(mount&&trigger===document.activeElement){
+      else if(mount){
+        // The old paper point can be off-screen after a zoom or pan. Every
+        // explicit reopen (including Ctrl/⌘+K and the tucked tab) must offer
+        // a visible field; dragging alone still moves the slip with the book.
         const c=camera(),hx=c.x+mount.bx*c.scale,hy=c.y+mount.by*c.scale;
         if(hx<0||hx>c.w||hy<0||hy>c.h)mount=null;
       }

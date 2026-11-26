@@ -168,6 +168,32 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         await page.evaluate(()=>PaperImmersion.showChrome());
         await activate(trigger);await input.waitFor();
         assert.equal(await input.inputValue(),'','ending resets the next search');
+        if(!touch){
+          // Exercise a newly mounted search on a spread whose visible side
+          // stays the same throughout this vertical drag.
+          await activate(end);
+          const reopened=new URL(url);reopened.searchParams.set('ref','GEN.1:1');
+          await page.goto(reopened.href,{waitUntil:'domcontentloaded',timeout:90000});
+          await page.waitForSelector('html[data-rule-layout=ready]',{state:'attached',timeout:90000});
+          await page.keyboard.press('Control+k');await input.waitFor();
+          await input.fill(address);
+          const paperPoint=await finder.evaluate(el=>[+el.dataset.paperX,+el.dataset.paperY]);
+          await input.press('Escape');await finder.waitFor({state:'hidden'});
+          await page.evaluate(()=>{for(let n=0;n<15;n++)document.getElementById('zoom-in').click();});
+          for(let n=0;n<3;n++){
+            await page.mouse.move(500,710);await page.mouse.down();
+            await page.mouse.move(500,100,{steps:7});await page.mouse.up();
+          }
+          const moved=await pose();
+          assert.ok(+moved[3]+paperPoint[1]*+moved[2]<0,'the original search paper anchor really moved off screen');
+          await page.keyboard.press('Control+k');await input.waitFor();
+          assert.equal(await input.inputValue(),address,'reopening keeps the search query');
+          assert.ok(await input.evaluate(el=>{
+            const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+            return el===document.activeElement&&document.elementFromPoint(x,y)===el;
+          }),'reopening with the shortcut focuses an input that is actually on screen');
+          assert.deepEqual(await pose(),moved,'repositioning the search does not move the book');
+        }
         assert.deepEqual(errors,[]);
         console.log(`PASS ${width} px: keyword-only scopes, inline cross-chapter reading in both directions, and preview return`);
       }finally{await ctx.close();}
