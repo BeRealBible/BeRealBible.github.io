@@ -28,7 +28,7 @@
   <link rel="stylesheet" href="edge-reader.css?v=index-25&h=41d3974990f4">
   <link rel="stylesheet" href="edge-index.css?v=index-25&h=b4b0565bb317">
   <script src="edge-index.js?v=index-25&h=18661c681a33" defer></script>
-  <link rel="stylesheet" href="edge-chapters.css?v=index-25&h=e4c73210ef66">
+  <link rel="stylesheet" href="edge-chapters.css?v=index-25&h=9a45cddd2f56">
   <link rel="stylesheet" href="paper-jump.css?v=index-25&h=adc40c7f76fa">
   <script src="chapter-preview.js?v=index-25&h=6f6328ec9d22" defer></script>
   <script src="v25/chapters.js?v=index-25&h=7cd469e55028" defer></script>
@@ -43,7 +43,7 @@
   <script src="footnote-passages.js?v=index-25&h=bddf30be2b8f" defer></script>
   <script src="v25/parallels.js?v=index-25&h=f101052e2bcd" defer></script><script src="v25/targets.js?v=index-25&h=3f76acdd6b8c" defer></script>
   <script src="v25/overlay-back.js?v=index-25&h=75e5356bd906" defer></script><script src="v25/paper-dock.js?v=index-25&h=20d8c9d66f77" defer></script><script src="v25/words.js?v=index-25&h=3a222a69a4c3" defer></script><script src="v25/scripture.js?v=index-25&h=9c6d4235b401" defer></script><script src="v25/footnote.js?v=index-25&h=dcbec863676c" defer></script>
-  <link id="v25-desk-controller" rel="preload" as="script" href="v25/reader.js?v=index-25&h=9fa4be2e80fc">
+  <link id="v25-desk-controller" rel="preload" as="script" href="v25/reader.js?v=index-25&h=3537234007a1">
   <script src="v25-original-storage.js?v=index-25&h=22fde7603642" defer></script><script src="v25-original-boot.js?v=index-25&h=0f6b2021effe" defer></script>
   <script src="immersion.js?v=index-25&h=e67061c7f5f1" defer></script>
 
@@ -120,10 +120,21 @@
 </main>
 <dialog id="v25-book-directory" class="v25-book-directory" aria-labelledby="v25-book-directory-title">
   <header class="v25-book-directory__header">
-    <h2 id="v25-book-directory-title">目录 · 选择书卷</h2>
-    <button type="button" class="dialog-close" data-close aria-label="关闭目录">×</button>
+    <svg class="v25-book-directory__mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <path d="M16 8.5c-3-2.6-7.5-3-12-1.5v18c4.5-1.5 9-1.1 12 1.5 3-2.6 7.5-3 12-1.5V7c-4.5-1.5-9-1.1-12 1.5Zm0 0v18m-8-13h4m-4 4h4m8-4h4m-4 4h4"/>
+    </svg>
+    <div class="v25-book-directory__heading">
+      <h2 id="v25-book-directory-title">书卷目录</h2>
+      <p><span>旧约 39</span><span>新约 27</span></p>
+    </div>
+    <p class="v25-book-directory__reading"><span>当前书卷</span> <strong id="v25-directory-current"></strong></p>
+    <button type="button" class="dialog-close" data-close aria-label="关闭目录">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"/></svg>
+    </button>
   </header>
-  <div id="v25-book-directory-groups" class="v25-book-directory__groups"></div>
+  <div class="v25-book-directory__scroll">
+    <div id="v25-book-directory-groups" class="v25-book-directory__groups" role="group" aria-label="全部 66 卷，按书卷类别排列"></div>
+  </div>
 </dialog>
 <dialog id="book-picker" aria-labelledby="book-picker-title">
   <button class="dialog-close" id="book-picker-close" data-close aria-label="关闭书卷章节目录">×</button>

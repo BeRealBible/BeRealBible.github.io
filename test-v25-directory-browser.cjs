@@ -16,7 +16,7 @@ const url=new URL(process.argv[2]||'https://berealbible.github.io/');
         url.searchParams.set('ref',start);url.searchParams.set('curl','off');
         await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:90000});
         await page.locator('html[data-rule-layout=ready]').waitFor({state:'attached',timeout:90000});
-        const stage=page.locator('#stage'),directory=page.getByRole('dialog',{name:'目录 · 选择书卷'}),
+        const stage=page.locator('#stage'),directory=page.getByRole('dialog',{name:'书卷目录'}),
           sheet=page.locator('.edge-chapters:not([hidden])'),trigger=page.getByRole('button',{name:'目录',exact:true});
         await stage.evaluate((el,left)=>{
           document.getElementById(left?'focus-right':'focus-left').click();
@@ -33,7 +33,8 @@ const url=new URL(process.argv[2]||'https://berealbible.github.io/');
           const button=[...el.querySelectorAll('.edge-index__group:not([hidden])')].find(n=>n.dataset.members.split(',').includes(String(index)));
           return button?.getBoundingClientRect().toJSON();
         },book);
-        const open=async()=>{await page.evaluate(()=>PaperImmersion.showChrome());await trigger.click();await directory.waitFor();};
+        const activate=locator=>narrow?locator.tap():locator.click();
+        const open=async()=>{await page.evaluate(()=>PaperImmersion.showChrome());await activate(trigger);await directory.waitFor();};
         const before=await pose(),saved=await records(),outside=await cut(code);
         assert.ok(left?outside.right<0:outside.left>width,'test must start with the requested bookmark outside the viewport');
         await open();
@@ -41,12 +42,12 @@ const url=new URL(process.argv[2]||'https://berealbible.github.io/');
         assert.deepEqual(await directory.locator('section').evaluateAll(all=>all.map(n=>[
           n.getAttribute('aria-label'),Array.from(n.querySelectorAll('button'),b=>b.dataset.book).join(' ')
         ])),Object.entries(groups));
-        assert.deepEqual(await buttons.evaluateAll(all=>all.map(b=>b.textContent)),
+        assert.deepEqual(await buttons.evaluateAll(all=>all.map(b=>b.querySelector('.v25-book-directory__name').textContent)),
           await page.evaluate(codes=>codes.map(code=>V25OriginalData.books.find(b=>b.code===code).short),Object.values(groups).join(' ').split(' ')));
         assert.equal(await directory.getByRole('radio').count(),0,'the first dialog only chooses books');
         assert.deepEqual(await pose(),before);
         if(reduce){await page.keyboard.press('Escape');await directory.waitFor({state:'hidden'});assert.deepEqual(await pose(),before);await open();}
-        await directory.locator('[data-book="'+code+'"]').click();await directory.waitFor({state:'hidden'});
+        await activate(directory.locator('[data-book="'+code+'"]'));await directory.waitFor({state:'hidden'});
         await sheet.waitFor();await stage.locator('xpath=self::*[@data-directory-pan="committed"]').waitFor({state:'attached'});
         const after=await pose(),landing=await cut(code),motion=await page.evaluate(()=>window.directoryFrames);
         assert.deepEqual(after.slice(0,3),before.slice(0,3),'opening a bookmark changes neither page, reading book nor zoom');

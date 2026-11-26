@@ -679,7 +679,8 @@
   }
   function openBookDirectory(){
     interrupt();
-    const code=currentBook().code;
+    const book=currentBook(),code=book.code;
+    $('v25-directory-current').textContent=book.name;
     for(const button of quickDirectory.querySelectorAll('button[data-book]')){
       if(button.dataset.book===code)button.setAttribute('aria-current','true');else button.removeAttribute('aria-current');
     }
@@ -700,19 +701,47 @@
     slideCamera(to,'directoryPan',()=>{transform();chapters.focus();});
   }
   if(quickDirectory&&window.V25BookGroups){
-    const list=$('v25-book-directory-groups'),byCode=new Map(D.books.map((b,i)=>[b.code,{book:b,i}]));
-    for(const [group,codes] of Object.entries(window.V25BookGroups)){
-      const section=document.createElement('section'),heading=document.createElement('h3'),buttons=document.createElement('div');
+    const list=$('v25-book-directory-groups'),byCode=new Map(D.books.map((b,i)=>[b.code,{book:b,i}])),cells=[];
+    const firstNew=byCode.get('MAT')?.i??39;
+    for(const [groupIndex,[group,codes]] of Object.entries(window.V25BookGroups).entries()){
+      const section=document.createElement('section'),description='v25-directory-category-'+groupIndex;
       section.className='v25-book-directory__group';section.setAttribute('aria-label',group);
-      heading.textContent=group;buttons.className='v25-book-directory__books';
+      section.dataset.palette=String(groupIndex);
       for(const code of codes.split(' ')){
         const item=byCode.get(code);if(!item)continue;
-        const button=document.createElement('button');button.type='button';button.textContent=item.book.short;
+        const button=document.createElement('button'),name=document.createElement('span');
+        button.type='button';button.className='v25-book-directory__book';
         button.dataset.book=code;button.title=item.book.name;button.setAttribute('aria-label',item.book.name);
-        button.onclick=()=>showDirectoryCut(item.i);buttons.append(button);
+        button.setAttribute('aria-describedby',description);
+        if(!section.childElementCount){
+          const label=document.createElement('span');label.className='v25-book-directory__label';
+          label.id=description;label.textContent=group;button.append(label);
+        }
+        name.className='v25-book-directory__name';
+        const bits=Array.from(item.book.short);
+        if(bits.length===2&&/^[上下前后一二三]$/.test(bits[1])){
+          const suffix=document.createElement('span');suffix.className='v25-book-directory__suffix';suffix.textContent=bits[1];
+          name.append(document.createTextNode(bits[0]),suffix);
+        }else name.textContent=item.book.short;
+        button.append(name);button.onclick=()=>showDirectoryCut(item.i);section.append(button);
+        cells.push({button,groupIndex,testament:item.i<firstNew?'old':'new'});
       }
-      section.append(heading,buttons);list.append(section);
+      list.append(section);
     }
+    // Set a separate weight for cell, category and testament boundaries.
+    // Every cell is one book in both orientations.
+    const edge=(cell,other)=>!other?'none':other.groupIndex===cell.groupIndex?'1px solid var(--dir-inner-edge)':
+      other.testament===cell.testament?'1px solid var(--dir-category-edge)':'2px solid var(--dir-testament-edge)';
+    for(const [i,cell] of cells.entries())for(const cols of [6,11]){
+      cell.button.style.setProperty('--north-'+cols,edge(cell,cells[i-cols]));
+      cell.button.style.setProperty('--west-'+cols,edge(cell,i%cols?cells[i-1]:null));
+    }
+    list.addEventListener('keydown',e=>{
+      const i=cells.findIndex(cell=>cell.button===e.target);if(i<0)return;
+      const n=parseInt(getComputedStyle(list).getPropertyValue('--dir-columns'),10),col=i%n;
+      const step={ArrowUp:-n,ArrowDown:n,ArrowLeft:col>0?-1:0,ArrowRight:col<n-1?1:0}[e.key];
+      if(step===undefined)return;e.preventDefault();if(step)cells[i+step]?.button.focus();
+    });
   }
   function openPicker(){
     interrupt();$('book-picker-books').hidden=false;$('book-picker-chapters').hidden=true;$('book-picker-back').hidden=true;
