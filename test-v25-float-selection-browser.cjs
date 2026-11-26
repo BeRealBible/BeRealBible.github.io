@@ -155,7 +155,9 @@ url.searchParams.set('v','index-25');url.searchParams.set('ref','ACT.7:56');url.
         await tools(gen).getByRole('button',{name:'搜索',exact:true}).click();
         const [[searchURL,target,flags]]=await page.evaluate(()=>searchTest);
         const parsed=new URL(searchURL);
-        assert.equal(parsed.origin,'https://www.google.com');assert.equal(target,'_blank');assert.equal(flags,'noopener,noreferrer');
+        assert.equal(parsed.origin,'https://www.google.com');assert.equal(target,'_blank');
+        if(mobile)assert.equal(flags,'noopener,noreferrer');
+        else assert.match(flags,/^noopener,noreferrer,popup=yes,width=\d+,height=\d+$/);
         assert.match(parsed.searchParams.get('q'),/创世记 2:1 和合本[\s\S]*这一节讲了什么？/);
         await tools(gen).waitFor({state:'detached'});
         await input(gen,'2:1',true);await task(gen,'float').click();await tools(gen).waitFor({state:'detached'});

@@ -188,6 +188,13 @@ test('Google provider round-trips complete selected content and question; bad in
   assert.equal(S.buildSearchURL(quote,'   '),null);
   assert.equal(S.buildSearchURL(quote,question,'constructor'),null);
 });
+test('Google uses a desktop popup sized to the screen and ordinary mobile navigation with the same privacy flags',()=>{
+  assert.equal(S.searchWindowFeatures({screen:{availWidth:1920,availHeight:1040}}),'noopener,noreferrer,popup=yes,width=860,height=740');
+  assert.equal(S.searchWindowFeatures({screen:{availWidth:720,availHeight:680}}),'noopener,noreferrer,popup=yes,width=672,height=608');
+  assert.equal(S.searchWindowFeatures({navigator:{userAgentData:{mobile:true}}}),'noopener,noreferrer');
+  assert.equal(S.searchWindowFeatures({navigator:{userAgent:'iPhone'}}),'noopener,noreferrer');
+  assert.equal(S.searchWindowFeatures({matchMedia:()=>({matches:true})}),'noopener,noreferrer');
+});
 test('search snapshots selected text, does not transmit on open, cancel or during IME, and submits only once',()=>{
   const s=scene();s.ctrl.hold(s.hit(0,5));s.ctrl.tap(s.hit(0,0));
   const search=s.bar().querySelector('[data-search]');
@@ -206,7 +213,7 @@ test('search snapshots selected text, does not transmit on open, cancel or durin
   search.handlers.click[0]();const g=form();g.children[0].children[0].value='中文？ & /';
   s.ctrl.tap(s.hit(0,8));g.handlers.submit[0](event);g.handlers.submit[0](event);
   assert.equal(s.tabs.length,1);
-  const [href,target,features]=s.tabs[0];assert.equal(target,'_blank');assert.equal(features,'noopener,noreferrer');
+  const [href,target,features]=s.tabs[0];assert.equal(target,'_blank');assert.equal(features,'noopener,noreferrer,popup=yes,width=860,height=740');
   assert.equal(new URL(href).searchParams.get('q'),'ONE TWO\n\n中文？ & /');
   assert.equal(s.marks().length,2);assert.equal(s.ctrl.isActive(),true);
 });

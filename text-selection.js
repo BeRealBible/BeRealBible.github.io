@@ -219,6 +219,14 @@
     if(!quote?.trim()||!question?.trim()||!Object.hasOwn(searchProviders,provider))return null;
     return searchProviders[provider](quote.trim()+'\n\n'+question.trim());
   }
+  function searchWindowFeatures(win){
+    const safe='noopener,noreferrer',nav=win.navigator;
+    const touchOnly=win.matchMedia?.('(pointer: coarse) and (hover: none)').matches;
+    if(nav?.userAgentData?.mobile||/Android|iPhone|iPad|iPod|Mobile/i.test(nav?.userAgent||'')||touchOnly)return safe;
+    const size=(available,preferred,margin)=>Number.isFinite(available)&&available>0?Math.min(preferred,Math.max(100,Math.floor(available-margin))):preferred;
+    const width=size(win.screen?.availWidth,860,48),height=size(win.screen?.availHeight,740,72);
+    return `${safe},popup=yes,width=${width},height=${height}`;
+  }
   function actionLabel(button,text){button.setAttribute('aria-label',text);button.setAttribute('title',text);}
   function setStudyAvailable(button,available){
     button.disabled=!available;
@@ -269,7 +277,9 @@
       if(!url){field.focus({preventScroll:true});return;}
       // Submit is the first point at which either the question or the
       // selected text can leave the page.
-      win.open(url,'_blank','noopener,noreferrer');done();
+      // Let the browser handle popup policies. `noopener` may return null even
+      // for a successful open, so do not mistakenly launch a duplicate tab.
+      win.open(url,'_blank',searchWindowFeatures(win));done();
     });
     return {form,field};
   }
@@ -851,5 +861,5 @@
     win.addEventListener?.('paper-account-data',accountChanged);
     return {hit,tap,hold,reset,refresh,suspend,verseHighlights,isActive:()=>!!active&&(!crossPage||!searchForm),destroy(){reset();stage.removeEventListener?.('copy',keyboardCopy);if(syncFrame!==null)win.cancelAnimationFrame(syncFrame);win.removeEventListener?.('storage',changed);win.removeEventListener?.('paper-account-data',accountChanged);}};
   }
-  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,makeToolbar,makeSearchForm,writeText,fallbackCopy,actionLabel,setStudyAvailable,mergeRects,verseBands,physicalRows,FLOAT_ICON};
+  return {create,indexFace,copyText,formatQuote,clipboardQuote,physicalClipboardQuote,pagesClipboardQuote,clipboardText,buildSearchURL,searchWindowFeatures,makeToolbar,makeSearchForm,writeText,fallbackCopy,actionLabel,setStudyAvailable,mergeRects,verseBands,physicalRows,FLOAT_ICON};
 });
