@@ -80,4 +80,5 @@
 - `node test-v25-directory-browser.cjs V25入口`：检查目录分类与搜索一致、简称对应真实合签、开笺随镜头平移而不改阅读记录，以及选章沿用全页／浮窗。
 - `node tools/check-v25-clarity.cjs 现有正式版URL 待发布URL或离线包 输出目录`：检查正文清晰度，并按大屏和窄屏分别验收经文窗。
 - `node test-v25-citation-links.cjs`、`node test-v25-study-qa.cjs` 和 `node test-v25-study-qa-browser.cjs V25入口`：检查全卷文字引用、问答坐标、同窗展开、章节选择、问答设置和主书／固定窗交互。
+- `python tools/build-v25-study-qa-font.py --check`（需要 FontTools 和 Brotli）与 `node test-v25-study-qa-font-browser.cjs [V25入口]`：检查整套问答的汉字补字覆盖，以及《列王纪上》22 章「乔装改扮」不再混用系统字体。补字仅供问答标题和答案使用，保留标题字重和答案中原有的强调，不影响纸本正文或笔记。
 - `node test-v25-note-refs.cjs`、`node test-v25-notes.cjs`、`node test-v25-note-sync.cjs`、`node test-v25-notes-browser.cjs`：检查各入口的列表「＋」与滚动固定、同一经文新建、查看与编辑分开，只读详情的整章和跨章原文、旧笔记延迟载入、地址及带出处引文解析、共用经文挂接、账号隔离、逐笔发送、断网补传，以及浏览器里的预览、搜索、编辑、最后一处保护和手机键盘。
