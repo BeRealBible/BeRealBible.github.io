@@ -26,6 +26,8 @@ class StudyImport(unittest.TestCase):
         self.assertEqual(display(["1KI", 1, 5, 14], ["1KI", 2, 5, 15], ["1KI", 3]),
                          [["1KI", 1, 5, 5], ["1KI", 2], ["1KI", 3]])
         self.assertEqual(display(["1KI", 1], ["1KI", 1, 6, 10]), [["1KI", 1]])
+        self.assertEqual(module.primary_display([["1KI", 1, 2, 12]], self.refs, compact=False),
+                         [["1KI", 1, 2, 12]])
         with self.assertRaises(ValueError):
             display(["1KI", 1, 50, 999])
 
@@ -59,6 +61,15 @@ class StudyImport(unittest.TestCase):
                           ("GEN", 12), ("GEN", 15), ("GEN", 17)})
         self.assertEqual(self.refs.parse("回答了问题，但第14–15章写的是另一件事；参但7:13。上午10:30到11点。", "JOS", 14),
                          {("JOS", 14), ("JOS", 15), ("DAN", 7, 13, 13)})
+        self.assertEqual(self.refs.parse("王下5:27与约壹4:8的关系？", "DEU", 4),
+                         {("2KI", 5, 27, 27), ("1JN", 4, 8, 8)})
+
+    def test_default_does_not_publish_context_or_fill_gaps(self):
+        bind = lambda q: self.refs.default_binding("GEN", 11, q)
+        self.assertEqual(bind("11:4怎样带出12:2的对比？由1-11章走向12-50章。"), [["GEN", 11, 4, 4]])
+        self.assertEqual(bind("本章家谱怎样衔接《创世记》12–50章？"), [["GEN", 11]])
+        self.assertEqual(bind("11:4-8之间发生了什么？"), [["GEN", 11, 4, 8]])
+        self.assertEqual(bind("11:4和11:8分别对于这个主题意味着什么？"), [["GEN", 11]])
 
     def test_wrappers_removed_without_dropping_bulleted_answers(self):
         text = """<!-- LLM_QA_START -->

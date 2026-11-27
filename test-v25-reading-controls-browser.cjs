@@ -129,8 +129,8 @@ async function run(browser,width,height,touch,wide){
       const after=await pos(),paperWidth=target.right-target.left;
       assert.equal(after.spread,before.spread);
       assert.equal(await history(),priorHistory,'adapting does not move the active bookmark or create a trail');
-      near(after.scale,Math.min(3.2,(wide?width*.66:width-12)/paperWidth),.0003);
-      near(after.x+(target.left+target.right)/2*after.scale,width*(wide?.43:.5),1);
+      near(after.scale,Math.min(3.2,width*(wide?.72:.84)/paperWidth),.0003);
+      near(after.x+(target.left+target.right)/2*after.scale,width*(wide?.43:.52),1);
       const anchor=Math.min(target.bottom,Math.max(target.top,height*.45));
       const anchored=anchor-(anchor-before.y)/before.scale*after.scale;
       if(anchored>=height-18-724*after.scale&&anchored<=18&&724*after.scale>height-36)near(after.y,anchored,1);

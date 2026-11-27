@@ -37,7 +37,7 @@ def compact_json(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def primary_display(primary, index):
+def primary_display(primary, index, compact=True):
     """Project reviewed scopes to chapter titles or to the verses that should advertise the QAP."""
     if not isinstance(primary, list) or not primary:
         raise ValueError("Expected at least one primary passage")
@@ -64,9 +64,9 @@ def primary_display(primary, index):
 
     refs = []
     for (code, chapter), verses in sorted(groups.items(), key=lambda g: (index.book_order[g[0][0]], g[0][1])):
-        if verses is None or len(verses) > 10:
+        if verses is None or compact and len(verses) > 10:
             refs.append([code, chapter])
-        elif len(verses) > 3:
+        elif compact and len(verses) > 3:
             first = min(verses)
             refs.append([code, chapter, first, first])
         else:
@@ -85,6 +85,9 @@ def apply_primary_reviews(rows, index, directory=ROOT / "tools" / "study-qa-prim
         review = json.loads(path.read_text(encoding="utf-8"))
         if review.get("schema") != 1 or not isinstance(review.get("items"), dict) or not review["items"]:
             raise ValueError(f"{path.name}: invalid primary review file")
+        projection = review.get("display", "compact")
+        if projection not in ("compact", "exact"):
+            raise ValueError(f"{path.name}: invalid display projection")
         primary = review["items"]
         selected = sorted((r for r in rows if r["id"] in primary), key=lambda r: r["id"])
         if (applied & primary.keys() or len(selected) != len(primary) or
@@ -97,7 +100,7 @@ def apply_primary_reviews(rows, index, directory=ROOT / "tools" / "study-qa-prim
         for row in selected:
             scope = primary[row["id"]]
             try:
-                refs = primary_display(scope, index)
+                refs = primary_display(scope, index, compact=projection == "compact")
             except ValueError as error:
                 raise ValueError(f"{row['id']}: {error}") from error
             row["refs"] = refs
@@ -146,7 +149,9 @@ class References:
         self.verses = {b["code"]: {c["chapter"]: {n for n, _ in c["verses"]} for c in b["chapters"]} for b in books}
         aliases = {normalized(n): b["code"] for b in books for n in (b["name"], b["short"], b["code"])}
         aliases.update({"撒母耳上": "1SA", "撒母耳下": "2SA", "列王上": "1KI", "列王下": "2KI",
-                        "历上": "1CH", "历下": "2CH", "希": "HEB", "雅各": "JAS", "诗歌": "PSA"})
+                        "历上": "1CH", "历下": "2CH", "希": "HEB", "雅各": "JAS", "诗歌": "PSA",
+                        "创世纪": "GEN", "约一": "1JN", "约壹": "1JN", "约二": "2JN",
+                        "约贰": "2JN", "约三": "3JN", "约叁": "3JN"})
         self.aliases = aliases
         names = "|".join(map(re.escape, sorted(aliases, key=len, reverse=True)))
         full = "|".join(map(re.escape, (normalized(b["name"]) for b in books)))
@@ -263,22 +268,41 @@ class References:
                     cut = tail.end()
         return out
 
-    def anchors(self, own, chapter, question, answer, extra=()):
-        refs = self.parse(question, own, chapter) | self.parse(answer, own, chapter) | set(map(tuple, extra))
-        if not any(r[:2] == (own, chapter) for r in refs):
-            refs.add((own, chapter))
-        # Where a pair provides precise verses, do not independently tag the
-        # whole same chapter; whole-chapter lookup still includes those verses.
-        precise = {r[:2] for r in refs if len(r) == 4}
-        refs = {r for r in refs if len(r) == 4 or r not in precise}
-        merged = []
-        for r in sorted(refs, key=lambda r: (self.book_order[r[0]], *r[1:])):
-            if len(r) == 4 and merged and merged[-1][:2] == r[:2] and len(merged[-1]) == 4 and r[2] <= merged[-1][3] + 1:
-                old = merged[-1]
-                merged[-1] = (*old[:3], max(old[3], r[3]))
-            else:
-                merged.append(r)
-        return merged
+    def default_binding(self, own, chapter, question):
+        """An unreviewed question has ONE home object, never a citation fan-out."""
+        home = (own, chapter)
+        if chapter not in self.verses[own]:
+            raise ValueError(f"Unknown source chapter: {own}.{chapter}")
+        verses = sorted(r[2:] for r in self.parse(question, own, chapter) if r[:2] == home and len(r) == 4)
+        if not verses:
+            return [list(home)]
+        lo, hi = verses[0]
+        for start, end in verses[1:]:
+            if start > hi+1:
+                return [list(home)]
+            hi = max(hi, end)
+        # A short continuous passage is one object. For wider scopes or
+        # separated references, use the source chapter rather than filling in
+        # unmentioned verses or guessing which of several cites is the subject.
+        return [[*home, lo, hi]] if hi-lo < 10 else [list(home)]
+
+
+def rebuild_bindings(rows, index):
+    for row in rows:
+        code, chapter, _ = row["id"].split(".")
+        row["refs"] = index.default_binding(code, int(chapter), row["q"])
+        row.pop("primary", None)
+    return apply_primary_reviews(rows, index)
+
+
+def binding_profile(rows):
+    return {
+        "items": len(rows),
+        "coordinates": sum(len(x["refs"]) for x in rows),
+        "display_objects_per_question": dict(sorted(Counter(len(x["refs"]) for x in rows).items())),
+        "multi_coordinate": sum(len(x["refs"]) > 1 for x in rows),
+        "multi_chapter": sum(len({tuple(r[:2]) for r in x["refs"]}) > 1 for x in rows),
+    }
 
 
 def trimmed_answer(lines):
@@ -339,9 +363,6 @@ def build(folder):
     audit = {"fallback_question_heads": [], "unpaired_question_heads": [], "books": {}, "origin_lines": {}}
     library = []
     source_chapters = 0
-    path = ROOT / "tools/study-qa-anchors.json"
-    extras = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    seen_extra = set()
     for f in sorted(folder.glob("[0-9][0-9]_*.md")):
         volume, name = f.stem.split("_", 1)
         book = books[int(volume) - 1]
@@ -362,24 +383,15 @@ def build(folder):
                 source_chapters += 1
             for n, (q, a, lineno) in enumerate(local, 1):
                 key = f"{own}.{chapter}.{n}"
-                extra = extras.get(key, [])
-                if extra:
-                    seen_extra.add(key)
-                    for b, c, *r in extra:
-                        assert c in index.verses[b] and (not r or len(r)==2 and r[0]<=r[1] and all(v in index.verses[b][c] for v in r)), (key, b, c, r)
-                refs = index.anchors(own, chapter, q, a, extra)
-                library.append({"id": key, "refs": refs, "q": q, "a": a})
+                library.append({"id": key, "refs": [], "q": q, "a": a})
                 audit["origin_lines"][key] = lineno
                 volume_rows += 1
         if volume_rows:
             audit["books"][own] = volume_rows
-    if extras.keys() - seen_extra:
-        raise ValueError(f"Unused verse overrides: {extras.keys() - seen_extra}")
     if not library:
         raise ValueError("No questions were found; expected the LLM_QT folder")
-    audit["primary_reviewed_items"] = apply_primary_reviews(library, index)
-    audit.update(items=len(library), source_chapters=source_chapters, coordinates=sum(len(x["refs"]) for x in library),
-                 multi_coordinate=sum(len(x["refs"]) > 1 for x in library),
+    audit["primary_reviewed_items"] = rebuild_bindings(library, index)
+    audit.update(binding_profile(library), source_chapters=source_chapters,
                  invalid_reference_candidates=[[*r, n, index.review[r]] for r, n in index.invalid.most_common()])
     return library, audit
 
@@ -387,19 +399,21 @@ def build(folder):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("source", type=Path, nargs="?", help="The folder named LLM_QT, not its parent or backups")
-    p.add_argument("--apply-primary", action="store_true", help="Apply reviews to the existing generated catalogue without reimporting notes")
+    p.add_argument("--apply-primary", action="store_true", help="Rebuild bindings and apply reviews without reimporting question or answer text")
     p.add_argument("--check", action="store_true", help="Check generated output instead of writing it")
     p.add_argument("--output", type=Path, default=ROOT / "data/study-qa.json")
     p.add_argument("--audit", type=Path)
     args = p.parse_args()
-    if (args.source is None) != args.apply_primary or args.apply_primary and args.audit:
+    if (args.source is None) != args.apply_primary:
         p.error("provide either an LLM_QT source (optionally with --audit) or --apply-primary")
     if args.apply_primary:
         library = json.loads(args.output.read_text(encoding="utf-8"))
         if library.get("schema") != 1:
             p.error("invalid generated catalogue schema")
         rows = library["items"]
-        audit = {"items": len(rows), "primary_reviewed_items": apply_primary_reviews(rows, References(source_books()))}
+        before = binding_profile(rows)
+        reviewed = rebuild_bindings(rows, References(source_books()))
+        audit = {**binding_profile(rows), "primary_reviewed_items": reviewed, "before": before}
     else:
         rows, audit = build(args.source)
     output = '{"schema":1,"items":[\n' + ",\n".join(map(compact_json, rows)) + '\n]}\n'
@@ -410,7 +424,8 @@ def main():
         args.output.write_text(output, encoding="utf-8", newline="\n")
     if args.audit:
         args.audit.write_text(json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(compact_json({k: audit[k] for k in ("items", "primary_reviewed_items", "source_chapters", "coordinates", "multi_coordinate", "books") if k in audit}))
+    print(compact_json({k: audit[k] for k in ("items", "primary_reviewed_items", "source_chapters", "coordinates",
+                                             "display_objects_per_question", "multi_chapter", "books") if k in audit}))
     if not args.apply_primary:
         print(f"Review: {len(audit['fallback_question_heads'])} unnumbered stems; {len(audit['unpaired_question_heads'])} headings without an answer marker; {len(audit['invalid_reference_candidates'])} invalid reference candidates")
 

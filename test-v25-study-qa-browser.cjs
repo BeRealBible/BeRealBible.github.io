@@ -99,6 +99,31 @@ async function run(browser,width){
       assert.equal(await reportedBadge.evaluate(el=>getComputedStyle(el).outlineStyle),'none');
     }
 
+    async function bindingSmoke(){
+      for(const [chapter,want] of [[35,false],[11,true],[12,true]]){
+        const url=new URL(takeURL);url.searchParams.set('ref','GEN.'+chapter+':1');
+        await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:90000});await ready();
+        await page.evaluate(()=>document.getElementById('fit-book').click());
+        const badge=$('#stage [data-chapter-total="GEN.'+chapter+'"]');
+        await badge.press('Enter');await rendered();
+        assert.match(await title.textContent(),new RegExp('创 '+chapter+'章'));
+        assert.equal((await ids()).includes('GEN.11.2'),want,
+          'the narrative summary at Genesis 11 never mounts in a growth range such as chapter 35');
+        if(!want)assert.deepEqual(await ids(),['1SA.10.6'],'only the actual Rachel tomb comparison belongs here');
+        if(chapter===11){
+          const row=bodyOf('GEN.11.2');
+          await row.getByRole('button',{name:/查看经文.*12:2/}).click();
+          await citation.waitFor();
+          assert.equal(await verseTag('GEN.12:2').getAttribute('data-cited'),'');
+        }
+      }
+    }
+    if(process.env.V25_QA_BINDINGS_ONLY==='1'){
+      await bindingSmoke();assert.deepEqual(errors,[]);
+      console.log(width,'PASS chapter 35 no longer shows the Babel question; its two real bindings and links still work');
+      return;
+    }
+
     if(process.env.V25_BADGE_ZOOM_ONLY==='1'){
       if(!mobile)throw Error('The chapter zoom smoke needs a touch viewport');
       await zoomBadgeSmoke();
@@ -190,6 +215,10 @@ async function run(browser,width){
     assert.ok(await dialog.isVisible());
     assert.equal(await firstRef.getAttribute('aria-expanded'),'false');
     const second=bodyOf('2SA.3.2');
+    assert.equal(await second.count(),0,'the genealogy is not a question about verse 1');
+    await close();
+    if(await mainBar.isVisible())await mainBar.locator('[data-exit]').click();
+    await press(chapter(3),true);await open();
     for(const row of [first,second])await row.locator('summary').click({position:{x:13,y:19}});
     assert.equal(await dialog.locator('details[open]').count(),2);
     await dialog.locator('.study-qa__answer:visible').nth(1).waitFor();

@@ -15,7 +15,8 @@ assert.ok(library.items.length>=2000);
 assert.equal(library.items.filter(row=>row.id.startsWith('1KI.')&&row.primary).length,169);
 for(const {id,q,a,refs,primary} of library.items){
   const [b,c]=id.split('.');
-  assert.ok(primary?.length||refs.some(r=>r[0]===b&&r[1]===+c),'unreviewed QAPs retain a local fallback');
+  assert.ok(primary?.length||(refs.length===1&&refs[0][0]===b&&refs[0][1]===+c),
+    'only an explicit review can add multiple objects or move a question out of its source chapter: '+id);
   assert.doesNotMatch(q+'\n'+a,/(?:LLM_QA_|AI 研读记录|^以下是为(?:您|你)精心)/m);
   for(const [book,ch,lo,hi] of [...refs,...(primary||[])]){
     const vv=verses.get(book)?.get(ch);
@@ -40,14 +41,26 @@ assert.ok(!query([one('1KI',14,10,11)]).includes('1KI.16.7'),'evidence for the o
 assert.equal(query([one('1KI',4,26),one('2CH',9,25)]).filter(id=>id==='1KI.4.5').length,1);
 assert.ok(query([one('1KI',4,26)]).includes('1KI.4.5'),'a numerical comparison belongs at both passages');
 assert.ok(query([one('2CH',9,25)]).includes('1KI.4.5'));
-assert.ok(query([one('2SA',2,23)]).includes('2SA.3.4'),'cross-chapter narrative connection');
+assert.ok(!query([one('2SA',2,23)]).includes('2SA.3.4'),'the death that led to the event is background, not an anchor');
 assert.ok(query([one('2SA',3,28)]).includes('2SA.3.4'));
-assert.equal(query([one('2SA',3,28),one('2SA',2,23)]).filter(id=>id==='2SA.3.4').length,1);
+assert.ok(query([one('2SA',3,39)]).includes('2SA.3.4'),'explicitly reviewed range is still searchable at its end');
+assert.equal(query([one('GEN',11,4),one('GEN',12,2)]).filter(id=>id==='GEN.11.2').length,1);
+assert.ok(query([one('GEN',11,4)]).includes('GEN.11.2'));
+assert.ok(query([one('GEN',12,2)]).includes('GEN.11.2'));
+for(let ch=1;ch<=50;ch++){
+  assert.equal(query([inChapter('GEN',ch)]).includes('GEN.11.2'),ch===11||ch===12,
+    'the 1–11 and 12–50 chapter ranges are context, not the locations of the question');
+}
+assert.deepEqual(query([inChapter('GEN',35)]),['1SA.10.6'],
+  'keep the actual Rachel tomb comparison in Genesis 35, not the Tower of Babel');
+assert.ok(query([one('1CH',21,1)]).includes('2SA.24.6'),'a genuine comparison belongs at both passages');
+assert.ok(query([one('2SA',24,1)]).includes('2SA.24.6'));
 assert.ok(query([inChapter('2SA',3),inChapter('2SA',4)]).some(id=>id.startsWith('2SA.4.')));
 assert.ok(!query([one('2SA',3,1)]).includes('2SA.3.4'),'do not fill unselected verses');
 assert.ok(query([inChapter('2SA',3)]).includes('2SA.3.4'));
-assert.ok(query([one('DEU',17,17)]).includes('2SA.3.2'),'cross-book lookup');
-assert.ok(query([one('2SA',14,27)]).includes('2SA.18.6'));
+assert.ok(!query([one('DEU',17,17)]).includes('2SA.3.2'),'an answer citation alone must not create cross-book lookup');
+assert.ok(!query([one('2SA',14,27)]).includes('2SA.18.6'),'two versions of the same topic stay in their respective chapters');
+assert.ok(query([one('2SA',14,27)]).includes('2SA.14.6')&&query([one('2SA',18,18)]).includes('2SA.18.6'));
 assert.ok(catalog.has('2SA',3)&&catalog.has('2SA',3,28));
 const empty=one('2SA',4,1),withQuestion=one('2SA',3,1);
 assert.ok(!availability.hasAny([empty]));

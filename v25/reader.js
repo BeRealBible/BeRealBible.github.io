@@ -467,7 +467,9 @@
     // Screen proportions, not device names: unfolded phones and horizontal
     // touch viewports benefit from a little context to the right of the lane.
     const wide=wideReading();
-    const width=wide?view.w*.66:view.w-12,centre=view.w*(wide?.43:.5);
+    // Match the reference phone view: leave a little paper on both sides
+    // with enough leading margin for the paper's chapter markers.
+    const width=view.w*(wide?.72:.84),centre=view.w*(wide?.43:.52);
     searchAnchor=null;
     scale=clamp(width/(lane.right-lane.left),fitScale,MAX_SCALE);
     focus='custom';x=centre-(lane.left+lane.right)/2*scale;y=anchorY-paperY*scale;
