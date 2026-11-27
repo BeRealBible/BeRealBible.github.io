@@ -2,7 +2,7 @@
 (function(win){
   'use strict';
   win.V25NoteRefEditor=({doc,parser,books,editable,spansEnabled,preview,closePreview,openSearch,closeSearch,excerpt,browse,change})=>{
-    const {key,label,covers,MAX_PLACES,allowsPlaces,ending}=win.V25NoteRefs,names=new Map(books.map(b=>[b.code,b]));
+    const {key,label,lookupLabel,covers,MAX_PLACES,allowsPlaces,ending}=win.V25NoteRefs,names=new Map(books.map(b=>[b.code,b]));
     const limitText='每条笔记最多关联 '+MAX_PLACES+' 处经文';
     const title=(ref,short=false)=>label(names.get(ref.code)?.[short?'short':'name']||ref.code,ref);
     const make=(tag,cls,text)=>{
@@ -37,17 +37,20 @@
     const feedback=make('p','study-notes__ref-feedback'),chipFeedback=make('p','study-notes__ref-feedback');
     feedback.id=nonce+'-feedback';
     for(const el of [feedback,chipFeedback])el.setAttribute('aria-live','polite');
-    const status=make('p','study-notes__search-status');status.setAttribute('aria-live','polite');
+    const status=make('p','study-notes__search-status'),statusLine=make('div','study-notes__lookup-status'),
+      addressBack=button('返回候选','study-notes__address-back');
+    status.setAttribute('aria-live','polite');addressBack.hidden=true;statusLine.append(status,addressBack);
     const output=make('div'),special=make('div','study-notes__special'),
       results=make('div','study-notes__results'),more=button('更多结果','study-notes__link');
     results.setAttribute('role','region');results.setAttribute('aria-label','可选经文');
     output.setAttribute('role','group');output.setAttribute('aria-label','关联搜索结果');
-    output.append(status,special,results,more);
+    output.append(statusLine,special,results,more);
     input.setAttribute('aria-describedby',feedback.id);
     chooser.append(field,feedback,output);root.append(chipFeedback);
 
     let refs=[],shown='',editing=null,restore=null,pasted=false,composing=false,idle=0,entered=false,
-      matches=[],rendered=[],listed=0,browseTarget=null,picks=[],guide=null;
+      matches=[],rendered=[],listed=0,browseTarget=null,browseRange=null,browseAt=null,
+      addressChoice=null,addressCursor=-1,picks=[],guide=null;
     const toggle=(items,ref)=>parser.togglePick(items,ref,{crossChapter:spansEnabled});
     const selected=(items,ref)=>items.some(item=>covers(item,ref));
     const browseStream=win.V25AddressStream.create({viewport:results,renderVerse:rowOption,renderChapter:chapterOption,onExtend:decorateResults});
@@ -60,7 +63,8 @@
       else input.removeAttribute('aria-invalid');
     }
     function clearResults(){
-      matches=[];rendered=[];listed=0;browseTarget=null;browseStream.clear();special.replaceChildren();
+      matches=[];rendered=[];listed=0;browseTarget=null;browseRange=null;browseAt=null;
+      addressChoice=null;addressCursor=-1;addressBack.hidden=true;browseStream.clear();special.replaceChildren();
       results.replaceChildren();results.removeAttribute('data-browse');results.scrollTop=0;more.hidden=true;status.textContent='';
     }
     function clearIdle(){win.clearTimeout(idle);idle=0;}
@@ -151,6 +155,7 @@
     function updateAction(){
       const active=picks.length>0;
       field.toggleAttribute('data-picked',active);input.readOnly=active;actions.hidden=!active;
+      addressBack.hidden=active||addressChoice==null;
       input.rows=active?Math.min(picks.length,3):1;input.wrap=active?'soft':'off';
       done.disabled=!active||!!pickProblem(picks,refs);
     }
@@ -198,25 +203,31 @@
     cancel.onclick=()=>cancelPicks(true);
     done.onclick=()=>insert(picks);
     const parsed=()=>parser.parse(input.value,{pasted});
-    const suggested=()=>parser.locateOne(input.value,{pasted,editing:!!editing});
-    function unique(found){
-      return found.length===1&&!found[0].partial?found[0].anchors[0]:null;
-    }
+    const suggested=()=>parser.finder(input.value,{pasted,editing:!!editing});
+    const unique=found=>found.length===1&&!found[0].partial?found[0]:null;
+    const heading=result=>lookupLabel(names.get(result.anchors[0].code)?.name||result.anchors[0].code,result);
     function showInvalid(){
       const raw=input.value.trim().replace(ending,'');
       message(raw.length>160?'没有识别到出处，请补写书卷和章节。':
         /^\d{1,3}\s*[:：]/u.test(raw.normalize('NFKC'))?'请在地址前写上书名。':
         parser.inspect(raw).error,true);
     }
-    function bindOption(el,ref){
-      const name=title(ref);
+    function bindOption(el,ref,name=title(ref)){
       el.onclick=()=>pick(ref);
       rendered.push({ref,el,name});
       return name;
     }
-    function option({ref,text,range}){
-      const el=button('',range?'study-notes__address-option':'study-notes__result');
-      const name=bindOption(el,ref);
+    function option(ref,name=title(ref)){
+      const el=button('','study-notes__address-option');
+      bindOption(el,ref,name);
+      el.append(make('strong','study-notes__result-ref',name));
+      return el;
+    }
+    function addressOption(result,i){
+      const name=heading(result),text=excerpt(result.anchors[0]),
+        el=button('','study-notes__result study-notes__address-candidate','定位到 '+name);
+      el.dataset.i=i;el.onclick=()=>chooseAddress(i);
+      if(text)el.setAttribute('aria-description',text);
       const copy=make('span','study-notes__result-text');
       copy.append(make('strong','study-notes__result-ref',name));
       if(text)copy.append(make('span','study-notes__result-excerpt',text));
@@ -235,7 +246,9 @@
       const el=make('span','study-notes__verse'),num=make('sup','compare-slip__ref',lo===hi?String(lo):lo+'–'+hi);
       el.setAttribute('role','button');el.tabIndex=0;
       el.setAttribute('aria-description',row.text);el.dataset.ref=row.ref;
-      el.toggleAttribute('data-current',current);
+      const a=browseRange,
+        intersects=a&&(ch>a.ch||ch===a.ch&&hi>=a.lo)&&(ch<(a.endCh??a.ch)||ch===(a.endCh??a.ch)&&lo<=a.hi);
+      el.toggleAttribute('data-current',current||intersects);
       num.setAttribute('aria-hidden','true');el.append(num,doc.createTextNode(row.text));
       bindOption(el,anchor);
       el.onkeydown=e=>{
@@ -246,43 +259,76 @@
     }
     function appendResults(){
       for(const item of matches.slice(listed,listed+10)){
-        results.append(option(item));listed++;
+        results.append(addressOption(item,listed));listed++;
       }
       more.hidden=listed>=matches.length;decorateResults();
     }
-    function startBrowse(anchor){
+    function startBrowse(result){
+      const anchor=result.anchors[0],span=result.span||anchor;
       const book=browse(anchor);
       if(!book?.rows.length||!Number.isInteger(book.at))return false;
       // Scroll to the line of the located verse while keeping its real
       // paragraph (and earlier ones) intact above that line.
-      const range=anchor.lo!=null&&(anchor.hi!==anchor.lo||anchor.endCh>anchor.ch);
+      const range=span.lo!=null&&(span.hi!==span.lo||span.endCh>span.ch);
       browseTarget=range?null:anchor;
-      if(range)special.append(option({ref:anchor,range:true}));
+      browseRange=range&&!result.span?span:null;browseAt=book.at;
+      if(range)special.append(option(span,heading(result)));
       results.setAttribute('data-browse','');browseStream.start(book.rows,book.at);browseStream.layout();
       decorateResults();return true;
     }
-    function run(){
-      if(chooser.hidden||composing||picks.length)return;
+    function renderLookup(found,chosen=null){
       clearResults();
-      const raw=input.value.trim();if(!raw)return;
-      const found=suggested(),only=unique(found)?found[0]:null;
-      if(only&&startBrowse(only.anchors[0])){
-        if(only.anchors[0].endCh>only.anchors[0].ch)status.textContent='经文地址 · 跨章';
+      matches=found;
+      const resolved=found[chosen]||unique(found);
+      if(resolved&&startBrowse(resolved)){
+        addressChoice=chosen;addressBack.hidden=chosen==null;
+        const anchor=resolved.anchors[0];
+        status.textContent=anchor.endCh>anchor.ch?'经文地址 · 跨章':heading(resolved);
         return;
       }
-      matches=found.map(({anchors:[ref],partial})=>({ref,partial,text:excerpt(ref)}));
-      if(matches.length)status.textContent=matches.some(({ref})=>ref.endCh>ref.ch)?'经文地址 · 跨章':
-        matches.some(row=>row.partial)?'匹配书卷':'';
+      if(matches.length)status.textContent=matches.length+' 个候选地址';
       appendResults();
     }
+    function run(){
+      if(chooser.hidden||composing||picks.length)return;
+      renderLookup(input.value.trim()?suggested():[]);
+    }
+    function focusContext(){
+      input.blur();(browseStream.element(browseAt)||(addressBack.hidden?plus:addressBack)).focus({preventScroll:true});
+    }
+    function chooseAddress(i){
+      if(composing||picks.length||browseStream.active||!matches[i])return;
+      input.blur();renderLookup(matches,i);focusContext();
+    }
+    addressBack.onclick=()=>{
+      if(addressChoice==null||picks.length)return;
+      const i=addressChoice;renderLookup(matches);
+      if(!results.children[i])appendResults();
+      results.children[i]?.focus();
+    };
+    results.addEventListener('mousedown',e=>{
+      if(doc.activeElement===input&&e.target.closest('.study-notes__address-candidate'))e.preventDefault();
+    });
+    results.addEventListener('keydown',e=>{
+      const button=e.target.closest('.study-notes__address-candidate');
+      if(!button||!['ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();
+      const n=listed,i=(+button.dataset.i+(e.key==='ArrowUp'?-1:1)+n)%n;
+      results.children[i]?.focus();
+    });
     function enter(){
       if(picks.length||!input.value.trim())return;
-      if(!editing){search();return;}
+      if(addressCursor>=0&&!browseStream.active){chooseAddress(addressCursor);return;}
+      if(!editing){
+        if(matches.some(result=>result.addressInput)){if(browseStream.active)focusContext();return;}
+        search();return;
+      }
       // The pencil field is address-only; Enter is equivalent to picking
       // its exact address, never an inferred/ambiguous candidate.
-      const found=parsed();
+      const found=parsed(),quick=unique(matches);
       if(found?.length===1)insert(found);
-      else if(!suggested().length)showInvalid();
+      else if(quick?.addressInput)insert([quick.span||quick.chapter||quick.anchors[0]]);
+      else if(!matches.length)showInvalid();
     }
     input.addEventListener('paste',()=>{pasted=true;});
     input.addEventListener('input',e=>{
@@ -301,8 +347,17 @@
     });
     const submit=e=>{if(e.isComposing||composing||e.keyCode===229)return;e.preventDefault();if(!e.repeat)enter();};
     input.addEventListener('keydown',e=>{
-      if(e.key!=='Enter'||e.isComposing||composing||e.keyCode===229)return;
-      if(e.shiftKey)e.preventDefault();else submit(e);
+      if(e.isComposing||composing||e.keyCode===229)return;
+      if(e.key==='Enter'){if(e.shiftKey)e.preventDefault();else submit(e);return;}
+      if(picks.length||browseStream.active||!matches.length||!['ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();
+      const n=matches.length;
+      addressCursor=e.key==='ArrowDown'?(addressCursor+1)%n:(addressCursor<=0?n-1:addressCursor-1);
+      if(addressCursor>=listed)appendResults();
+      const b=results.children[addressCursor];
+      for(const [i,el] of [...results.children].entries())el.toggleAttribute('data-address-active',i===addressCursor);
+      status.textContent=n+' 个候选地址 · '+heading(matches[addressCursor]);
+      if(b.offsetTop<results.scrollTop||b.offsetTop+b.offsetHeight>results.scrollTop+results.clientHeight)results.scrollTop=b.offsetTop;
     });
     input.addEventListener('beforeinput',e=>{if(['insertLineBreak','insertParagraph'].includes(e.inputType))submit(e);});
     chooser.addEventListener('keydown',e=>{
@@ -329,9 +384,9 @@
       plus.setAttribute('aria-expanded','true');setLabel(plus,'收起关联选择');plusInk.setAttribute('d','m5 15 7-7 7 7');
       input.placeholder=ref?'输入新的经文地址':'输入经文坐标或搜索关键词';
       input.setAttribute('enterkeyhint',ref?'done':'search');run();
-      if(ref||!win.matchMedia('(pointer:coarse)').matches){
-        input.focus({preventScroll:true});if(ref)input.select();
-      }else plus.focus({preventScroll:true});
+      // Keep focus within the trusted + click. Deferring to a frame, timeout,
+      // or async render can focus the field without opening the iOS keyboard.
+      input.focus({preventScroll:true});if(ref)input.select();
       armIdle();
     }
     plus.onclick=()=>{

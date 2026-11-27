@@ -13,6 +13,8 @@
   const covers=(a,b)=>a.code===b.code&&(a.lo==null||b.lo==null?key(a)===key(b):startOf(a)<=startOf(b)&&endOf(a)>=endOf(b));
   const label=(book,{ch,lo,hi=lo,endCh=ch})=>book+' '+ch+(lo==null?'章':':'+lo+
     (endCh!==ch?'–'+endCh+':'+hi:lo===hi?'':'–'+hi));
+  const lookupLabel=(book,{anchors:[ref],chapter,chapterEnd})=>chapterEnd>ref.ch?
+    book+' '+ref.ch+'–'+chapterEnd+'章':label(book,chapter||ref);
   const loc=({code,ch,lo,hi=lo})=>({code,ref:ch+':'+lo+(hi===lo?'':'-'+hi)});
   const number=String.raw`(?:\d{1,3}|[〇零一二两兩三四五六七八九十百]{1,6})`;
   const ord=String.raw`(?:第\s*)?(`+number+')';
@@ -281,8 +283,8 @@
       return suffix?suggest(value+suffix,options):single;
     }
     function finder(value,options={}){
-      // Quick coordinates are an affordance of the bottom-bar finder, not a
-      // new grammar for saved note addresses or inline quotations.
+      // Both live lookup fields use these quick coordinates. They do not
+      // extend the grammar for persisted note objects or prose citations.
       const text=normalize(value).replace(pickEnd,'').replace(/^(?:参见|参|见)\s*/u,'');
       for(let i=Math.min(text.length-1,40);i>0;i--){
         const tail=text.slice(i).trimStart(),spaced=spacedAddress.exec(tail),
@@ -291,7 +293,7 @@
         const name=text.slice(0,i).trim().replace(/^[《〈]|[》〉]$/gu,''),
           book=bookCode(name),codes=book?[book]:bookChoices(name);
         if(!codes.length)continue;
-        const result=(ref,chapterEnd)=>({anchors:[ref],partial:!book,addressInput:true,chapterEnd});
+        const result=(ref,chapterEnd,span)=>({anchors:[ref],partial:!book,addressInput:true,chapterEnd,span});
         if(spaced){
           const [ch,lo,hi]=spaced.slice(1).map(decimal);
           return codes.flatMap(code=>{
@@ -303,7 +305,12 @@
           const ch=decimal(chapters[1]),last=decimal(chapters[2]);
           return codes.flatMap(code=>{
             const from=checked(code,ch),to=checked(code,last);
-            return from&&to&&last>=ch?[result(from,last)]:[];
+            if(!from||!to||last<ch)return [];
+            if(last===ch)return [result(from,last)];
+            const chunks=scripture.index(code).chunks,
+              lo=chunks.find(c=>c.chapter===ch).rows[0].lo,hi=chunks.find(c=>c.chapter===last).rows.at(-1).hi,
+              span=checked(code,ch,lo,hi,last);
+            return span?[result(from,last,span)]:[];
           });
         }
         // A chapter that already exists keeps its previous meaning. Otherwise
@@ -338,5 +345,5 @@
     return {objects:canonical,key:canonical.map(key).join('|'),title:title('short'),fullTitle:title('name'),refs,
       anchorObjects:canonical.map(encode)};
   }
-  return {create,key,label,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe};
+  return {create,key,label,lookupLabel,covers,MAX,MAX_PLACES,allowsPlaces,ending,encode,decode,describe};
 });

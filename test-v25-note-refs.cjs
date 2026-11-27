@@ -39,8 +39,10 @@ for(const [value,expected] of [
   assert.deepEqual(finder(value),expected,value);
 }
 for(const raw of ['创316','创3 16','创3 16 17','创31-32']){
-  assert.deepEqual(located(raw),[],raw+' shorthand is only for the bottom-bar finder');
+  assert.deepEqual(located(raw),[],raw+' shorthand does not change the original note-object or quotation grammar');
 }
+assert.equal(key(parser.finder('创31-32')[0].span),'GEN.31:1-32:32','a full chapter range uses the existing cross-chapter note object');
+assert.equal(key(parser.finder('创3 16',{editing:true})[0].anchors[0]),'GEN.3:16-16','the note replacement field uses the same grammar');
 for(const [spoken,ref] of [
   ['箴言书3:5','PRO.3:5-5'],['诗篇书23','PSA.23'],['雅歌书2:1','SNG.2:1-1'],
   ['马太5:3','MAT.5:3-3'],['路加2:1','LUK.2:1-1'],['约翰3:16','JHN.3:16-16'],['馬可１章１節','MRK.1:1-1'],

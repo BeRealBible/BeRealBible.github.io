@@ -52,7 +52,7 @@
     trigger.append(tab.querySelector('svg').cloneNode(true),toolLabel);
     document.querySelector('.rh-rail').prepend(trigger);
     for(const el of [trigger,tab])el.setAttribute('aria-controls',panel.id);
-    const {create,label}=root.V25NoteRefs;
+    const {create,lookupLabel}=root.V25NoteRefs;
     const addresses=create({...citationLinks,scripture});
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',queryKind='locate',saveTimer,geom='',wide=false;
     let located=null,addressChoice=null,addressCursor=-1;
@@ -362,7 +362,7 @@
         const r=results[i],b=document.createElement('button'),hit=document.createElement('span'),
           ref=document.createElement('strong'),excerpt=document.createElement('span');
         b.type='button';b.dataset.i=i;ref.textContent=r.heading||(r.book+' '+(r.display||r.ref));
-        if(!note&&queryKind==='locate'){
+        if(queryKind==='locate'){
           b.className='vf-address-candidate';b.setAttribute('aria-label','定位到 '+ref.textContent);b.setAttribute('aria-description',r.text);
         }
         words.paint(excerpt,r.text,results.terms);
@@ -376,14 +376,13 @@
       return lookup(raw,within,options);
     }
     function locate(raw){
-      const options={pasted:true},found=note?addresses.locateOne(raw,options):addresses.finder(raw,options);
-      return found.flatMap(({anchors:[ref],partial,addressInput,chapterEnd,chapter})=>{
-        const locations=addresses.locations(ref),first=scripture.resolve(locations[0])[0];
-        const heading=first&&(chapterEnd>ref.ch?first.name+' '+ref.ch+'–'+chapterEnd+'章':label(first.name,(!note&&chapter)||ref));
-        return first?[{...first,locations,heading,partial,addressInput,address:ref}]:[];
+      return addresses.finder(raw,{pasted:true}).flatMap(candidate=>{
+        const {anchors:[ref],partial,addressInput,span}=candidate,
+          locations=addresses.locations(note&&span?span:ref),first=scripture.resolve(locations[0])[0];
+        return first?[{...first,locations,heading:lookupLabel(first.name,candidate),partial,addressInput,address:ref}]:[];
       });
     }
-    const isAddressList=()=>!note&&queryKind==='locate'&&results.length>0&&!located;
+    const isAddressList=()=>queryKind==='locate'&&results.length>0&&!located;
     function renderAddresses(){
       contextStream.clear();list.replaceChildren();scroll.scrollTop=0;
       located=queryKind==='locate'?(results[addressChoice]??(results.length===1&&!results[0].partial?results[0]:null)):null;
@@ -393,7 +392,7 @@
       if(located){contextStream.start(scripture.index(located.code).rows,located.order);more.hidden=true;}
       else append();
       status.textContent=!q?'':queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):
-        note?'':located?located.heading:isAddressList()?results.length+' 个候选地址':'';
+        located?located.heading:isAddressList()?results.length+' 个候选地址':'';
     }
     function chooseAddress(i){
       if(!isAddressList()||!results[i])return;
@@ -452,7 +451,7 @@
     function submit(e){
       e.preventDefault();if(composing||e.isComposing||e.keyCode===229||e.repeat||!input.value.trim())return;
       if(isAddressList()&&addressCursor>=0){chooseAddress(addressCursor);return;}
-      if(!note&&queryKind==='locate'&&results.some(r=>r.addressInput)){
+      if(queryKind==='locate'&&results.some(r=>r.addressInput)){
         if(located){input.blur();landOnResult();}
         return;
       }
