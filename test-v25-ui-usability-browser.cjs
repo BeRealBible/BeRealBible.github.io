@@ -15,7 +15,7 @@ const url=new URL(entry||origin);url.searchParams.set('ref','GEN.1:1');
       const shortTouch=touch&&width>=640&&height<=540,compact=width<640||shortTouch;
       const ctx=await browser.newContext({viewport:{width,height},isMobile:touch,hasTouch:touch,reducedMotion:'reduce'});
       try{
-        if(shortTouch)await ctx.addInitScript(()=>{
+        if(touch&&compact)await ctx.addInitScript(()=>{
           const native=window.visualViewport,vv=new EventTarget();let keyboardHeight=0;
           for(const key of ['width','scale','offsetLeft','offsetTop','pageLeft','pageTop'])
             Object.defineProperty(vv,key,{get:()=>native[key]});
@@ -91,6 +91,31 @@ const url=new URL(entry||origin);url.searchParams.set('ref','GEN.1:1');
           assert.ok(field.height>=32&&field.width>=85&&field.text>=13.9,JSON.stringify(field));
         }
         await shot('finder-hint');
+        if(touch&&compact){
+          const visibleHeight=shortTouch?180:Math.floor(height*.61),
+            fieldTop=()=>input.evaluate(el=>el.getBoundingClientRect().top);
+          await page.evaluate(h=>window.setTestKeyboard(h),visibleHeight);
+          await input.fill('创316');
+          const guess=finder.getByRole('button',{name:'定位到 创世记 3:16',exact:true});
+          await guess.waitFor();const before=await fieldTop();
+          assert.ok(await finder.evaluate((el,h)=>{
+            const r=el.getBoundingClientRect(),b=el.querySelector('.vf-address-candidate'),t=b.getBoundingClientRect(),
+              x=t.x+t.width/2,y=t.y+t.height/2;
+            return r.top>=0&&r.bottom<=h&&t.height>=44&&b.contains(document.elementFromPoint(x,y));
+          },visibleHeight),'candidates and their real touch area stay above the simulated keyboard');
+          await shot('finder-address-candidates');
+          await input.fill('创3 16 17');
+          await finder.getByRole('button',{name:'打开经文：创世记 3:16',exact:true}).waitFor();
+          assert.equal(await fieldTop(),before,'candidate count must not shift the input while the keyboard is open');
+          await shot('finder-address-context');
+          await input.fill('创316');await activate(guess);
+          assert.ok(!await input.evaluate(el=>el===document.activeElement),'an explicit address choice releases editing focus');
+          await page.evaluate(()=>window.setTestKeyboard(0));
+          await finder.getByRole('button',{name:'打开经文：创世记 3:16',exact:true}).waitFor();
+          assert.ok(!await page.getByRole('complementary',{name:'搜索结果经文浮窗'}).isVisible());
+          assert.deepEqual(await camera(),pose,'address choice does not move the main book');
+          await input.focus();
+        }
         if(shortTouch){
           await page.evaluate(()=>window.setTestKeyboard(180));
           await input.fill('创造');await submit.waitFor();

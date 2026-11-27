@@ -37,6 +37,52 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         assert.ok(!await scopes.isVisible()&&!await context.isVisible(),'opening shows neither scopes nor a passage');
         assert.ok(!await clear.isVisible()&&!await finder.locator('#vf-close').isVisible()&&await end.isVisible());
         const main=await pose(),address='创世记 5:15';
+        const candidatePreview=page.getByRole('complementary',{name:'搜索结果经文浮窗'}),
+          candidate=finder.locator('#vf-list button strong'),addressBack=finder.getByRole('button',{name:'返回候选'});
+        await input.fill('创316');
+        assert.deepEqual(await candidate.allTextContents(),['创世记 3:16','创世记 31:6']);
+        const guess=finder.getByRole('button',{name:'定位到 创世记 31:6',exact:true});
+        if(touch){
+          assert.ok(await guess.evaluate(el=>{
+            const r=el.getBoundingClientRect(),p=el.closest('#verse-finder').getBoundingClientRect();
+            return r.height>=44&&p.width>=window.innerWidth-12&&el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
+          }),'both phone candidates have a full, unscaled touch target');
+          await activate(guess);
+          assert.ok(await input.evaluate(el=>document.activeElement!==el),'selecting a candidate releases the mobile keyboard');
+        }else{
+          await input.press('Enter');
+          assert.ok(!await context.isVisible()&&!await scopes.isVisible(),'no candidate is selected by an unqualified Enter');
+          await input.press('ArrowDown');await input.press('ArrowDown');await input.press('Enter');
+        }
+        const chosen=context.locator('[data-ref="31:6"]'),nearby=context.locator('[data-ref="31:7"]');
+        await chosen.waitFor();
+        assert.equal(await input.inputValue(),'创316');
+        assert.ok(!await candidatePreview.isVisible()&&!await scopes.isVisible());
+        assert.equal(await chosen.getAttribute('data-current'),'');
+        await activate(nearby);await candidatePreview.waitFor();
+        await candidatePreview.locator('[data-verse-id="GEN.31:7"][data-cited]').waitFor();
+        assert.deepEqual(await pose(),main,'neither address choice nor the inline verse changes the main book');
+        await activate(candidatePreview.getByRole('button',{name:'返回搜索结果'}));
+        await chosen.waitFor();
+        await activate(addressBack);
+        assert.deepEqual(await candidate.allTextContents(),['创世记 3:16','创世记 31:6']);
+
+        for(const [typed,ref,heading] of [
+          ['创3 16','3:16','创世记 3:16'],['创3 16 17','3:16','创世记 3:16–17'],
+          ['创3132','31:32','创世记 31:32'],['创31-32','31:1','创世记 31–32章'],['创31','31:1','创世记 31章']
+        ]){
+          await input.fill(typed);
+          await context.locator('[data-ref="'+ref+'"]').waitFor();
+          assert.equal(await finder.locator('#vf-status').textContent(),heading);
+          assert.ok(!await addressBack.isVisible()&&!await candidatePreview.isVisible()&&!await scopes.isVisible(),typed);
+          if(typed==='创3 16 17'){
+            assert.equal(await context.locator('[data-ref="3:17"]').getAttribute('data-current'),'');
+            await activate(context.locator('[data-ref="3:16"]'));await candidatePreview.waitFor();
+            await candidatePreview.locator('[data-verse-id="GEN.3:16"][data-cited]').waitFor();
+            assert.equal(await candidatePreview.locator('[data-verse-id="GEN.3:17"][data-cited]').count(),0,'clicking an individual verse opens only that verse as cited');
+            await activate(candidatePreview.getByRole('button',{name:'返回搜索结果'}));
+          }
+        }
         for(const [spoken,standard] of [
           ['箴言书3:5','箴言 3:5'],['马太5:3','马太福音 5:3'],['路德1:16','路得记 1:16'],['列王上3:9','列王纪上 3:9']
         ]){
@@ -44,11 +90,12 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
           await context.getByRole('button',{name:'打开经文：'+standard,exact:true}).waitFor();
         }
         await input.fill('列王2:3');
-        const candidate=finder.locator('#vf-list button strong');
         assert.deepEqual(await candidate.allTextContents(),['列王纪上 2:3','列王纪下 2:3']);
         await input.press('Space');assert.equal(await input.inputValue(),'列王2:3 ');
-        const candidatePreview=page.getByRole('complementary',{name:'搜索结果经文浮窗'});
-        await activate(finder.getByRole('button',{name:/列王纪下 2:3/}));
+        await activate(finder.getByRole('button',{name:'定位到 列王纪下 2:3',exact:true}));
+        const selectedKing=context.getByRole('button',{name:'打开经文：列王纪下 2:3',exact:true});
+        await selectedKing.waitFor();assert.ok(!await candidatePreview.isVisible());
+        await activate(selectedKing);
         await candidatePreview.waitFor();
         await candidatePreview.locator('[data-verse-id="2KI.2:3"][data-cited]').waitFor();
         assert.match(await candidatePreview.locator('.compare-slip__title').getAttribute('aria-label'),/列王纪下/);
@@ -128,8 +175,8 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
         assert.deepEqual(await pose(),main,'opening a toolbar result keeps the main spread untouched');
         await activate(preview.getByRole('button',{name:'返回搜索结果'}));await input.waitFor();
         assert.equal(await input.inputValue(),'何西阿2 ');
-        await enter();await scopes.waitFor();
-        assert.ok(!await preview.isVisible(),'even a valid address uses keyword search on Enter');
+        await input.focus();await enter();
+        assert.ok(await context.isVisible()&&!await preview.isVisible()&&!await scopes.isVisible(),'Enter on a coordinate keeps the contextual reader without opening a window');
         await input.fill('创造');
         assert.ok(!await scopes.isVisible()&&!await context.isVisible());
         assert.equal(await finder.locator('#vf-list button').count(),0);

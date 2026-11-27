@@ -55,12 +55,12 @@
 <link rel="preload" as="image" id="v25-binding-grain" href="v25/binding-goatskin.webp?v=index-25&h=8894ca97e997">
 <link rel="stylesheet" href="v25/opening.css?v=index-25&h=0cae2e78193f">
 <script src="v25/opening.js?v=index-25&h=ef451aae92e9" defer></script>
-<link rel="stylesheet" href="v25/search.css?v=index-25&h=19e5052b0315"><script defer src="v25/address-stream.js?v=index-25&h=c0cc4cf137cc"></script><script defer src="v25/search.js?v=index-25&h=7d080522bdca"></script>
+<link rel="stylesheet" href="v25/search.css?v=index-25&h=9ec841f0adb1"><script defer src="v25/address-stream.js?v=index-25&h=c0cc4cf137cc"></script><script defer src="v25/search.js?v=index-25&h=8e1f8c829bc6"></script>
 <link rel="stylesheet" href="v25/guide.css?v=index-25&h=436284d53c7f"><script defer src="v25/guide.js?v=index-25&h=57b723714983"></script>
 <script defer src="v25/float-selection.js?v=index-25&h=7282c973e407"></script>
 <link rel="stylesheet" href="v25/compare.css?v=index-25&h=5c41f1e3f4f4"><script defer src="v25/compare.js?v=index-25&h=2bea6214a369"></script>
 <script defer src="v25/citation-links.js?v=index-25&h=214ac438aacd"></script><link rel="stylesheet" href="v25/citation-links.css?v=index-25&h=aa3c65478250">
-<link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=12303087d1c5"><script defer src="v25/note-refs.js?v=index-25&h=147e5c373be6"></script><script defer src="v25/notes.js?v=index-25&h=33d018d7b46b"></script><script defer src="v25/note-sync.js?v=index-25&h=7254b27c247b"></script><script defer src="v25/note-ref-editor.js?v=index-25&h=3456f7907150"></script><script defer src="v25/study-qa.js?v=index-25&h=89a0305b9c17"></script>
+<link rel="stylesheet" href="v25/study-qa.css?v=index-25&h=12303087d1c5"><script defer src="v25/note-refs.js?v=index-25&h=3f8b10793948"></script><script defer src="v25/notes.js?v=index-25&h=33d018d7b46b"></script><script defer src="v25/note-sync.js?v=index-25&h=7254b27c247b"></script><script defer src="v25/note-ref-editor.js?v=index-25&h=3456f7907150"></script><script defer src="v25/study-qa.js?v=index-25&h=89a0305b9c17"></script>
 <link rel="stylesheet" href="v25/account.css?v=index-25&h=4413df082824"><script defer src="v25/account-config.js?v=index-25&h=0ec6186e6e1c"></script><script defer src="v25/account.js?v=index-25&h=04e911ece063"></script>
 </head>
 <body data-paper-scene="reading" data-minimal-reader>
@@ -214,7 +214,7 @@
 <aside id="verse-finder" aria-label="定位搜索框" hidden>
 <header class="vf-head"><form id="vf-form" role="search"><span class="vf-field"><span class="vf-entry"><input type="search" id="vf-input" aria-label="定位搜索框" enterkeyhint="search" autocomplete="off" placeholder="输入经文坐标或搜索关键词"></span><button id="vf-clear" type="button" aria-label="清空输入" title="清空输入" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12m0-12L6 18"/></svg></button></span></form><button id="vf-close" type="button" aria-label="关闭检索笺" title="关闭检索笺" hidden>×</button>
 <div id="vf-scopes" role="group" aria-label="检索范围" hidden><button type="button" id="vf-all" aria-pressed="true">全书</button><button id="vf-group" type="button" aria-expanded="false" aria-controls="vf-groups">分类</button><button id="vf-pick-book" type="button" aria-expanded="false" aria-controls="vf-groups">书卷</button></div>
-<p id="vf-status" role="status"></p></header>
+<div class="vf-status-line"><p id="vf-status" role="status"></p><button id="vf-address-back" type="button" hidden>返回候选</button></div></header>
 <div id="vf-groups" role="group" aria-label="书卷分类" hidden></div>
 <div id="vf-scroll"><div id="vf-assist" hidden><p id="vf-assist-copy"></p><button id="vf-keyword-search" type="submit" form="vf-form" hidden>搜关键词</button><button id="vf-widen-search" type="button" hidden>扩到全书</button></div><div id="vf-list"></div><div id="vf-context" role="region" aria-label="快速定位经文" hidden></div><button id="vf-more" hidden>更多 ↓</button></div>
 <footer class="vf-foot"><button id="vf-origin">↶ 回到起读处</button><button id="vf-end">结束检索</button></footer></aside>

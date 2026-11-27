@@ -23,6 +23,24 @@ assert.ok(located('撒母耳').length>1&&located('撒母耳').every(([,partial])
 assert.deepEqual(located('何西阿2'),[['HOS.2:1-1',false]]);
 assert.equal(key(parser.locateOne('何西阿2')[0].chapter),'HOS.2','the first verse and whole chapter can be offered separately');
 assert.deepEqual(located('王上1:53–2:3。'),[['1KI.1:53-2:3',false]]);
+const finder=value=>parser.finder(value,{pasted:true}).map(({anchors:[ref],partial,chapterEnd})=>[key(ref),!!partial,chapterEnd??null]);
+for(const [value,expected] of [
+  ['创316',[['GEN.3:16-16',false,null],['GEN.31:6-6',false,null]]],
+  ['创3132',[['GEN.31:32-32',false,null]]],['创31',[['GEN.31',false,null]]],
+  ['创3 16',[['GEN.3:16-16',false,null]]],['創世記　３　１６　１７',[['GEN.3:16-17',false,null]]],
+  ['创三 十六',[['GEN.3:16-16',false,null]]],['创3 16-17',[['GEN.3:16-17',false,null]]],
+  ['创3 1 2',[['GEN.3:1-2',false,null]]],['创31 32',[['GEN.31:32-32',false,null]]],
+  ['创31-32',[['GEN.31',false,32]]],['创第31章至32章',[['GEN.31',false,32]]],
+  ['诗119105',[['PSA.119:105-105',false,null]]],['约翰2书1 6',[['2JN.1:6-6',false,null]]],
+  ['列王2 3',[['1KI.2:3-3',true,null],['2KI.2:3-3',true,null]]],
+  ['列王23 1',[['2KI.23:1-1',true,null]]],['王上1:53–2:3。',[['1KI.1:53-2:3',false,null]]],
+  ...['创31617','创32-31','创31-51','创3 17 16','创3 16 999','创1:1，创1:3','创造','316'].map(value=>[value,[]])
+]){
+  assert.deepEqual(finder(value),expected,value);
+}
+for(const raw of ['创316','创3 16','创3 16 17','创31-32']){
+  assert.deepEqual(located(raw),[],raw+' shorthand is only for the bottom-bar finder');
+}
 for(const [spoken,ref] of [
   ['箴言书3:5','PRO.3:5-5'],['诗篇书23','PSA.23'],['雅歌书2:1','SNG.2:1-1'],
   ['马太5:3','MAT.5:3-3'],['路加2:1','LUK.2:1-1'],['约翰3:16','JHN.3:16-16'],['馬可１章１節','MRK.1:1-1'],

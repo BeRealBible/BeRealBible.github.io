@@ -110,6 +110,32 @@
 #verse-finder[data-layout=narrow]:not([data-note-search]) #vf-scopes button{min-height:29px}
 #verse-finder[data-layout=narrow] #vf-assist{font-size:13px}
 
+/* Address disambiguation stays inside the locator, separate from keyword hits. */
+#verse-finder .vf-status-line{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:7px;min-width:0}
+#verse-finder .vf-status-line:has(#vf-status:empty):not(:has(#vf-address-back:not([hidden]))){display:none}
+#vf-address-back{flex:none;min-height:28px;padding:0 4px;color:#775338;font:12px/1.2 var(--ui,system-ui,sans-serif)}
+#verse-finder #vf-list .vf-address-candidate{position:relative;min-height:42px;padding:4px 18px 4px 6px}
+#verse-finder #vf-list .vf-address-candidate::after{content:'›';position:absolute;right:5px;top:50%;transform:translateY(-50%);color:#775338;font-size:17px}
+#verse-finder #vf-list .vf-address-candidate .vf-hit{display:block}
+#verse-finder #vf-list .vf-address-candidate :is(strong,.vf-hit > span){display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#verse-finder #vf-list .vf-address-candidate strong{font:600 14px/1.38 var(--ui,system-ui,sans-serif);color:#793d2b}
+#verse-finder #vf-list .vf-address-candidate .vf-hit > span{font:12px/1.42 var(--serif)}
+#verse-finder #vf-list .vf-address-candidate[data-address-active]{background:#dfcda86b;box-shadow:inset 2px 0 #99754f}
+@media(hover:hover){#verse-finder #vf-list .vf-address-candidate:hover{background:#dfcda86b}}
+#verse-finder[data-docked]{border-radius:8px 8px 3px 3px}
+#verse-finder[data-docked] .vf-head{padding:6px 9px 0;flex:none}
+#verse-finder[data-docked] #vf-scroll{flex:1 1 auto;padding-inline:9px}
+#verse-finder[data-docked] .vf-foot{flex:none;padding-inline:9px}
+#verse-finder[data-docked]:not([data-note-search]) .vf-field{min-height:44px}
+#verse-finder[data-docked]:not([data-note-search]) #vf-input{position:static;height:44px;transform:none;width:0;padding:0 8px;font-size:16px}
+#verse-finder[data-docked] #vf-clear{flex-basis:44px}
+#verse-finder[data-docked] #vf-list .vf-address-candidate{min-height:48px;padding-block:5px}
+#verse-finder[data-docked] #vf-list .vf-address-candidate strong{font-size:15px}
+#verse-finder[data-docked] #vf-list .vf-address-candidate .vf-hit > span{font-size:13px}
+#verse-finder[data-docked] #vf-address-back{min-height:44px}
+#verse-finder[data-docked][data-compact] #vf-address-back{min-height:34px}
+#verse-finder[data-docked] #vf-context .compare-slip__paragraph{font-size:15px}
+
 /* No right-hand menu in the minimal reader. Give its former reserve (and the
    desktop max-width gutter) back to the scrollable history strip. */
 .paper-immersive body[data-minimal-reader] #reading-history{

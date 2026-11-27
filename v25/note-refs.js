@@ -33,6 +33,8 @@
   const singleVerse=new RegExp('^'+verse+'$','u');
   const rangeSplit=new RegExp(gap,'u');
   const verseRange=new RegExp('^'+verse+'(?:'+gap+verse+')?$','u');
+  const spacedAddress=new RegExp('^('+number+')\\s+('+number+')(?:(?:\\s+|'+gap+')('+number+'))?$','u');
+  const chapterSpan=new RegExp('^'+ord+'\\s*[章篇]?'+gap+ord+'\\s*[章篇]?$','u');
   const positive=n=>Number.isSafeInteger(n)&&n>=1&&n<=999;
   function encode({code,ch,lo,hi=lo,endCh=ch}){
     return lo==null?[code,ch]:endCh===ch?[code,ch,lo,hi]:[code,ch,lo,endCh,hi];
@@ -278,7 +280,51 @@
       // book-name match without a valid completion is only a candidate.
       return suffix?suggest(value+suffix,options):single;
     }
-    return {exact,parse,inspect,locations,segments,suggest,locateOne,completion,togglePick};
+    function finder(value,options={}){
+      // Quick coordinates are an affordance of the bottom-bar finder, not a
+      // new grammar for saved note addresses or inline quotations.
+      const text=normalize(value).replace(pickEnd,'').replace(/^(?:参见|参|见)\s*/u,'');
+      for(let i=Math.min(text.length-1,40);i>0;i--){
+        const tail=text.slice(i).trimStart(),spaced=spacedAddress.exec(tail),
+          chapters=chapterSpan.exec(tail),compact=/^[1-9]\d{1,5}$/u.test(tail);
+        if(!spaced&&!chapters&&!compact)continue;
+        const name=text.slice(0,i).trim().replace(/^[《〈]|[》〉]$/gu,''),
+          book=bookCode(name),codes=book?[book]:bookChoices(name);
+        if(!codes.length)continue;
+        const result=(ref,chapterEnd)=>({anchors:[ref],partial:!book,addressInput:true,chapterEnd});
+        if(spaced){
+          const [ch,lo,hi]=spaced.slice(1).map(decimal);
+          return codes.flatMap(code=>{
+            const ref=checked(code,ch,lo,hi);
+            return ref?[result(ref)]:[];
+          });
+        }
+        if(chapters){
+          const ch=decimal(chapters[1]),last=decimal(chapters[2]);
+          return codes.flatMap(code=>{
+            const from=checked(code,ch),to=checked(code,last);
+            return from&&to&&last>=ch?[result(from,last)]:[];
+          });
+        }
+        // A chapter that already exists keeps its previous meaning. Otherwise
+        // try every split into one chapter and one verse, and never guess spans.
+        const whole=codes.map(code=>checked(code,+tail)).filter(Boolean);
+        if(whole.length)return whole.map(ref=>result(ref));
+        return codes.flatMap(code=>{
+          const refs=[];
+          for(let cut=Math.max(1,tail.length-3);cut<=Math.min(3,tail.length-1);cut++){
+            if(tail[cut]==='0')continue;
+            const ref=checked(code,+tail.slice(0,cut),+tail.slice(cut));
+            if(ref)refs.push(result(ref));
+          }
+          return refs;
+        });
+      }
+      const head=text.split(rangeSplit)[0],
+        addressInput=!!(start(head,undefined,bookCode)||start(head,undefined,bookChoices));
+      return locateOne(value,options).map(result=>({...result,addressInput}));
+    }
+    return {exact,parse,inspect,locations,segments,suggest,locateOne,finder,completion,togglePick};
   }
   function describe(objects,books,parser,plain){
     if(!objects.some(o=>o.endCh>o.ch))return plain(objects);

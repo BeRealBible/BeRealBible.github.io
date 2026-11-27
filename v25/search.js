@@ -42,7 +42,7 @@
   root.V25BookGroups=groups;
   root.mountVerseFinder=({navigate,interrupt,origin,restore,camera,scripture,citationLinks,windows})=>{
     const $=id=>document.getElementById(id),panel=$('verse-finder'),tab=$('vf-tab'),input=$('vf-input'),list=$('vf-list'),scroll=$('vf-scroll'),stage=$('stage'),more=$('vf-more'),passage=$('vf-context');
-    const clear=$('vf-clear'),noteClose=$('vf-close'),end=$('vf-end'),finderName='定位搜索框';
+    const clear=$('vf-clear'),noteClose=$('vf-close'),end=$('vf-end'),status=$('vf-status'),addressBack=$('vf-address-back'),finderName='定位搜索框';
     const assist=$('vf-assist'),assistCopy=$('vf-assist-copy'),keywordSearch=$('vf-keyword-search'),widenSearch=$('vf-widen-search');
     const coarse=root.matchMedia('(pointer: coarse)'),isWide=(w,h)=>w>=640&&(!coarse.matches||h>540);
     stage.parentElement.append(panel,tab); // A sibling of the gesture surface; the book remains interactive.
@@ -55,6 +55,7 @@
     const {create,label}=root.V25NoteRefs;
     const addresses=create({...citationLinks,scripture});
     let mode='off',start=null,lookup,results=[],seen=new Set(),current=-1,anchor=null,q='',queryKind='locate',saveTimer,geom='',wide=false;
+    let located=null,addressChoice=null,addressCursor=-1;
     let scope='all',trails={},note=null,facet=null,passagePick=null;
     const contextStream=root.V25AddressStream.create({viewport:scroll,host:passage,renderVerse:verseRow});
     const scopes=$('vf-scopes'),groupButton=$('vf-group'),choices=$('vf-groups'),allButton=$('vf-all'),pickBook=$('vf-pick-book'),
@@ -95,13 +96,16 @@
       pickBook.textContent=local?(bookNames.get(code)||'书卷'):'书卷';pickBook.setAttribute('aria-label',local?'指定书卷：'+bookNames.get(code):'指定书卷');
       pickBook.toggleAttribute('data-current',local);
     }
-    const trail=()=>({current,seen:[...seen],anchor,count:list.children.length,passage:contextStream.snapshot(),passagePick});
+    const trail=()=>({current,seen:[...seen],anchor,count:list.children.length,passage:contextStream.snapshot(),passagePick,addressChoice});
     function applyTrail(t){
       if(!t)return;
+      if(isAddressList()&&Number.isInteger(t.addressChoice)&&results[t.addressChoice]){
+        addressChoice=t.addressChoice;renderAddresses();layout();
+      }
       if(contextStream.active){
         contextStream.restore(t.passage);
         if(Number.isInteger(t.passagePick))passagePick=t.passagePick;
-        else if(t.current===0)passagePick=results[0].order; // Previously an exact address was the first list row.
+        else if(t.current===0)passagePick=located.order; // Previously an exact address was the first list row.
         return;
       }
       current=results[t.current]?t.current:-1;seen=new Set((t.seen||[]).filter(i=>results[i]));append(Math.max(0,t.count-list.children.length));Array.from(list.children).forEach(decorate);
@@ -140,7 +144,7 @@
     let mount=null;
     function layout(){
       const c=camera();if(!c.w||!c.h)return;
-      const desktop=c.w>=640,next=isWide(c.w,c.h),vv=root.visualViewport,margin=4,
+      const vv=root.visualViewport,desktop=c.w>=640,next=isWide(c.w,Math.min(c.h,vv?.height||c.h)),margin=4,
         side=c.side===0?'right':'left',right=side==='right',
         rawX=c.x+(right?960:0)*c.scale,rawY=c.y+72*c.scale;
       // On mobile the IME may resize just the visual viewport, resize the
@@ -155,9 +159,9 @@
         const top=clamp((vv?.offsetTop||0)-stage.getBoundingClientRect().top,0,c.h)+8;
         const h=Math.max(70,Math.min(480,(vv?.height||c.h)-20));
         panel.hidden=false;tab.hidden=true;panel.dataset.layout=desktop?'wide':'narrow';
-        panel.removeAttribute('data-compact');panel.style.setProperty('--vf-density','1');
+        panel.removeAttribute('data-compact');panel.removeAttribute('data-docked');panel.style.setProperty('--vf-density','1');
         Object.assign(panel.style,{transform:'none',left:'8px',top:top+'px',
-          width:Math.min(c.w-16,desktop?348:290)+'px',maxHeight:h+'px'});
+          width:Math.min(c.w-16,desktop?348:290)+'px',height:'',maxHeight:h+'px'});
         contextStream.layout();wide=desktop;return;
       }
       if(mode==='off')mount=null;
@@ -172,15 +176,18 @@
       const roomRight=c.w-margin-px,roomLeft=px-margin;
       const toRight=roomRight>=roomLeft,below=visibleBottom-margin-py,above=py-visibleTop-margin;
       const down=below>=above,roomW=Math.max(1,toRight?roomRight:roomLeft),roomH=Math.max(1,down?below:above);
-      // Follow the paper anchor, not its magnification. The locator is a
-      // screen-sized tool; only a cramped touch viewport can shrink it.
-      const z=next?1:Math.min(1,roomW/147,roomH/120);
-      const w=Math.min(next?306:233,roomW/z,next?(c.w/2-10)/z:c.w*.71/z),
-        height=Math.min(next?432:(mode==='browse'&&results.length?280:242),roomH/z),
-        show=mode==='browse'||(mode==='read'&&next),g=[next,w,height,z].join(':');
+      // On a narrow or short touch viewport the editing surface is docked
+      // above the viewport edge/keyboard, not shrunk to fit a paper corner.
+      const region=next?null:stage.getBoundingClientRect(),
+        visibleLeft=next?0:clamp((vv?.offsetLeft||0)-region.left,0,c.w),
+        visibleRight=next?c.w:clamp(vv?vv.offsetLeft+vv.width-region.left:c.w,visibleLeft,c.w),
+        w=next?Math.min(306,roomW,c.w/2-10):Math.max(1,Math.min(460,visibleRight-visibleLeft-2*margin)),
+        height=next?Math.min(432,roomH):Math.min(246,avail-2*margin),
+        show=mode==='browse'||(mode==='read'&&next),g=[next,w,height].join(':');
       if(!contextStream.active&&!anchor&&!panel.hidden)remember();
       const wasHidden=panel.hidden;
       panel.hidden=!show;tab.hidden=mode==='off'||mode==='preview'||show;panel.dataset.layout=next?'wide':'narrow';
+      panel.toggleAttribute('data-docked',!next);
       trigger.setAttribute('aria-expanded',String(show));tab.setAttribute('aria-expanded',String(show));
       function place(node,scale,bounded=false){
         const left=toRight?px:px-node.offsetWidth,top=down?py:py-node.offsetHeight;
@@ -192,7 +199,10 @@
       }
       if(show){
         panel.style.setProperty('--vf-density','1');
-        panel.style.width=w+'px';panel.style.maxHeight=height+'px';panel.toggleAttribute('data-compact',height<242||w<155);place(panel,z);
+        panel.style.width=w+'px';panel.style.height=next?'':height+'px';
+        panel.style.maxHeight=height+'px';panel.toggleAttribute('data-compact',height<242||w<155);
+        if(next)place(panel,1);
+        else Object.assign(panel.style,{left:(visibleLeft+(visibleRight-visibleLeft-w)/2)+'px',top:(visibleBottom-margin-height)+'px',transform:'none'});
         contextStream.layout();
         if(g!==geom||wasHidden)restoreRow();
       }else if(!tab.hidden){
@@ -221,7 +231,7 @@
         if(hx<0||hx>c.w||hy<0||hy>c.h)mount=null;
       }
       scopeUI();interrupt();root.PaperImmersion?.hideChrome();setMode('browse');
-      if(edit)input.focus({preventScroll:true});else if(current>=0&&anchor?.i===current)landOnResult();else end.focus({preventScroll:true});
+      if(edit)input.focus({preventScroll:true});else if(contextStream.active||current>=0&&anchor?.i===current)landOnResult();else end.focus({preventScroll:true});
     }
     function tuck(){if(!panel.hidden){input.blur();setMode('tucked');stage.focus({preventScroll:true});}}
     trigger.onclick=()=>open();tab.onclick=()=>open();noteClose.onclick=()=>{if(note)closeNote(note.owner,true);};
@@ -241,13 +251,13 @@
       if(panel.hidden)return;
       if(contextStream.active){clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);return;}
       if(restoredBox&&boxKey()!==restoredBox){restoreRow();return;}
-      const wideNow=note?stage.clientWidth>=640:isWide(stage.clientWidth,stage.clientHeight);
+      const wideNow=note?stage.clientWidth>=640:isWide(stage.clientWidth,Math.min(stage.clientHeight,root.visualViewport?.height||stage.clientHeight));
       if(wide===wideNow&&Math.abs(scroll.scrollTop-restoredTop)>.5){remember();restoredTop=-1;clearTimeout(saveTimer);saveTimer=setTimeout(persist,100);}
     });
     function decorate(b,i){b.toggleAttribute('data-seen',seen.has(i));if(i===current)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');}
     function landOnResult(focus=true){
       if(contextStream.active){
-        if(!panel.hidden&&Number.isInteger(passagePick)&&focus)contextStream.element(passagePick)?.focus({preventScroll:true});
+        if(!panel.hidden&&focus)(contextStream.element(passagePick??located.order)||(addressBack.hidden?end:addressBack)).focus({preventScroll:true});
         return;
       }
       const b=list.children[current];if(!b||panel.hidden)return;
@@ -300,8 +310,8 @@
       setMode('browse');
     }
     function previewResult(i,focus=true,inline=false){
-      const found=results[0],neighbor=inline&&found&&scripture.index(found.code)?.rows[i];
-      const r=inline?(found?.order===i?found:neighbor):results[i],b=inline?contextStream.element(i):list.children[i];
+      const neighbor=inline&&located&&scripture.index(located.code)?.rows[i];
+      const r=inline?(note&&located?.order===i?located:neighbor):results[i],b=inline?contextStream.element(i):list.children[i];
       if(!r||!b)return;
       if(inline)passagePick=i;
       else{const prev=current;current=i;seen.add(i);if(list.children[prev])decorate(list.children[prev],prev);decorate(b,i);}
@@ -336,7 +346,10 @@
       const el=document.createElement('span'),number=document.createElement('sup');
       el.className='vf-context__verse';el.dataset.ref=row.ref;el.tabIndex=0;el.setAttribute('role','button');
       el.setAttribute('aria-label','打开经文：'+row.name+' '+row.display);el.setAttribute('aria-description',row.text);
-      el.toggleAttribute('data-current',current);
+      const a=located?.address;
+      const intersects=a?.lo!=null&&(row.ch>a.ch||row.ch===a.ch&&row.hi>=a.lo)&&
+        (row.ch<(a.endCh??a.ch)||row.ch===(a.endCh??a.ch)&&row.lo<=a.hi);
+      el.toggleAttribute('data-current',current||!note&&intersects);
       number.className='compare-slip__ref';number.textContent=row.lo===row.hi?row.lo:row.lo+'–'+row.hi;
       number.setAttribute('aria-hidden','true');el.append(number,document.createTextNode(row.text));
       el.onclick=()=>previewResult(row.order,true,true);
@@ -349,9 +362,12 @@
         const r=results[i],b=document.createElement('button'),hit=document.createElement('span'),
           ref=document.createElement('strong'),excerpt=document.createElement('span');
         b.type='button';b.dataset.i=i;ref.textContent=r.heading||(r.book+' '+(r.display||r.ref));
+        if(!note&&queryKind==='locate'){
+          b.className='vf-address-candidate';b.setAttribute('aria-label','定位到 '+ref.textContent);b.setAttribute('aria-description',r.text);
+        }
         words.paint(excerpt,r.text,results.terms);
-        hit.className='vf-hit';hit.append(ref,document.createTextNode('　'),excerpt);
-        b.append(hit);decorate(b,i);b.onclick=()=>previewResult(i);list.append(b);
+        hit.className='vf-hit';hit.append(ref);if(!b.classList.contains('vf-address-candidate'))hit.append('　');hit.append(excerpt);
+        b.append(hit);decorate(b,i);b.onclick=()=>isAddressList()?chooseAddress(i):previewResult(i);list.append(b);
       }
       more.hidden=list.children.length>=results.length;
     }
@@ -360,12 +376,35 @@
       return lookup(raw,within,options);
     }
     function locate(raw){
-      const found=addresses.locateOne(raw,{pasted:true});
-      return found.flatMap(({anchors:[ref],partial})=>{
+      const options={pasted:true},found=note?addresses.locateOne(raw,options):addresses.finder(raw,options);
+      return found.flatMap(({anchors:[ref],partial,addressInput,chapterEnd,chapter})=>{
         const locations=addresses.locations(ref),first=scripture.resolve(locations[0])[0];
-        return first?[{...first,locations,heading:label(first.name,ref),partial}]:[];
+        const heading=first&&(chapterEnd>ref.ch?first.name+' '+ref.ch+'–'+chapterEnd+'章':label(first.name,(!note&&chapter)||ref));
+        return first?[{...first,locations,heading,partial,addressInput,address:ref}]:[];
       });
     }
+    const isAddressList=()=>!note&&queryKind==='locate'&&results.length>0&&!located;
+    function renderAddresses(){
+      contextStream.clear();list.replaceChildren();scroll.scrollTop=0;
+      located=queryKind==='locate'?(results[addressChoice]??(results.length===1&&!results[0].partial?results[0]:null)):null;
+      passage.hidden=!located;list.hidden=!!located;
+      addressBack.hidden=addressChoice==null;
+      panel.toggleAttribute('data-address-list',isAddressList());
+      if(located){contextStream.start(scripture.index(located.code).rows,located.order);more.hidden=true;}
+      else append();
+      status.textContent=!q?'':queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):
+        note?'':located?located.heading:isAddressList()?results.length+' 个候选地址':'';
+    }
+    function chooseAddress(i){
+      if(!isAddressList()||!results[i])return;
+      addressChoice=i;addressCursor=-1;passagePick=null;anchor=null;
+      input.blur();renderAddresses();layout();landOnResult();persist();
+    }
+    addressBack.onclick=()=>{
+      const i=addressChoice;if(i==null)return;
+      addressChoice=null;passagePick=null;anchor=null;renderAddresses();layout();
+      list.children[i]?.focus();persist();
+    };
     const syncClear=()=>{clear.hidden=!!note||!input.value;};
     function syncAssist(){
       const idle=!q,empty=!!q&&!results.length,keywords=queryKind==='keyword';
@@ -373,7 +412,7 @@
       keywordSearch.hidden=!empty||keywords;
       widenSearch.hidden=!empty||!keywords||scope==='all';
       if(assist.hidden){input.removeAttribute('aria-describedby');return;}
-      assistCopy.textContent=idle?'如「约3:16」可直接定位。也可输入词句搜经文。':
+      assistCopy.textContent=idle?'如「约3 16」或「约3:16」，空格可代替冒号。也可输入词句搜经文。':
         keywords?(scope==='all'?'试试换个短词，或删掉几个字再搜。':'当前范围没有命中，可以扩到全书。'):
           '如果在找关键词，可直接搜索。';
       input.setAttribute('aria-describedby',assistCopy.id);
@@ -382,14 +421,9 @@
       syncClear();
       const next=input.value.trim();
       if(next===q&&queryKind===nextKind&&!force)return;
-      if(q!==next||queryKind!==nextKind)trails={};q=next;queryKind=nextKind;current=-1;seen.clear();anchor=null;passagePick=null;
+      if(q!==next||queryKind!==nextKind)trails={};q=next;queryKind=nextKind;current=-1;seen.clear();anchor=null;passagePick=null;addressChoice=null;addressCursor=-1;
       results=q?(queryKind==='keyword'?find(q,scope,{keywordsOnly:true}):locate(q)):[];
-      contextStream.clear();list.replaceChildren();scroll.scrollTop=0;scopeUI();
-      const located=queryKind==='locate'&&results.length===1&&!results[0].partial?results[0]:null;
-      passage.hidden=!located;list.hidden=!!located;
-      if(located){contextStream.start(scripture.index(located.code).rows,located.order);more.hidden=true;}
-      else append();
-      $('vf-status').textContent=q&&queryKind==='keyword'?(results.truncated?'仅显示前 '+limit+' 节':results.length?results.length+' 节':'未找到经文'):'';
+      scopeUI();renderAddresses();
       syncAssist();
       layout();persist();
     }
@@ -397,6 +431,17 @@
     const locateInput=()=>{closeGroups();refresh(false,'locate');};
     // Keep the editing focus when a pointer uses the in-field clear button.
     clear.onmousedown=e=>{if(document.activeElement===input)e.preventDefault();};
+    list.addEventListener('mousedown',e=>{
+      if(document.activeElement===input&&e.target.closest('.vf-address-candidate'))e.preventDefault();
+    });
+    list.addEventListener('keydown',e=>{
+      if(!isAddressList()||!['ArrowUp','ArrowDown'].includes(e.key))return;
+      const i=Number(e.target.closest('.vf-address-candidate')?.dataset.i);
+      if(!Number.isInteger(i))return;
+      const n=list.children.length;
+      e.preventDefault();
+      list.children[(i+(e.key==='ArrowUp'?-1:1)+n)%n].focus();
+    });
     clear.onclick=()=>{
       if(note)return;
       input.value='';locateInput();input.focus({preventScroll:true});
@@ -406,10 +451,25 @@
     input.addEventListener('compositionend',()=>{composing=false;locateInput();});
     function submit(e){
       e.preventDefault();if(composing||e.isComposing||e.keyCode===229||e.repeat||!input.value.trim())return;
+      if(isAddressList()&&addressCursor>=0){chooseAddress(addressCursor);return;}
+      if(!note&&queryKind==='locate'&&results.some(r=>r.addressInput)){
+        if(located){input.blur();landOnResult();}
+        return;
+      }
       closeGroups();refresh(false,'keyword');
       (list.firstElementChild||(note?noteClose:widenSearch.hidden?input:widenSearch)).focus({preventScroll:true});
     }
-    input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey)submit(e);});
+    input.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&!e.shiftKey){submit(e);return;}
+      if(composing||e.isComposing||e.keyCode===229||!isAddressList()||!['ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();
+      const n=results.length;
+      addressCursor=e.key==='ArrowDown'?(addressCursor+1)%n:(addressCursor<=0?n-1:addressCursor-1);
+      for(const [i,b] of [...list.children].entries())b.toggleAttribute('data-address-active',i===addressCursor);
+      const b=list.children[addressCursor];
+      status.textContent=results.length+' 个候选地址 · '+results[addressCursor].heading;
+      if(b.offsetTop<scroll.scrollTop||b.offsetTop+b.offsetHeight>scroll.scrollTop+scroll.clientHeight)scroll.scrollTop=b.offsetTop;
+    });
     input.addEventListener('beforeinput',e=>{if(['insertLineBreak','insertParagraph'].includes(e.inputType)&&!composing&&!e.isComposing)submit(e);});
     $('vf-form').onsubmit=submit;
     more.onclick=()=>{append();persist();};
