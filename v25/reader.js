@@ -35,6 +35,7 @@
   let startShortcut=null,startShortcutTimer=0,startShortcutSpread=null,startPanFrame=0,startPanKind=null;
   let panPaintFrame=0,coastFrame=0;
   let columnShortcut=null,columnShortcutTimer=0,columnOffer=null,columnGeometry=null,columnReading=null;
+  let watchingShortcuts=false;
   let adaptButton=null,adaptTimer=0,adaptRightEdge=null;
   try{storage=window.PAPER_READER_STORAGE||window.localStorage;saved=JSON.parse(storage?.getItem('paper-bible-position-v1')||'null');}catch{}
   if(saved&&Number.isFinite(saved.spread))spread=clamp(saved.spread&~1,0,MAX_SPREAD);
@@ -180,7 +181,7 @@
     // A translation moves the mounted paper, its cuts and its ink together.
     // Only scale, selection of the current book or a new spread needs the index repainted.
     if(!panOnly)updateIndex();
-    positionStartShortcut();chapters?.reposition?.();finder?.layout();window.dispatchEvent(new Event('v25-camera-changed'));
+    positionReadingShortcuts();chapters?.reposition?.();finder?.layout();window.dispatchEvent(new Event('v25-camera-changed'));
   }
   function measureFit(){const e=envelope(),margin=view.w<560?30:120;return Math.min((view.w-margin)/(e.right-e.left),(view.h-(view.w<560?38:120))/e.bottom);}
   function fit(){interrupt(true);adaptRightEdge=null;focus='fit';fitScale=measureFit();scale=fitScale;constrain();transform();save();}
@@ -232,18 +233,18 @@
     x=view.w<560&&side==='right'?view.w-18-e.right*scale:16+(side==='left'?outer:-480)*scale;
     y=18;const id=positionReadingAnchor(arriving?preciseRef:null);constrain();preferReadingColumn(id);transform();save();
   }
-  function zoom(next,at={x:view.w/2,y:view.h/2}){
+  function zoom(next,at={x:view.w/2,y:view.h/2},textZoom=true){
     searchAnchor=null;interrupt(true);next=clamp(next,fitScale,MAX_SCALE);
     const changed=Math.abs(next-scale)>.00001;
     if(changed)adaptRightEdge=null;
     x=at.x-(at.x-x)/scale*next;y=at.y-(at.y-y)/scale*next;
     scale=next;focus=scale===fitScale?'fit':'custom';constrain();transform();save();
-    if(changed&&flatTouch)offerAdapt();
+    if(changed&&textZoom)offerAdapt();
   }
   // The loose paper overlays live outside the stage; zoom the book, not the web page.
   window.addEventListener('v25-paper-zoom',e=>{
     const {factor,x:ax,y:ay}=e.detail||{},r=stage.getBoundingClientRect();
-    if(!fold&&!jumpState&&Number.isFinite(factor)&&factor>0)zoom(scale*factor,{x:ax-r.left,y:ay-r.top});
+    if(!fold&&!jumpState&&Number.isFinite(factor)&&factor>0)zoom(scale*factor,{x:ax-r.left,y:ay-r.top},false);
   });
   function resize(){
     if(view.w===stage.clientWidth&&view.h===stage.clientHeight)return;
@@ -310,10 +311,10 @@
     }
     startPanFrame=requestAnimationFrame(frame);
   }
-  function panToReadingPoint(targetX,targetY,side,kind,onCommit){
-    focus='custom';adaptRightEdge=null;hideAdapt();
+  function panToReadingPoint(targetX,targetY,side,kind,onCommit,allowDesk=false){
+    focus='custom';adaptRightEdge=allowDesk?{spread,w:view.w,scale,x:targetX}:null;hideAdapt();
     slideCamera(cameraTarget(targetX,targetY),kind,()=>{
-      readingSide=side;onCommit?.();render({reusePages:true});transform();save();advanceHistory();
+      readingSide=side;render({reusePages:true});transform();save();advanceHistory();onCommit?.();
     });
   }
   function bindPaperAction(button,activate,dismiss){
@@ -341,8 +342,8 @@
     for(const type of ['pointercancel','lostpointercapture'])button.addEventListener(type,e=>{if(contact?.id===e.pointerId)contact=null;});
     button.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();dismiss();}});
   }
-  function positionStartShortcut(){
-    if(!startShortcut||startShortcut.hidden)return;
+  function placePaperShortcut(button,order,forward,cornerInset){
+    if(!button||button.hidden)return;
     const rect=stage.getBoundingClientRect(),vv=window.visualViewport;
     const left=Math.max(rect.left,(vv?.offsetLeft||0)+8),right=Math.min(rect.right,(vv?.offsetLeft||0)+(vv?.width||innerWidth)-8);
     const top=Math.max(rect.top,(vv?.offsetTop||0)+8);
@@ -350,18 +351,33 @@
     if(document.documentElement.dataset.readerChrome==='visible'){
       const shelf=$('reading-history')?.getBoundingClientRect();if(shelf?.height)bottom=Math.min(bottom,shelf.top-6);
     }
-    const forward=startShortcut.dataset.corner==='lower-right',w=startShortcut.offsetWidth,h=startShortcut.offsetHeight;
+    const w=button.offsetWidth,h=button.offsetHeight;
     // Treat each visible paper face separately: never land over the gutter,
     // the book tabs, the reading shelf or a clipped part of a page.
-    for(const paper of (forward?[papers[1],papers[0]]:papers)){
+    for(const side of order){
+      const paper=papers[side];
       const p=paper.getBoundingClientRect(),l=Math.max(left,p.left+8),r=Math.min(right,p.right-8),t=Math.max(top,p.top+8),b=Math.min(bottom,p.bottom-8);
       if(r-l<w||b-t<h)continue;
-      const inset=Math.min(34,Math.max(0,(b-t-h)*.18));
-      startShortcut.style.setProperty('--return-x',((forward?r-w:l)-rect.left)+'px');
-      startShortcut.style.setProperty('--return-y',((forward?b-h-inset:t+inset)-rect.top)+'px');
-      startShortcut.style.visibility='';return;
+      const inset=Math.min(cornerInset,Math.max(0,(b-t-h)*.18));
+      button.style.setProperty('--return-x',((forward?r-w:l)-rect.left)+'px');
+      button.style.setProperty('--return-y',((forward?b-h-inset:t+inset)-rect.top)+'px');
+      button.style.visibility='';return;
     }
-    startShortcut.style.visibility='hidden';
+    button.style.visibility='hidden';
+  }
+  function positionReadingShortcuts(){
+    if(startShortcut&&!startShortcut.hidden){
+      const forward=startShortcut.dataset.corner==='lower-right';
+      placePaperShortcut(startShortcut,forward?[1,0]:[0,1],forward,34);
+    }
+    if(columnOffer)placePaperShortcut(columnShortcut,[columnOffer.from.side,1-columnOffer.from.side],columnOffer.direction>0,6);
+  }
+  function watchShortcutBounds(){
+    if(watchingShortcuts)return;
+    watchingShortcuts=true;
+    new MutationObserver(positionReadingShortcuts).observe(document.documentElement,{attributes:true,attributeFilter:['data-reader-chrome']});
+    window.visualViewport?.addEventListener('resize',positionReadingShortcuts);
+    window.visualViewport?.addEventListener('scroll',positionReadingShortcuts);
   }
   function offerStartShortcut(direction){
     const forward=direction>0,pad=18;
@@ -375,9 +391,7 @@
       startShortcut.id='spread-start-shortcut';startShortcut.className='spread-start-shortcut';
       startShortcut.hidden=true;stage.append(startShortcut);
       bindPaperAction(startShortcut,()=>startShortcut.activate?.(),hideStartShortcut);
-      new MutationObserver(positionStartShortcut).observe(document.documentElement,{attributes:true,attributeFilter:['data-reader-chrome']});
-      window.visualViewport?.addEventListener('resize',positionStartShortcut);
-      window.visualViewport?.addEventListener('scroll',positionStartShortcut);
+      watchShortcutBounds();
     }
     hideStartShortcut();startShortcutSpread=spread;startShortcut.hidden=false;
     startShortcut.dataset.corner=forward?'lower-right':'upper-left';
@@ -390,38 +404,49 @@
       hideStartShortcut();columnReading=null;
       panToReadingPoint(targetX(),targetY(),forward?0:1,'spreadStartPan');
     };
-    positionStartShortcut();
+    positionReadingShortcuts();
     startShortcutTimer=setTimeout(hideStartShortcut,4000);
   }
   // Cache actual ink extents per displayed spread, in the same physical
   // coordinates as the camera. Printed blank columns never become stops.
+  function edgeLine(words,end){
+    const edge=words.reduce((a,b)=>(end?b.y+b.h>a.y+a.h:b.y<a.y)?b:a);
+    const mid=edge.y+edge.h/2,tolerance=Math.max(4,edge.h*.55);
+    let top=edge.y,bottom=edge.y+edge.h;
+    for(const word of words){
+      if(Math.abs(word.y+word.h/2-mid)>tolerance)continue;
+      top=Math.min(top,word.y);bottom=Math.max(bottom,word.y+word.h);
+    }
+    return {at:end?bottom:top,half:(bottom-top)/2};
+  }
   function readingColumns(){
     if(columnGeometry?.spread===spread)return columnGeometry.columns;
     const columns=[];
     for(let side=0;side<2;side++){
-      const groups=[{left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity,count:0},
-        {left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity,count:0}];
+      const groups=Array.from({length:2},()=>({left:Infinity,right:-Infinity,top:Infinity,bottom:-Infinity,words:[]}));
       for(const c of Page.commands?.(D.pages[spread+side],spread+side,D.books)||[]){
         if(!c.physicalInk||c.hideHatch||!['body','verse','heading','chapter'].includes(c.role)||
           ![c.x,c.y,c.w,c.h].every(Number.isFinite))continue;
         const lane=c.x+c.w/2<240?0:1,a=groups[lane],offset=side*480;
         a.left=Math.min(a.left,c.x+offset);a.right=Math.max(a.right,c.x+c.w+offset);
         a.top=Math.min(a.top,c.y);a.bottom=Math.max(a.bottom,c.y+c.h);
-        if(c.role==='body')a.count++;
+        if(c.role==='body')a.words.push(c);
       }
-      groups.forEach((a,lane)=>{if(a.count>0)columns.push({...a,id:side*2+lane,side});});
+      groups.forEach(({words,...a},lane)=>{
+        if(words.length)columns.push({...a,id:side*2+lane,side,first:edgeLine(words,false),last:edgeLine(words,true)});
+      });
     }
     columnGeometry={spread,columns};
     return columns;
   }
-  function visibleReadingLane(){
+  function visibleReadingLane(requireVertical=true){
     const centre=view.w/2;
     let best=null;
     for(const lane of readingColumns()){
       const left=x+lane.left*scale,right=x+lane.right*scale;
       const top=Math.max(0,y+lane.top*scale),bottom=Math.min(view.h,y+lane.bottom*scale);
       const visible=Math.min(view.w,right)-Math.max(0,left),distance=Math.abs((left+right)/2-centre);
-      if(bottom<=top||visible<=0)continue;
+      if(visible<=0||requireVertical&&bottom<=top)continue;
       if(!best||visible>best.visible+.5||Math.abs(visible-best.visible)<=.5&&distance<best.distance)
         best={lane,visible,distance,anchorY:clamp(view.h*.45,top,bottom)};
     }
@@ -441,7 +466,7 @@
     const {lane,anchorY}=target,paperY=(anchorY-y)/scale;
     // Screen proportions, not device names: unfolded phones and horizontal
     // touch viewports benefit from a little context to the right of the lane.
-    const wide=view.w>=520&&view.w>=view.h*.68;
+    const wide=wideReading();
     const width=wide?view.w*.66:view.w-12,centre=view.w*(wide?.43:.5);
     searchAnchor=null;
     scale=clamp(width/(lane.right-lane.left),fitScale,MAX_SCALE);
@@ -451,36 +476,54 @@
     adaptRightEdge=wide?{spread,w:view.w,scale,x}:null;
     constrain();preferReadingColumn(lane.id);transform();save();
   }
+  const wideReading=()=>view.w>=520&&view.w>=view.h*.68;
   function offerAdapt(){
     if(!v25||!D.physical||!flatTouch||!view.w||fold||jumpState||chapters?.isOpen()||!visibleReadingLane())return;
     if(!adaptButton){
       adaptButton=document.createElement('button');adaptButton.type='button';
       adaptButton.id='fit-reading-column';adaptButton.className='spread-start-shortcut';
       adaptButton.textContent='自适应';adaptButton.hidden=true;stage.append(adaptButton);
-      bindPaperAction(adaptButton,adaptColumn,hideAdapt);
+      // The button sits on the most common starting point for a new swipe.
+      // Only a still touch activates it; the stage handles drags and pinches.
+      adaptButton.addEventListener('click',e=>{if(!adaptButton.hidden&&e.pointerType!=='touch')adaptColumn();});
+      adaptButton.addEventListener('keydown',e=>{
+        if(e.key==='Escape'){e.preventDefault();e.stopPropagation();hideAdapt();}
+      });
     }
-    clearTimeout(adaptTimer);adaptButton.hidden=false;adaptTimer=setTimeout(hideAdapt,3000);
+    clearTimeout(adaptTimer);adaptButton.hidden=false;adaptTimer=setTimeout(hideAdapt,2000);
   }
   const mobileClippedReading=pointerType=>v25&&D.physical&&flatTouch&&pointerType==='touch'&&focus!=='fit'&&
     (960*scale>view.w+2||704*scale>view.h+2);
-  function mobileReadingColumn(pointerType){
-    if(!mobileClippedReading(pointerType))return null;
+  function columnSwipe(g,dx,dy,pointerType){
+    if(!g.fromPaper||g.indexTarget||!dy||!mobileClippedReading(pointerType)||Math.abs(dy)<1.35*Math.abs(dx))return null;
     const columns=readingColumns();
-    // If all the ink lanes fit horizontally, ordinary vertical reading
-    // already exposes them together and does not need a sideways shortcut.
-    if(!columns.length||(columns.at(-1).right-columns[0].left)*scale<=view.w-12)return null;
-    const visible=columns.filter(c=>c.right*scale+x>16&&c.left*scale+x<view.w-16);
-    if(!visible.length)return null;
+    if(!columns.length)return null;
     const anchored=columnReading?.spread===spread&&columnReading.scale===scale&&Math.abs(columnReading.x-x)<24&&
-      visible.find(c=>c.id===columnReading.id);
-    const lane=anchored||visible.reduce((a,b)=>{
-      const score=c=>Math.abs(c.left*scale+x-18)+(c.right*scale+x<view.w*.25?view.w:0);
-      return score(b)<score(a)?b:a;
-    });
-    // Seeing the last glyph is not the same as seeing the end of the paper.
-    // Leave a visible strip beyond the page so a clipped line can't look final.
-    const pageFoot=y+704*scale,inkFoot=y+lane.bottom*scale;
-    return {next:columns[columns.indexOf(lane)+1],atBottom:pageFoot<=view.h-12&&inkFoot<=view.h-12};
+      columns.find(c=>c.id===columnReading.id&&c.right*scale+x>8&&c.left*scale+x<view.w-8);
+    const from=anchored||visibleReadingLane(false)?.lane;
+    if(!from)return null;
+    if(Math.min(y,g.baseY)+from.top*scale>=view.h||Math.max(y,g.baseY)+from.bottom*scale<=0)return null;
+    const direction=dy<0?1:-1,line=direction>0?from.last:from.first;
+    const needed=direction>0?g.baseY+line.at*scale-view.h:-(g.baseY+line.at*scale);
+    // Use the real finger travel, not momentum or the physical paper clamp.
+    // A short column may end well above the footer; an edge can also clamp
+    // out the extra half-line before the camera itself has moved that far.
+    const excess=Math.abs(dy)-Math.max(0,needed);
+    if(excess<=line.half*scale)return null;
+    const next=columns[columns.indexOf(from)+direction];
+    // No sideways shortcut when all lanes already fit, but the terminal
+    // swipe can still turn the paper (also on a page with only one ink lane).
+    if(next&&(columns.at(-1).right-columns[0].left)*scale<=view.w-12)return null;
+    return {direction,from,next};
+  }
+  function columnPose(lane,direction){
+    const w=(lane.right-lane.left)*scale,wide=wideReading();
+    const pad=clamp(view.w*(wide?.43:.5)-w/2,6,view.w*.33);
+    return {x:pad-lane.left*scale,y:direction>0?18-lane.top*scale:view.h-18-lane.bottom*scale,wide};
+  }
+  function offerReverseColumn(from){
+    const columns=readingColumns(),next=columns[columns.indexOf(from)-1];
+    if(next)offerColumnShortcut({direction:-1,from,next});
   }
   function hideColumnShortcut(){
     clearTimeout(columnShortcutTimer);columnShortcutTimer=0;columnOffer=null;
@@ -488,28 +531,33 @@
     if(document.activeElement===columnShortcut)stage.focus({preventScroll:true});
     columnShortcut.hidden=true;
   }
-  function offerNextColumn(next){
-    if(!next||jumpState||fold)return;
+  function offerColumnShortcut({direction,from,next}){
+    if(jumpState||fold||(!next&&(direction>0?spread>=MAX_SPREAD:spread<=0)))return;
     if(!columnShortcut){
       columnShortcut=document.createElement('button');columnShortcut.type='button';
       columnShortcut.id='next-column-shortcut';columnShortcut.className='spread-start-shortcut';
-      columnShortcut.textContent='栏底 · 下一栏 ↱';columnShortcut.setAttribute('aria-label','已到本栏底部，从下一栏顶部开始阅读');
       columnShortcut.hidden=true;stage.append(columnShortcut);
       const activate=()=>{
         const offer=columnOffer;hideColumnShortcut();
         if(!offer||offer.spread!==spread||fold||jumpState)return;
-        const {next}=offer;
-        const targetY=18-next.top*scale;
-        panToReadingPoint(18-next.left*scale,targetY,next.side,'columnPan',()=>{
-          columnReading={spread,id:next.id,x,scale};
-        });
+        const {direction,next}=offer;
+        window.PaperImmersion?.hideChrome();
+        if(!next){turn(direction,1,'column-nav');return;}
+        const target=columnPose(next,direction);
+        panToReadingPoint(target.x,target.y,next.side,'columnPan',()=>{
+          preferReadingColumn(next.id);
+          if(direction>0)offerReverseColumn(next);
+        },target.wide);
       };
       bindPaperAction(columnShortcut,activate,hideColumnShortcut);
+      watchShortcutBounds();
     }
-    hideStartShortcut();hideColumnShortcut();columnOffer={spread,next};
-    columnShortcut.hidden=false;columnShortcutTimer=setTimeout(hideColumnShortcut,2000);
+    hideStartShortcut();hideColumnShortcut();columnOffer={spread,direction,from,next};
+    columnShortcut.dataset.v25ReadingDirection=direction>0?'forward':'back';
+    columnShortcut.textContent=next?(direction>0?'去下一栏':'回上一栏'):(direction>0?'翻下一页':'翻上一页');
+    columnShortcut.hidden=false;positionReadingShortcuts();
+    columnShortcutTimer=setTimeout(hideColumnShortcut,3000);
   }
-  const isReadingDownStroke=(dx,dy)=>dy<0&&-dy>=Math.abs(dx)*(dx>0?.35:.8);
   function clearHold(){clearTimeout(holdTimer);holdTimer=null;}
   function startFold(direction,count=1,source='control',contact=null){
     if(fold||jumpState)return false;
@@ -549,11 +597,25 @@
     if(!fold)return;const f=fold;cancelAnimationFrame(foldFrame);foldFrame=0;
     cancelAnimationFrame(foldDragFrame);foldDragFrame=0;
     renderer.hide();book.classList.remove('curl-active');papers[f.side].classList.remove('under-curl');papers[f.side].style.removeProperty('--under-sheet-clip');fold=null;
-    if(commit){adaptRightEdge=null;preciseRef=null;spread=f.target;readingSide=focus==='left'||(focus==='custom'&&(view.w/2-x)/scale<480)?0:1;render({preserveSelection:selection?.isActive()});fitScale=measureFit();if(focus==='fit')scale=fitScale;constrain();transform();save();advanceHistory();}
+    let landed=null;
+    if(commit){
+      adaptRightEdge=null;preciseRef=null;columnReading=null;spread=f.target;
+      readingSide=focus==='left'||(focus==='custom'&&(view.w/2-x)/scale<480)?0:1;
+      if(f.source==='column-nav'){
+        const lanes=readingColumns();landed=f.direction>0?lanes[0]:lanes.at(-1);
+        if(landed)readingSide=landed.side;
+      }
+      render({preserveSelection:selection?.isActive()});fitScale=measureFit();if(focus==='fit')scale=fitScale;
+      if(landed){
+        const target=columnPose(landed,f.direction);focus='custom';x=target.x;y=target.y;
+        if(target.wide)adaptRightEdge={spread,w:view.w,scale,x};
+      }
+      constrain();if(landed)preferReadingColumn(landed.id);transform();save();advanceHistory();
+    }
     else{if(f.animate){papers[f.side].innerHTML=f.original;applyMaterial();updateIndex();}selection?.refresh?.();}
     stage.dataset.foldState=commit?'committed':'returned';delete stage.dataset.foldProgress;
     if(queuedTurns.length)turn(...queuedTurns.shift());
-    else if(commit&&f.offerStart)offerStartShortcut(f.direction);
+    else if(commit&&f.offerStart&&!landed)offerStartShortcut(f.direction);
   }
   function settleFold(commit=true){
     if(!fold||fold.settling)return;const f=fold;f.settling=true;f.commit=commit;
@@ -826,7 +888,7 @@
   function revealAtVerticalEnd(dy){
     if(!v25||fold||jumpState||chapters?.isOpen()||!dy)return false;
     const [minY,maxY]=verticalLimits();
-    if(dy<0?y>minY+.5:y<maxY-.5)return false;
+    if(maxY-minY<.5||(dy<0?y>minY+.5:y<maxY-.5))return false;
     window.PaperImmersion?.showAtReadingBoundary();return true;
   }
   function pointerDown(e){
@@ -844,9 +906,11 @@
     // Resolve touch adjustment at the border both ways: the browser can
     // snap a contact on paper or on the blank band to a nearby index button.
     if(target?.closest?.(indexSurface)&&exact?.closest('#left-paper,#right-paper'))target=exact;
+    if(exact&&target?.closest?.('#fit-reading-column'))target=exact;
     const indexTarget=exact?.closest(indexSurface)||target?.closest?.(indexSurface);
+    const adaptHit=e.pointerType==='touch'&&!adaptButton?.hidden&&(exact||target)?.closest?.('#fit-reading-column');
     if(jumpState||chapters?.isOpen()||e.button>0||indexTarget?.disabled||
-       (!indexTarget&&target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
+       (!indexTarget&&!adaptHit&&target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
     if(!pointers.size)suppressIndexClick=null;
     // A new touch should not be lost in the short release animation.
     if(smoothTurn&&e.pointerType==='touch'&&fold?.settling&&pointers.size===0){
@@ -854,25 +918,26 @@
     }
     // A still tap on the margin only toggles the shelf. Keep the return
     // shortcut alive; its CSS moves it above the revealed controls.
-    hideColumnShortcut();hideAdapt();cancelStartPan();clearHold();
+    hideColumnShortcut();if(!adaptHit||pointers.size)hideAdapt();cancelStartPan();clearHold();
     // Tabs and the blank band are index surfaces, not draggable pages.
     // Their contacts still count when either finger of a pinch starts there.
     const cuts=gesture?.cuts||new Set();if(indexTarget)cuts.add(indexTarget);
     pointers.set(e.pointerId,relative(e));try{(indexTarget||stage).setPointerCapture(e.pointerId);}catch{}
     if(pointers.size>1){
+      const c=centroid(),initialScale=gesture?.initialScale??scale;
       hideStartShortcut();
       if(fold){queuedTurns=[];finishFold(false);}
       stage.classList.remove('curl-dragging');
       // Tabs move under the fingers as the book zooms. Keep the pinch on the
       // stage instead of whichever native button was initially pressed.
       for(const id of pointers.keys())try{stage.setPointerCapture(id);}catch{}
-      const c=centroid();gesture={pinched:true,cuts,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance(),
-        initialX:x,initialY:y,initialScale:scale};return;
+      const point=relative(e),fromPaper=gesture?.fromPaper||!indexTarget&&onPaper((point.x-x)/scale,(point.y-y)/scale);
+      gesture={pinched:true,cuts,start:c,baseX:x,baseY:y,baseScale:scale,baseDistance:distance(),initialScale,fromPaper};return;
     }
     const start=relative(e),chapterBadge=target?.closest?.('[data-chapter-total]');
-    const token=fold||indexTarget||chapterBadge?null:selection?.hit(e.clientX,e.clientY,target);
+    const token=fold||indexTarget||chapterBadge||adaptHit?null:selection?.hit(e.clientX,e.clientY,target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
-    const g=gesture={start,end:start,indexTarget,cuts,token,chapterBadge,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
+    const g=gesture={start,end:start,indexTarget,cuts,token,chapterBadge,adaptHit,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
       edge:inwardDirection(bx,by),rim:horizontalPaperEdge(bx,by),leaf:bx<480?-1:1,
       fromPaper:onPaper(bx,by),
       touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&focus==='fit'&&onPaper(bx,by),
@@ -942,8 +1007,8 @@
     if(g.kind==='held'||g.wasTurning)return;
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
     if(g.indexTarget){if(Math.hypot(dx,dy)>MOVE_SLOP)g.kind='index-drag';return;}
-    if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
-      hideStartShortcut();clearHold();
+    if(g.kind==='pending'&&(Math.hypot(dx,dy)>MOVE_SLOP||columnSwipe(g,dx,dy,e.pointerType))){
+      hideStartShortcut();hideAdapt();clearHold();
       const fitSwipe=g.touchFit&&!g.rim&&Math.abs(dx)>=Math.abs(dy)*1.35;
       if(fitSwipe)g.edge=Math.sign(-dx);
       const rimSwipe=g.rim&&!g.token&&
@@ -981,8 +1046,14 @@
       stage.dataset.lastGesture=g.cancelled?'cancelled':g.pinched?'pinch':'turning';
       if(g.pinched){
         save();
-        if(!g.cancelled&&e.pointerType==='touch'&&(Math.abs(x-g.initialX)>.5||Math.abs(y-g.initialY)>.5||Math.abs(scale-g.initialScale)>.00001))offerAdapt();
+        if(!g.cancelled&&e.pointerType==='touch'&&g.fromPaper&&!g.cuts.size&&Math.abs(scale/g.initialScale-1)>=.01)offerAdapt();
       }
+      return;
+    }
+    if(g.kind==='pending'&&g.adaptHit){
+      const button=adaptButton?.getBoundingClientRect();
+      if(button&&!adaptButton.hidden&&end.t-g.start.t<TEXT_HOLD_MS&&e.clientX>=button.left&&e.clientX<=button.right&&
+         e.clientY>=button.top&&e.clientY<=button.bottom)adaptColumn();
       return;
     }
     if(g.kind==='pending'&&g.chapterBadge){
@@ -1013,14 +1084,13 @@
     if(g.kind==='pan'){
       stage.dataset.lastGesture='pan';
       const dx=end.x-g.start.x,dy=end.y-g.start.y;
+      const continuation=columnSwipe(g,dx,dy,e.pointerType);
       const done=()=>{
         if(g.panned)save();
-        if((g.fromPaper||g.panned)&&Math.abs(dy)>=SWIPE_MIN&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
-        if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)){
-          const column=mobileReadingColumn(e.pointerType);
-          if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
+        if((g.fromPaper||g.panned)&&Math.abs(dy)>=MOVE_SLOP&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
+        if(continuation){
+          offerColumnShortcut(continuation);stage.dataset.lastGesture='column-end';
         }
-        if(g.panned&&e.pointerType==='touch')offerAdapt();
       };
       if(!coast(g,end,done))done();
     }
@@ -1069,7 +1139,7 @@
     if(e.ctrlKey||e.metaKey){
       e.preventDefault();wheelBurst=null;if(fold||pointers.size||!dy)return;
       const next=clamp(scale*Math.exp(-dy*.003),fitScale,MAX_SCALE);
-      zoom(next,at);
+      zoom(next,at,!overIndex);
       return;
     }
     e.preventDefault();if(overIndex||pointers.size){wheelBurst=null;return;}

@@ -58,10 +58,12 @@ const url=new URL(process.argv[2]||'https://berealbible.github.io/');
             await send('touchStart',[p]);await send('touchStart',[p,q]);
             for(const dy of [12,28,46])await send('touchMove',[{...p,y:p.y+dir*dy},{...q,y:q.y-dir*dy}]);
             const grown=await scale();
-            for(const dy of [28,12,0])await send('touchMove',[{...p,y:p.y+dir*dy},{...q,y:q.y-dir*dy}]);
-            const shrunk=await scale();await send('touchEnd',[p]);await send('touchEnd',[]);
+            for(const dy of [28,12])await send('touchMove',[{...p,y:p.y+dir*dy},{...q,y:q.y-dir*dy}]);
+            const shrunk=await scale();await send('touchEnd',[{...p,y:p.y+dir*12}]);await send('touchEnd',[]);
             assert.ok(grown>initial*1.12,`pinch must zoom the book (${initial} → ${grown})`);
             assert.ok(shrunk<grown/1.12,'pinching in reduces the same book scale');
+            assert.ok(shrunk>initial*1.07,'the final index scale must differ from the starting scale');
+            assert.ok(!await page.locator('#fit-reading-column').isVisible(),'an index contact never offers text fitting');
             assert.equal(await menu.count(),0,'releasing on a tab must not activate its chapter menu');
             assert.deepEqual(await identity(),initialIdentity);
             assert.equal(await viewportScale(),initialBrowserScale,'do not zoom the native browser viewport');
@@ -81,6 +83,7 @@ const url=new URL(process.argv[2]||'https://berealbible.github.io/');
           await send('touchEnd',[]);
           assert.ok(await scale()>initial*1.12,'the open chapter sheet also zooms the same book');
           assert.equal(await menu.count(),1,'pinching the open menu does not choose a chapter or dismiss it');
+          assert.ok(!await page.locator('#fit-reading-column').isVisible(),'an open chapter sheet never offers text fitting');
         }else{
           const {a,paper}=await hits();
           async function wheel(p){

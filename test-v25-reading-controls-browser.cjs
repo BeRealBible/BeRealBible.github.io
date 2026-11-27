@@ -120,6 +120,8 @@ async function run(browser,width,height,touch,wide){
     });
     const verifyFit=async()=>{
       await fitButton.waitFor({timeout:1800});
+      const box=await fitButton.boundingBox();
+      near(box.x+box.width/2,width/2);near(box.y+box.height/2,height/2);
       const before=await pos(),[target]=await candidates(),priorHistory=await history();
       assert.ok(target,'selected a visible ink lane');
       await fitButton.tap();
@@ -151,19 +153,34 @@ async function run(browser,width,height,touch,wide){
     const initial=await pos();
     await drag(0,initial.y>initial.h-18-724*initial.scale+95?-78:78);
     assert.notEqual((await pos()).y,initial.y);
-    await fitButton.waitFor({timeout:1500});
-    await fitButton.waitFor({state:'hidden',timeout:4100});
+    assert.ok(!await fitButton.isVisible(),'single-finger pan does not offer fit');
+    const oldScale=(await pos()).scale;
+    await send('touchStart',pinch(60));
+    await send('touchMove',pinch(60).map(pt=>({...pt,y:pt.y+36})));await send('touchEnd');
+    near((await pos()).scale,oldScale,.01);
+    assert.ok(!await fitButton.isVisible(),'same-scale two-finger pan does not offer fit');
     if(wide){
       // The outermost right lane has no further leaf behind it. The camera
       // still must align left of centre without snapping back on vertical pan.
       for(let n=0;n<9&&(await candidates())[0]?.id!==3;n++)await drag(-290,0);
       assert.equal((await candidates())[0]?.id,3,'reached the outer right column');
+      assert.ok(!await fitButton.isVisible());
+      await send('touchStart',pinch(62));await send('touchMove',pinch(68));await send('touchEnd');
       assert.equal(await verifyFit(),3);
       const aligned=await pos();
       await drag(0,aligned.y>aligned.h-18-724*aligned.scale+95?-72:72);
       assert.notEqual((await pos()).y,aligned.y);
       near((await pos()).x,aligned.x);
     }
+    await page.evaluate(()=>document.getElementById('zoom-in').click());
+    await fitButton.waitFor({timeout:1500});
+    const beforeSwipe=await pos(),box=await fitButton.boundingBox(),a={x:box.x+box.width/2,y:box.y+box.height/2};
+    const dy=beforeSwipe.y>beforeSwipe.h-18-724*beforeSwipe.scale+95?-72:72;
+    await send('touchStart',[a]);await send('touchMove',[{...a,y:a.y+dy}]);await send('touchEnd');
+    assert.notEqual((await pos()).y,beforeSwipe.y,'a swipe starting on the centred button still moves the paper');
+    assert.ok(!await fitButton.isVisible());
+    await page.evaluate(()=>document.getElementById('zoom-out').click());
+    await fitButton.waitFor({timeout:1500});await fitButton.waitFor({state:'hidden',timeout:3000});
     assert.deepEqual(errors,[]);
   }finally{await ctx.close();}
 }

@@ -130,7 +130,5 @@
   #vf-tab svg{width:14px;height:14px}
   #reading-history :is(.pcz-button,.rh-toggle) svg{width:14px;height:14px}
 }
-/* The column tab follows the shelf; the turn return is placed on a visible leaf. */
-.paper-immersive[data-reader-chrome="visible"][data-reader-scene="reading"] .stage>#next-column-shortcut:not([hidden]){bottom:calc(var(--rh-foot,46px) + 6px)}
 .paper svg .vf-word-layer{fill:#ebc57e;fill-opacity:.78}
 .paper svg text.vf-word{fill:#633813!important}
