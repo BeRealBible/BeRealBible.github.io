@@ -1,0 +1,32 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const painted=[],rects=[];
+const ctx={measureText:()=>({width:100,actualBoundingBoxAscent:82,actualBoundingBoxDescent:18}),fillRect:(...r)=>rects.push(r),save(){},restore(){},setTransform(){},transform(){},createLinearGradient(){return {addColorStop(){}}},fillText:t=>painted.push(t)};
+const w={window:{PaperPage:{}},atob,document:{createElement:()=>({getContext:()=>ctx})}};
+for(const f of ['v25-original-data.js','v25-heading-frames.js','v25-live-rows.js','v25-paper-errata.js','v25-original-render.js'])vm.runInNewContext(fs.readFileSync(f,'utf8'),w);
+const d=w.window.V25OriginalData,p=w.window.PaperPage;
+for(const n of [11,21,39,40,41,349]){const k=Math.floor(n/32);d.installPack(k,JSON.parse(fs.readFileSync('paper-pages/'+d.packs[k],'utf8')));}
+const f=d.pages[41],raw=d.get(41),seal=JSON.stringify(raw),commands=p.commands(f,41,d.books),html=p.svg(f,41,d.books);
+const node=j=>html.match(new RegExp('<text [^>]*data-physical-idx="'+j+'"[^>]*>([^<]*)<\\/text>'))?.[1];
+assert.equal(node(438),'”');assert.equal(node(441),'思');assert.equal(node(442),'18');assert.equal(node(443),'雅');
+assert.match(html,/>思<\/text><text data-errata-inserted="true"[^>]*>）<\/text><text data-errata-inserted="true"[^>]*>。<\/text><text [^>]*data-physical-idx="442"[^>]*>18<\/text>/);
+assert.equal(commands.length,raw[3].length);assert.equal(commands[442].index,442);assert.equal(commands[443].ref,'33:18');
+assert.equal(commands[443].box[0],raw[3][443][0]);assert.equal(commands[443].box[1],raw[3][443][1]);
+p.paint({getContext:()=>ctx},f,41,d.books,1);
+assert.ok(painted.join('').includes('（就是“棚”的意思）。18雅各'));
+assert.equal(JSON.stringify(raw),seal);assert.equal(raw[3][438][4],'"');
+function visible(n){painted.length=0;p.paint({getContext:()=>ctx},d.pages[n],n,d.books,1);return painted.join('');}
+assert.match(visible(39),/你们对我主以扫说：‘你的仆人雅各/);
+assert.match(visible(39),/蒙恩。’”6所打发的人/);
+assert.match(visible(40),/你曾说：‘我必定厚待你/);
+assert.match(visible(40),/海边的沙，多得不可胜数。’”13当夜/);
+assert.match(visible(40),/在我们后边。’”19又吩咐/);
+assert.match(visible(40),/并且你们要说：‘你仆人雅各/);
+assert.match(visible(40),/请将你的名告诉我。”那人说：“何必问我的名/);
+assert.match(visible(40),/神之面[”"]的意思），意思说/);
+assert.match(visible(41),/到西珥我主那里。”15以扫说/);
+assert.match(visible(41),/伊利伊罗伊以色列（就是/);
+assert.match(visible(21),/受割礼（“受割礼”原文作“割阳皮”。14、23、24、25节同），这是/);
+const prior=p.svg(d.pages[349],349,d.books);
+assert.match(prior,/>。<\/text><text data-errata-inserted="true"[^>]*>’<\/text><text[^>]*>”<\/text>/);
+console.log('GEN 33:17 punctuation repaired in both display modes; next verse and raw layout unchanged; prior nested quote retained');

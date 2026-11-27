@@ -43,9 +43,11 @@
     if(slot){
       for(const [j,expected,box,next] of slot.words)if(sameTuple(p[3][j],expected))fix.set(j,[box,next]);
       for(const [l,a,r,b,box] of slot.add){
-        if(r===l+1&&sameTuple(p[3][l],a)&&sameTuple(p[3][r],b)&&!fix.has(l)&&!fix.has(r))add.set(r,box);
         // A guarded normalisation of the right double quote preserves its old box.
-        else if(r===l+1&&sameTuple(p[3][l],a)&&sameTuple(p[3][r],b)&&!fix.has(l)&&fix.get(r)?.[0]===null&&fix.get(r)?.[1]==='”')add.set(r,box);
+        if(r!==l+1||!sameTuple(p[3][l],a)||!sameTuple(p[3][r],b)||fix.has(l))continue;
+        const next=fix.get(r);
+        if(next&&(next[0]!==null||next[1]!=='”'))continue;
+        const list=add.get(r)||[];list.push(box);add.set(r,list);
       }
     }
     return {fix,add,skip:slot?.ink||none};
@@ -135,11 +137,11 @@
       }
       Object.assign(c,corrected);
     }
-    const extraText=new Map([...patch.add].map(([j,box])=>[j,{...word(box,f,false),errataInserted:true}]));
+    const extraText=new Map([...patch.add].map(([j,boxes])=>[j,boxes.map(box=>({...word(box,f,false),errataInserted:true}))]));
     const v={version,p,tags,words,f,extraText,extraInk:retainedInk(p,patch.skip)};models.set(i,v);if(models.size>8)models.delete(models.keys().next().value);return v;
   }
   function* displayWords(v){
-    for(const c of v.words){const extra=v.extraText.get(c.index);if(extra)yield extra;yield c;}
+    for(const c of v.words){yield* v.extraText.get(c.index)||none;yield c;}
   }
   function text(c){
     const [x,y,w,h]=c.box;
