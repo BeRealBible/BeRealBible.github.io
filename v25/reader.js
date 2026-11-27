@@ -30,7 +30,8 @@
   let finder=null,searchAnchor=null,compare=null;
   let saved=null,storage,queuedTurns=[],readingSide=1,selection=null,history=null,preciseRef=null,controllerReady=false;
   const pointers=new Map();
-  let suppressBandClick=null, coverZoom=null, opening=null;
+  const indexSurface='.edge-index__band,.edge-index__group';
+  let suppressIndexClick=null, coverZoom=null, opening=null;
   let startShortcut=null,startShortcutTimer=0,startShortcutSpread=null,startPanFrame=0,startPanKind=null;
   let panPaintFrame=0,coastFrame=0;
   let columnShortcut=null,columnShortcutTimer=0,columnOffer=null,columnGeometry=null,columnReading=null;
@@ -763,17 +764,15 @@
   const centroid=()=>{const a=[...pointers.values()];return {x:a.reduce((s,p)=>s+p.x,0)/a.length,y:a.reduce((s,p)=>s+p.y,0)/a.length,t:Math.max(...a.map(p=>p.t))};};
   const distance=()=>{const a=[...pointers.values()];return a.length<2?0:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);};
   const onPaper=(bx,by)=>bx>=0&&bx<=960&&by>=0&&by<=704;
-  function inwardDirection(bx,by,band){
-    if(band?.dataset.side==='right')return 1;
-    if(band?.dataset.side==='left')return -1;
+  function inwardDirection(bx,by){
     if(!onPaper(bx,by))return 0;
     // These distances are in paper coordinates: keep the same visible strip
     // grabbable when the paper grows. Ink, taps and outward drags stay separate.
     const margin=28;
     return bx<=margin?-1:bx>=960-margin?1:0;
   }
-  function horizontalPaperEdge(bx,by,band){
-    if(!v25||band||!onPaper(bx,by))return 0;
+  function horizontalPaperEdge(bx,by){
+    if(!v25||!onPaper(bx,by))return 0;
     const margin=24;
     return by<=margin?1:by>=704-margin?-1:0;
   }
@@ -833,23 +832,22 @@
   function pointerDown(e){
     if(!pointers.size&&e.button<=0)stopCoast();
     let target=e.target;
+    const exact=e.pointerType==='touch'?document.elementFromPoint(e.clientX,e.clientY):null;
     // The reader already handles badge taps on pointerup. Do not let the
     // browser also focus the SVG group and paint its native focus highlight.
     if(e.button===0&&target?.closest?.('[data-chapter-total]'))e.preventDefault();
-    if(e.pointerType==='touch'&&target?.closest?.('.paper-selection-tools[data-compact],[data-chapter-total]')){
+    if(exact&&target?.closest?.('.paper-selection-tools[data-compact],[data-chapter-total]')){
       // A nearby button may win the browser's touch adjustment even when
       // the actual contact is on adjacent ink. Keep that tap in the book.
-      const exact=document.elementFromPoint(e.clientX,e.clientY);
-      if(exact&&stage.contains(exact)&&(exact.closest('text[data-role],[data-chapter-total]')||target.closest('[data-chapter-total]')))target=exact;
+      if(stage.contains(exact)&&(exact.closest('text[data-role],[data-chapter-total]')||target.closest('[data-chapter-total]')))target=exact;
     }
-    const touchLabel=e.pointerType==='touch'?target?.closest?.('.edge-index__group'):null;
-    const contact=touchLabel?relative(e):null,atEdge=contact&&inwardDirection((contact.x-x)/scale,(contact.y-y)/scale,null);
-    const candidate=target?.closest?.('.edge-index__band')||
-      (touchLabel&&atEdge===(touchLabel.dataset.side==='right'?1:-1)?touchLabel:null),
-      band=candidate&&!candidate.disabled?candidate:null,
-      pressTarget=band||(touchLabel&&!touchLabel.disabled?touchLabel:null);
-    if(jumpState||chapters?.isOpen()||e.button>0||(!pressTarget&&target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
-    if(!pointers.size)suppressBandClick=null;
+    // Resolve touch adjustment at the border both ways: the browser can
+    // snap a contact on paper or on the blank band to a nearby index button.
+    if(target?.closest?.(indexSurface)&&exact?.closest('#left-paper,#right-paper'))target=exact;
+    const indexTarget=exact?.closest(indexSurface)||target?.closest?.(indexSurface);
+    if(jumpState||chapters?.isOpen()||e.button>0||indexTarget?.disabled||
+       (!indexTarget&&target?.closest?.('button,a,input,dialog,.edge-index,.paper-selection-tools')))return;
+    if(!pointers.size)suppressIndexClick=null;
     // A new touch should not be lost in the short release animation.
     if(smoothTurn&&e.pointerType==='touch'&&fold?.settling&&pointers.size===0){
       queuedTurns=[];finishFold(fold.commit);
@@ -857,10 +855,10 @@
     // A still tap on the margin only toggles the shelf. Keep the return
     // shortcut alive; its CSS moves it above the revealed controls.
     hideColumnShortcut();hideAdapt();cancelStartPan();clearHold();
-    // A cut beyond the paper edge is click-only for one finger, but its
-    // contact must still count when either finger of a pinch starts there.
-    const cuts=gesture?.cuts||new Set();if(pressTarget)cuts.add(pressTarget);
-    pointers.set(e.pointerId,relative(e));try{(pressTarget||stage).setPointerCapture(e.pointerId);}catch{}
+    // Tabs and the blank band are index surfaces, not draggable pages.
+    // Their contacts still count when either finger of a pinch starts there.
+    const cuts=gesture?.cuts||new Set();if(indexTarget)cuts.add(indexTarget);
+    pointers.set(e.pointerId,relative(e));try{(indexTarget||stage).setPointerCapture(e.pointerId);}catch{}
     if(pointers.size>1){
       hideStartShortcut();
       if(fold){queuedTurns=[];finishFold(false);}
@@ -872,14 +870,14 @@
         initialX:x,initialY:y,initialScale:scale};return;
     }
     const start=relative(e),chapterBadge=target?.closest?.('[data-chapter-total]');
-    const token=fold||pressTarget||chapterBadge?null:selection?.hit(e.clientX,e.clientY,target);
+    const token=fold||indexTarget||chapterBadge?null:selection?.hit(e.clientX,e.clientY,target);
     const bx=(start.x-x)/scale,by=(start.y-y)/scale;
-    const g=gesture={start,end:start,band:pressTarget,cuts,tapOnly:!!pressTarget&&!band,token,chapterBadge,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
-      edge:inwardDirection(bx,by,band),rim:horizontalPaperEdge(bx,by,band),leaf:bx<480?-1:1,
+    const g=gesture={start,end:start,indexTarget,cuts,token,chapterBadge,wasTurning:!!fold,baseX:x,baseY:y,baseScale:scale,kind:'pending',pinched:false,
+      edge:inwardDirection(bx,by),rim:horizontalPaperEdge(bx,by),leaf:bx<480?-1:1,
       fromPaper:onPaper(bx,by),
-      touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&!band&&focus==='fit'&&onPaper(bx,by),
+      touchFit:smoothTurn&&flatTouch&&e.pointerType==='touch'&&focus==='fit'&&onPaper(bx,by),
       contact:{radius:clamp(Math.abs(bx-480),12,480),grabY:clamp(by,0,704)},
-      direction:0,trend:1,extreme:0,samples:flatTouch&&e.pointerType==='touch'&&!pressTarget&&onPaper(bx,by)?[start]:null};
+      direction:0,trend:1,extreme:0,samples:flatTouch&&e.pointerType==='touch'&&!indexTarget&&onPaper(bx,by)?[start]:null};
     if(token&&!selection.isActive())holdTimer=setTimeout(()=>{
       holdTimer=null;if(gesture!==g||pointers.size!==1||g.kind!=='pending'||g.pinched)return;
       g.kind='held';selection.hold(token);stage.dataset.lastGesture='text-hold';
@@ -943,7 +941,7 @@
     }
     if(g.kind==='held'||g.wasTurning)return;
     const dx=c.x-g.start.x,dy=c.y-g.start.y;
-    if(g.tapOnly){if(Math.hypot(dx,dy)>MOVE_SLOP)g.kind='index-drag';return;}
+    if(g.indexTarget){if(Math.hypot(dx,dy)>MOVE_SLOP)g.kind='index-drag';return;}
     if(g.kind==='pending'&&Math.hypot(dx,dy)>MOVE_SLOP){
       hideStartShortcut();clearHold();
       const fitSwipe=g.touchFit&&!g.rim&&Math.abs(dx)>=Math.abs(dy)*1.35;
@@ -955,7 +953,6 @@
       }
       const edgeSwipe=g.edge&&!g.token&&-dx*g.edge>=Math.abs(dy)*1.35;
       g.kind=fitSwipe||rimSwipe||edgeSwipe?'swipe':'pan';
-      if(g.band)try{stage.setPointerCapture(e.pointerId);}catch{}
       if(g.kind==='pan')stage.classList.add('dragging');
     }
     if(g.kind==='swipe')trackCurl(g,c,e);
@@ -972,7 +969,7 @@
     clearHold();const g=gesture;
     const end=relative(e);pointers.delete(e.pointerId);
     if(cancelled&&g)g.cancelled=true;
-    if(g?.cuts.size&&(g.kind!=='pending'||g.cancelled||g.pinched))suppressBandClick={cuts:g.cuts,until:performance.now()+700};
+    if(g?.cuts.size&&(g.kind!=='pending'||g.cancelled||g.pinched))suppressIndexClick={cuts:g.cuts,until:performance.now()+700};
     if(pointers.size){
       if(g?.pinched){g.start=centroid();g.baseX=x;g.baseY=y;g.baseScale=scale;g.baseDistance=distance();g.tail=pointers.size===1;}
       return;
@@ -1007,7 +1004,7 @@
       }
       stage.dataset.lastGesture='text-tap';return;
     }
-    if(v25&&g.kind==='pending'&&!g.band){
+    if(v25&&g.kind==='pending'&&!g.indexTarget){
       window.dispatchEvent(new Event('paper-reader-tap'));return;
     }
     if(g.kind==='swipe'&&fold){
@@ -1018,7 +1015,7 @@
       const dx=end.x-g.start.x,dy=end.y-g.start.y;
       const done=()=>{
         if(g.panned)save();
-        if(!g.band&&(g.fromPaper||g.panned)&&Math.abs(dy)>=SWIPE_MIN&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
+        if((g.fromPaper||g.panned)&&Math.abs(dy)>=SWIPE_MIN&&Math.abs(dy)>=1.35*Math.abs(dx))revealAtVerticalEnd(dy);
         if(-dy>=SWIPE_MIN&&isReadingDownStroke(dx,dy)){
           const column=mobileReadingColumn(e.pointerType);
           if(column?.atBottom&&column.next){offerNextColumn(column.next);stage.dataset.lastGesture='column-end';}
@@ -1028,20 +1025,20 @@
       if(!coast(g,end,done))done();
     }
   }
-  // Capture before a compact tab handles its native click; drags starting on
-  // the blank fore-edge remain normal page gestures.
+  // See the starting surface before native tab clicks, and ignore a click
+  // synthesized after a drag or pinch on an index surface.
   stage.addEventListener('pointerdown',pointerDown,true);stage.addEventListener('pointermove',pointerMove);
   stage.addEventListener('pointerup',e=>pointerUp(e),true);stage.addEventListener('pointercancel',e=>pointerUp(e,true),true);
   stage.addEventListener('click',e=>{
     if(!fold&&!jumpState&&!chapters?.isOpen()&&e.detail===0){
       const badge=e.target?.closest?.('[data-chapter-total]');if(badge){study?.openChapterBadge(badge);return;}
     }
-    if(suppressBandClick&&e.detail!==0&&performance.now()<=suppressBandClick.until&&suppressBandClick.cuts.has(e.target?.closest?.('.edge-index__band,.edge-index__group'))){
+    if(suppressIndexClick&&e.detail!==0&&performance.now()<=suppressIndexClick.until&&suppressIndexClick.cuts.has(e.target?.closest?.(indexSurface))){
       e.preventDefault();e.stopPropagation();
     }
   },true);
   stage.addEventListener('lostpointercapture',e=>{
-    // A band handing off capture to this stage has not lost the gesture.
+    // A tab or band handing off capture to the stage has not lost the pinch.
     if(e.target!==stage&&stage.hasPointerCapture?.(e.pointerId))return;
     if(pointers.has(e.pointerId))pointerUp(e,true);
   });
@@ -1075,13 +1072,13 @@
       zoom(next,at);
       return;
     }
-    e.preventDefault();if(pointers.size){wheelBurst=null;return;}
+    e.preventDefault();if(overIndex||pointers.size){wheelBurst=null;return;}
     stopCoast();hideColumnShortcut();cancelStartPan();
     if(scale>fitScale+.00001){
       if(fold){wheelBurst=null;return;}
       if(panTo(x-dx,y-dy))save();wheelStroke(e,dx,dy);return;
     }
-    if(!overIndex&&!onPaper((at.x-x)/scale,(at.y-y)/scale))return;
+    if(!onPaper((at.x-x)/scale,(at.y-y)/scale))return;
     const b=wheelStroke(e,dx,dy);
     if(!b.used&&b.axis==='horizontal'&&Math.abs(b.dx)>=48){
       b.used=true;if(!fold)turn(b.dx>0?1:-1,1,'trackpad');
